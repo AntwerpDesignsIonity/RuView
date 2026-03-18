@@ -1,0 +1,38 @@
+IONITY ESP32-S3 PlatformIO Guide
+
+Files in this folder:
+- platformio.ini: Example ESP32-S3 PlatformIO environment configured to auto-detect the serial port.
+
+Why this works:
+- PlatformIO can detect the active serial device automatically when upload_port and monitor_port are not set.
+- This is useful when Windows assigns a different COM port each time, or when you have several COM ports available.
+
+Included configuration:
+- board = esp32-s3-devkitc-1
+- framework = espidf
+- monitor_speed = 460800
+- upload_speed = 460800
+
+Important:
+- Do not add upload_port = COMx unless auto-detection fails.
+- Do not add monitor_port = COMx unless you want to force one specific port.
+
+How to use:
+1. Connect the ESP32-S3 board by USB.
+2. Use this platformio.ini in your PlatformIO project.
+3. Build normally.
+4. Upload normally. PlatformIO should pick the connected board automatically.
+5. Open the serial monitor normally. PlatformIO should use the detected port.
+
+If auto-detection fails:
+1. Disconnect other USB serial devices.
+2. Reconnect the ESP32-S3.
+3. Try again.
+4. If needed, temporarily set upload_port and monitor_port to the detected COM port.
+
+Example fallback:
+upload_port = COM8
+monitor_port = COM8
+
+Recommended note:
+- Replace the board value if your exact ESP32-S3 variant needs a different PlatformIO board definition.

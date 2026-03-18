@@ -38,7 +38,7 @@ MSYS_NO_PATHCONV=1 docker run --rm \
 ### 2. Flash
 
 ```bash
-python -m esptool --chip esp32s3 --port COM7 --baud 460800 \
+python -m esptool --chip esp32s3 --port <PORT> --baud 460800 \
   write_flash --flash_mode dio --flash_size 8MB \
   0x0 firmware/esp32-csi-node/build/bootloader/bootloader.bin \
   0x8000 firmware/esp32-csi-node/build/partition_table/partition-table.bin \
@@ -48,9 +48,11 @@ python -m esptool --chip esp32s3 --port COM7 --baud 460800 \
 ### 3. Provision WiFi credentials (no reflash needed)
 
 ```bash
-python scripts/provision.py --port COM7 \
+python firmware/esp32-csi-node/provision.py \
   --ssid "YourSSID" --password "YourPass" --target-ip 192.168.1.20
 ```
+
+On Windows, `provision.py`, `build_firmware.ps1`, and `read_serial.ps1` auto-detect the ESP32 serial port when a single matching device is connected.
 
 ### 4. Start the sensing server
 
@@ -252,7 +254,7 @@ CONFIG_WASM_VERIFY_SIGNATURE=y
 Find your serial port: `COM7` on Windows, `/dev/ttyUSB0` on Linux, `/dev/cu.SLAB_USBtoUART` on macOS.
 
 ```bash
-python -m esptool --chip esp32s3 --port COM7 --baud 460800 \
+python -m esptool --chip esp32s3 --port <PORT> --baud 460800 \
   write_flash --flash_mode dio --flash_size 8MB \
   0x0 firmware/esp32-csi-node/build/bootloader/bootloader.bin \
   0x8000 firmware/esp32-csi-node/build/partition_table/partition-table.bin \
@@ -262,7 +264,7 @@ python -m esptool --chip esp32s3 --port COM7 --baud 460800 \
 ### Serial Monitor
 
 ```bash
-python -m serial.tools.miniterm COM7 115200
+python -m serial.tools.miniterm <PORT> 115200
 ```
 
 Expected output after boot:
@@ -285,11 +287,13 @@ All settings can be changed at runtime via Non-Volatile Storage (NVS) without re
 The easiest way to write NVS settings:
 
 ```bash
-python scripts/provision.py --port COM7 \
+python firmware/esp32-csi-node/provision.py \
   --ssid "MyWiFi" \
   --password "MyPassword" \
   --target-ip 192.168.1.20
 ```
+
+If `--port` is omitted, the provisioning script auto-detects the ESP32 serial port when a single matching USB-UART or ESP32 JTAG/serial device is present.
 
 ### NVS Key Reference
 

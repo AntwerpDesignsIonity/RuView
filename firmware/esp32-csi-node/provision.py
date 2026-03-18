@@ -6,7 +6,7 @@ Writes WiFi credentials and aggregator target to the ESP32's NVS partition
 so users can configure a pre-built firmware binary without recompiling.
 
 Usage:
-    python provision.py --port COM7 --ssid "MyWiFi" --password "secret" --target-ip 192.168.1.20
+    python provision.py --ssid "MyWiFi" --password "secret" --target-ip 192.168.1.20
 
 Requirements:
     pip install esptool nvs-partition-gen
@@ -17,6 +17,7 @@ import argparse
 import csv
 import io
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -149,12 +150,59 @@ def flash_nvs(port, baud, nvs_bin):
         os.unlink(bin_path)
 
 
+def detect_serial_port(preferred_port=None):
+    """Detect the most likely ESP32 serial port when one is not provided."""
+    if preferred_port:
+        return preferred_port
+
+    try:
+        from serial.tools import list_ports
+    except ImportError as exc:
+        raise RuntimeError(
+            "pyserial is required for auto-detect. Install esptool/pyserial or pass --port explicitly."
+        ) from exc
+
+    candidates = []
+    for port in list_ports.comports():
+        text = " ".join(filter(None, [port.device, port.description, port.manufacturer, port.hwid]))
+        score = 0
+
+        if re.search(r"VID:PID=(303A:|303A )|ESP32|Espressif|USB JTAG", text, re.IGNORECASE):
+            score += 100
+        if re.search(r"VID:PID=(10C4:|10C4 )|CP210|Silicon Labs", text, re.IGNORECASE):
+            score += 60
+        if re.search(r"VID:PID=(1A86:|1A86 )|CH340|wch", text, re.IGNORECASE):
+            score += 40
+        if re.search(r"USB Serial|UART", text, re.IGNORECASE):
+            score += 15
+
+        candidates.append({
+            "device": port.device,
+            "label": port.description or port.device,
+            "score": score,
+        })
+
+    if not candidates:
+        raise RuntimeError("No serial ports found. Connect the ESP32-S3 and try again.")
+
+    candidates.sort(key=lambda item: (item["score"], item["device"]), reverse=True)
+    if len(candidates) == 1 or candidates[0]["score"] > candidates[1]["score"]:
+        print(f"Auto-detected ESP32 serial port: {candidates[0]['device']} [{candidates[0]['label']}]")
+        return candidates[0]["device"]
+
+    options = "\n".join(f"  {item['device']} - {item['label']}" for item in candidates)
+    raise RuntimeError(
+        "Unable to choose a single ESP32 serial port automatically. "
+        "Pass --port explicitly. Candidates:\n" + options
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Provision ESP32-S3 CSI Node with WiFi and aggregator settings",
-        epilog="Example: python provision.py --port COM7 --ssid MyWiFi --password secret --target-ip 192.168.1.20",
+        epilog="Example: python provision.py --ssid MyWiFi --password secret --target-ip 192.168.1.20",
     )
-    parser.add_argument("--port", required=True, help="Serial port (e.g. COM7, /dev/ttyUSB0)")
+    parser.add_argument("--port", help="Serial port (auto-detected when omitted, e.g. COM7, /dev/ttyUSB0)")
     parser.add_argument("--baud", type=int, default=460800, help="Flash baud rate (default: 460800)")
     parser.add_argument("--ssid", help="WiFi SSID")
     parser.add_argument("--password", help="WiFi password")
@@ -261,16 +309,18 @@ def main():
               f"{fallback_path} nvs.bin 0x6000", file=sys.stderr)
         sys.exit(1)
 
+    resolved_port = detect_serial_port(args.port)
+
     if args.dry_run:
         out = "nvs_provision.bin"
         with open(out, "wb") as f:
             f.write(nvs_bin)
         print(f"NVS binary saved to {out} ({len(nvs_bin)} bytes)")
-        print(f"Flash manually: python -m esptool --chip esp32s3 --port {args.port} "
+        print(f"Flash manually: python -m esptool --chip esp32s3 --port {resolved_port} "
               f"write_flash 0x9000 {out}")
         return
 
-    flash_nvs(args.port, args.baud, nvs_bin)
+    flash_nvs(resolved_port, args.baud, nvs_bin)
 
 
 if __name__ == "__main__":
