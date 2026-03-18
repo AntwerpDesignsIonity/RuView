@@ -1,0 +1,81 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "IONITY: PlatformIO Build",
+      "type": "shell",
+      "command": "platformio",
+      "args": [
+        "run",
+        "-e",
+        "esp32s3_n16r8"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/ionity"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "IONITY: PlatformIO Upload",
+      "type": "shell",
+      "command": "platformio",
+      "args": [
+        "run",
+        "-e",
+        "esp32s3_n16r8",
+        "-t",
+        "upload"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/ionity"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "IONITY: PlatformIO Monitor",
+      "type": "shell",
+      "command": "platformio",
+      "args": [
+        "device",
+        "monitor",
+        "--baud",
+        "460800"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/ionity"
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "IONITY: Provision ESP32 WiFi",
+      "type": "shell",
+      "command": "python",
+      "args": [
+        "${workspaceFolder}/firmware/esp32-csi-node/provision.py",
+        "--ssid",
+        "${input:ionityWifiSsid}",
+        "--password",
+        "${input:ionityWifiPassword}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "ionityWifiSsid",
+      "type": "promptString",
+      "description": "WiFi SSID for the ESP32",
+      "default": "Antwerp Home 2.5G"
+    },
+    {
+      "id": "ionityWifiPassword",
+      "type": "promptString",
+      "description": "WiFi password for the ESP32",
+      "password": true
+    }
+  ]
+}

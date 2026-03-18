@@ -3,26 +3,44 @@ IONITY ESP32-S3 PlatformIO Guide
 Files in this folder:
 - platformio.ini: Example ESP32-S3 PlatformIO environment configured to auto-detect the serial port.
 
+VS Code files used with this folder:
+- .vscode/tasks.json: Build, upload, monitor, and WiFi provisioning tasks.
+- .vscode/extensions.json: Recommended VS Code extensions.
+
 Why this works:
 - PlatformIO can detect the active serial device automatically when upload_port and monitor_port are not set.
 - This is useful when Windows assigns a different COM port each time, or when you have several COM ports available.
 
 Included configuration:
+- env = esp32s3_n16r8
 - board = esp32-s3-devkitc-1
 - framework = espidf
 - monitor_speed = 460800
 - upload_speed = 460800
+- flash size override = 16MB
+- PSRAM flag = enabled for N16R8-style modules
+
+Board note:
+- I configured this as an ESP32-S3 16 MB flash / 8 MB PSRAM profile.
+- PlatformIO's built-in board ID is still esp32-s3-devkitc-1, so the memory sizing is applied as overrides.
 
 Important:
 - Do not add upload_port = COMx unless auto-detection fails.
 - Do not add monitor_port = COMx unless you want to force one specific port.
+- The WiFi password is not stored in the repository.
 
 How to use:
 1. Connect the ESP32-S3 board by USB.
-2. Use this platformio.ini in your PlatformIO project.
-3. Build normally.
-4. Upload normally. PlatformIO should pick the connected board automatically.
-5. Open the serial monitor normally. PlatformIO should use the detected port.
+2. Install the recommended VS Code extensions when prompted.
+3. Open the VS Code command palette and run Tasks: Run Task.
+4. Use IONITY: PlatformIO Build to compile.
+5. Use IONITY: PlatformIO Upload to flash.
+6. Use IONITY: PlatformIO Monitor to open the serial monitor.
+7. Use IONITY: Provision ESP32 WiFi to write the WiFi settings to the board.
+
+WiFi provisioning:
+- The VS Code task fills in the SSID Antwerp Home 2.5G.
+- VS Code prompts for the WiFi password at runtime so it is not committed to git.
 
 If auto-detection fails:
 1. Disconnect other USB serial devices.
@@ -35,4 +53,8 @@ upload_port = COM8
 monitor_port = COM8
 
 Recommended note:
-- Replace the board value if your exact ESP32-S3 variant needs a different PlatformIO board definition.
+- Replace the board settings if your exact ESP32-S3 variant needs different flash or PSRAM settings.
+
+Manual provisioning command:
+python firmware/esp32-csi-node/provision.py --ssid "Antwerp Home 2.5G" --password "<prompted in VS Code task>"
+
