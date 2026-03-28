@@ -213,6 +213,9 @@ struct SensingUpdate {
     /// Estimated person count from CSI feature heuristics (1-3 for single ESP32).
     #[serde(skip_serializing_if = "Option::is_none")]
     estimated_persons: Option<usize>,
+    /// Per-node feature breakdown for multi-node deployments.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    node_features: Option<Vec<PerNodeFeatureInfo>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -387,6 +390,18 @@ impl NodeState {
             TEMPORAL_EMA_ALPHA_DEFAULT
         }
     }
+}
+
+/// Per-node feature info for WebSocket broadcasts (multi-node support).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PerNodeFeatureInfo {
+    node_id: u8,
+    features: FeatureInfo,
+    classification: ClassificationInfo,
+    rssi_dbm: f64,
+    last_seen_ms: u64,
+    frame_rate_hz: f64,
+    stale: bool,
 }
 
 /// Shared application state
@@ -643,7 +658,9 @@ fn parse_esp32_frame(buf: &[u8]) -> Option<Esp32Frame> {
     let n_subcarriers = n_subcarriers_u16 as u8; // truncate to u8 for Esp32Frame compat
     let freq_mhz = u16::from_le_bytes([buf[8], buf[9]]); // low 16 bits of u32
     let sequence = u32::from_le_bytes([buf[12], buf[13], buf[14], buf[15]]);
-    let rssi = buf[16] as i8;       // #332: was buf[14], 2 bytes off
+    let rssi_raw = buf[16] as i8;   // #332: was buf[14], 2 bytes off
+    // Fix RSSI sign: ensure it's always negative (dBm convention).
+    let rssi = if rssi_raw > 0 { rssi_raw.saturating_neg() } else { rssi_raw };
     let noise_floor = buf[17] as i8; // #332: was buf[15], 2 bytes off
 
     let iq_start = 20;
@@ -1583,6 +1600,7 @@ async fn windows_wifi_task(state: SharedState, tick_ms: u64) {
             model_status: None,
             persons: None,
             estimated_persons: if est_persons > 0 { Some(est_persons) } else { None },
+            node_features: None,
         };
 
         // Populate persons from the sensing update.
@@ -1716,6 +1734,7 @@ async fn windows_wifi_fallback_tick(state: &SharedState, seq: u32) {
         model_status: None,
         persons: None,
         estimated_persons: if est_persons > 0 { Some(est_persons) } else { None },
+        node_features: None,
     };
 
     let persons = derive_pose_from_sensing(&update);
@@ -3295,6 +3314,34 @@ async fn sona_activate(
     }
 }
 
+/// GET /api/v1/nodes — per-node health and feature info.
+async fn nodes_endpoint(State(state): State<SharedState>) -> Json<serde_json::Value> {
+    let s = state.read().await;
+    let now = std::time::Instant::now();
+    let nodes: Vec<serde_json::Value> = s.node_states.iter()
+        .map(|(&id, ns)| {
+            let elapsed_ms = ns.last_frame_time
+                .map(|t| now.duration_since(t).as_millis() as u64)
+                .unwrap_or(999999);
+            let stale = elapsed_ms > 5000;
+            let status = if stale { "stale" } else { "active" };
+            let rssi = ns.rssi_history.back().copied().unwrap_or(-90.0);
+            serde_json::json!({
+                "node_id": id,
+                "status": status,
+                "last_seen_ms": elapsed_ms,
+                "rssi_dbm": rssi,
+                "motion_level": &ns.current_motion_level,
+                "person_count": ns.prev_person_count,
+            })
+        })
+        .collect();
+    Json(serde_json::json!({
+        "nodes": nodes,
+        "total": nodes.len(),
+    }))
+}
+
 async fn info_page() -> Html<String> {
     Html(format!(
         "<html><body>\
@@ -3471,6 +3518,7 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                         model_status: None,
                         persons: None,
                         estimated_persons: if total_persons > 0 { Some(total_persons) } else { None },
+                        node_features: None,
                     };
 
                     let mut persons = derive_pose_from_sensing(&update);
@@ -3674,6 +3722,7 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                         model_status: None,
                         persons: None,
                         estimated_persons: if total_persons > 0 { Some(total_persons) } else { None },
+                        node_features: None,
                     };
 
                     let mut persons = derive_pose_from_sensing(&update);
@@ -3811,6 +3860,7 @@ async fn simulated_data_task(state: SharedState, tick_ms: u64) {
             },
             persons: None,
             estimated_persons: if est_persons > 0 { Some(est_persons) } else { None },
+            node_features: None,
         };
 
         // Populate persons from the sensing update.
@@ -4498,6 +4548,8 @@ async fn main() {
         .route("/api/v1/metrics", get(health_metrics))
         // Sensing endpoints
         .route("/api/v1/sensing/latest", get(latest))
+        // Per-node health endpoint
+        .route("/api/v1/nodes", get(nodes_endpoint))
         // Vital sign endpoints
         .route("/api/v1/vital-signs", get(vital_signs_endpoint))
         .route("/api/v1/edge-vitals", get(edge_vitals_endpoint))

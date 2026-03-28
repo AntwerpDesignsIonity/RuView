@@ -41,7 +41,6 @@ static const char *TAG = "edge_proc";
  * ====================================================================== */
 
 static edge_ring_buf_t s_ring;
-static uint32_t s_ring_drops;  /* Frames dropped due to full ring buffer. */
 
 /* Scratch buffers for BPM estimation — moved from stack to static to avoid
  * stack overflow.  process_frame + update_multi_person_vitals combined used
@@ -54,7 +53,6 @@ static inline bool ring_push(const uint8_t *iq, uint16_t len,
 {
     uint32_t next = (s_ring.head + 1) % EDGE_RING_SLOTS;
     if (next == s_ring.tail) {
-        s_ring_drops++;
         return false;  /* Full — drop frame. */
     }
 
@@ -860,13 +858,12 @@ static void process_frame(const edge_ring_slot_t *slot)
 
         if ((s_frame_count % 200) == 0) {
             ESP_LOGI(TAG, "Vitals: br=%.1f hr=%.1f motion=%.4f pres=%s "
-                     "fall=%s persons=%u frames=%lu drops=%lu",
+                     "fall=%s persons=%u frames=%lu",
                      s_breathing_bpm, s_heartrate_bpm, s_motion_energy,
                      s_presence_detected ? "YES" : "no",
                      s_fall_detected ? "YES" : "no",
                      (unsigned)s_latest_pkt.n_persons,
-                     (unsigned long)s_frame_count,
-                     (unsigned long)s_ring_drops);
+                     (unsigned long)s_frame_count);
         }
     }
 
@@ -915,8 +912,11 @@ static void edge_task(void *arg)
 
         while (processed < EDGE_BATCH_LIMIT && ring_pop(&slot)) {
             process_frame(&slot);
-            processed++;
-            /* 1-tick yield between frames within a batch. */
+            /* Yield after every frame to feed the Core 1 watchdog.
+             * process_frame() is CPU-intensive (biquad filters, Welford stats,
+             * BPM estimation, multi-person vitals) and can take several ms.
+             * Without this yield, edge_dsp at priority 5 starves IDLE1 at
+             * priority 0, triggering the task watchdog. See issue #266. */
             vTaskDelay(1);
         }
 
@@ -926,9 +926,8 @@ static void edge_task(void *arg)
              * for tick-rate independence (minimum 1 tick). */
             { TickType_t d = pdMS_TO_TICKS(20); vTaskDelay(d > 0 ? d : 1); }
         } else {
-            /* No frames available — sleep one full tick.
-             * NOTE: pdMS_TO_TICKS(5) == 0 at 100 Hz, which would busy-spin. */
-            vTaskDelay(1);
+            /* No frames available — yield briefly. */
+            vTaskDelay(pdMS_TO_TICKS(1));
         }
     }
 }
