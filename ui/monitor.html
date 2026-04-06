@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IONITY Monitor Hub — WiFi DensePose</title>
+  <style>
+    /* ── Reset & base ──────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #050510;
+      --bg2:      #0a0a1e;
+      --bg3:      #0f1028;
+      --border:   #1a2040;
+      --accent:   #0088ff;
+      --accent2:  #00ccff;
+      --green:    #00e676;
+      --red:      #ff3d57;
+      --yellow:   #ffd740;
+      --orange:   #ff7043;
+      --dim:      #334466;
+      --text:     #c8d8f0;
+      --text-dim: #5577aa;
+      --font:     'Courier New', 'Consolas', monospace;
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; overflow: hidden; }
+
+    /* ── Global nav bar ───────────────────────────────────── */
+    #global-nav {
+      display: flex; align-items: center; gap: 0;
+      background: #070718; border-bottom: 1px solid var(--border);
+      height: 42px; padding: 0 12px; flex-shrink: 0;
+      overflow-x: auto; overflow-y: hidden;
+    }
+    .gnav-brand {
+      font-size: 15px; font-weight: bold; color: var(--accent2);
+      letter-spacing: 2px; margin-right: 16px; white-space: nowrap;
+      text-decoration: none;
+    }
+    .gnav-sep { color: var(--dim); margin: 0 4px; }
+    .gnav-link {
+      display: inline-block; padding: 6px 12px; color: var(--text-dim);
+      text-decoration: none; border-radius: 4px; white-space: nowrap;
+      transition: color 0.15s, background 0.15s; font-size: 12px;
+    }
+    .gnav-link:hover { color: var(--text); background: #111230; }
+    .gnav-link.active { color: var(--accent2); background: #0d1535; border-bottom: 2px solid var(--accent2); }
+    .gnav-status {
+      margin-left: auto; display: flex; align-items: center; gap: 10px;
+      font-size: 11px; color: var(--text-dim); flex-shrink: 0;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot-green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .dot-red   { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+    .dot-yellow{ background: var(--yellow);box-shadow: 0 0 6px var(--yellow); }
+    .dot-dim   { background: var(--dim); }
+
+    /* ── Layout ───────────────────────────────────────────── */
+    #shell { display: flex; flex-direction: column; height: 100vh; }
+    #tab-bar {
+      display: flex; align-items: center; gap: 2px;
+      background: var(--bg2); border-bottom: 1px solid var(--border);
+      padding: 0 8px; height: 38px; flex-shrink: 0;
+    }
+    .tab-btn {
+      padding: 6px 14px; border: none; background: transparent;
+      color: var(--text-dim); cursor: pointer; border-radius: 4px 4px 0 0;
+      font-family: var(--font); font-size: 12px; letter-spacing: 0.5px;
+      border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--accent2); border-bottom-color: var(--accent2); }
+    #content { flex: 1; overflow: hidden; position: relative; }
+    .tab-panel { display: none; width: 100%; height: 100%; overflow: auto; padding: 14px; }
+    .tab-panel.active { display: flex; flex-direction: column; gap: 12px; }
+
+    /* ── Cards ────────────────────────────────────────────── */
+    .card {
+      background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 6px; padding: 12px 14px;
+    }
+    .card-title {
+      font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase;
+      color: var(--text-dim); margin-bottom: 10px; font-weight: bold;
+    }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .col { flex: 1; min-width: 200px; }
+
+    /* ── Status grid ──────────────────────────────────────── */
+    .status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+    .status-cell {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 5px;
+      padding: 10px 12px; display: flex; flex-direction: column; gap: 4px;
+    }
+    .status-cell-label { font-size: 10px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; }
+    .status-cell-value { font-size: 18px; font-weight: bold; color: var(--text); }
+    .status-cell-sub   { font-size: 10px; color: var(--text-dim); }
+    .val-green { color: var(--green); }
+    .val-red   { color: var(--red); }
+    .val-yellow{ color: var(--yellow); }
+    .val-blue  { color: var(--accent2); }
+
+    /* ── Health bars ─────────────────────────────────────── */
+    .hbar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+    .hbar-fill { height: 100%; border-radius: 3px; transition: width 0.4s; background: var(--accent); }
+    .hbar-fill.warn { background: var(--yellow); }
+    .hbar-fill.crit { background: var(--red); }
+
+    /* ── 3D View iframe ───────────────────────────────────── */
+    #view3d-frame { width: 100%; height: 100%; border: none; }
+    #view3d-wrap  { flex: 1; overflow: hidden; min-height: 0; background: #050510; border-radius: 6px; border: 1px solid var(--border); }
+
+    /* ── Signal canvas ────────────────────────────────────── */
+    #signal-canvas { width: 100%; height: 220px; display: block; border-radius: 4px; background: #020208; }
+    #signal-wrap { overflow: hidden; }
+
+    /* ── Log viewer ───────────────────────────────────────── */
+    #log-output {
+      flex: 1; overflow-y: auto; background: #020208; border: 1px solid var(--border);
+      border-radius: 5px; padding: 10px; font-size: 11px; line-height: 1.5;
+      color: #88bbdd; min-height: 200px;
+    }
+    #log-output .err  { color: var(--red); }
+    #log-output .warn { color: var(--yellow); }
+    #log-output .ok   { color: var(--green); }
+
+    /* ── ESP32 table ─────────────────────────────────────── */
+    .esp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .esp-table th { text-align: left; padding: 6px 10px; font-size: 10px; letter-spacing: 1px; color: var(--text-dim); border-bottom: 1px solid var(--border); }
+    .esp-table td { padding: 7px 10px; border-bottom: 1px solid #0d1428; vertical-align: middle; }
+    .esp-table tr:hover td { background: #0a0d20; }
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 10px;
+      letter-spacing: 0.5px; font-weight: bold; text-transform: uppercase;
+    }
+    .badge-green { background: #00411a; color: var(--green); border: 1px solid #006633; }
+    .badge-red   { background: #3d0010; color: var(--red);   border: 1px solid #660022; }
+    .badge-blue  { background: #00224d; color: var(--accent2); border: 1px solid #004499; }
+    .badge-dim   { background: #111; color: var(--dim); border: 1px solid #222; }
+
+    /* ── Buttons ─────────────────────────────────────────── */
+    .btn {
+      padding: 6px 14px; border: 1px solid var(--border); border-radius: 4px;
+      background: var(--bg2); color: var(--text); cursor: pointer;
+      font-family: var(--font); font-size: 12px; transition: background 0.15s, border-color 0.15s;
+    }
+    .btn:hover { background: #111230; border-color: var(--accent); }
+    .btn-primary { background: #002255; border-color: var(--accent); color: var(--accent2); }
+    .btn-primary:hover { background: #0033aa; }
+    .btn-danger  { border-color: var(--red); color: var(--red); }
+    .btn-danger:hover { background: #2a0010; }
+    .btn-green   { border-color: var(--green); color: var(--green); }
+    .btn-green:hover { background: #001a0a; }
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+    /* ── Provision form ──────────────────────────────────── */
+    .field-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+    .field-label { font-size: 11px; color: var(--text-dim); width: 100px; flex-shrink: 0; }
+    .field-input {
+      flex: 1; min-width: 140px; background: var(--bg2); border: 1px solid var(--border);
+      color: var(--text); padding: 5px 9px; border-radius: 4px; font-family: var(--font); font-size: 12px;
+    }
+    .field-input:focus { outline: none; border-color: var(--accent); }
+
+    /* ── Script list ─────────────────────────────────────── */
+    .script-list { display: flex; flex-direction: column; gap: 6px; max-height: 400px; overflow-y: auto; }
+    .script-item {
+      display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 5px; cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .script-item:hover { border-color: var(--accent); }
+    .script-label { flex: 1; font-size: 12px; }
+    .script-desc  { font-size: 10px; color: var(--text-dim); flex: 2; }
+    .script-badge { font-size: 10px; }
+
+    /* ── Terminal output ─────────────────────────────────── */
+    #script-output {
+      flex: 1; background: #020208; border: 1px solid var(--border); border-radius: 5px;
+      padding: 10px; font-size: 11px; color: #aaddcc; overflow-y: auto;
+      min-height: 120px; max-height: 260px; white-space: pre-wrap;
+    }
+
+    /* ── Vitals ──────────────────────────────────────────── */
+    .vitals-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+    .vital-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+      padding: 14px 12px; text-align: center;
+    }
+    .vital-value { font-size: 36px; font-weight: bold; line-height: 1.1; }
+    .vital-unit  { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+    .vital-label { font-size: 10px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; margin-top: 4px; }
+
+    /* ── Scrollbar ───────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--dim); border-radius: 3px; }
+
+    /* ── Connection notice ──────────────────────────────── */
+    #conn-banner {
+      display: none; position: fixed; top: 0; left: 0; right: 0;
+      background: #3d0010; color: var(--red); text-align: center;
+      padding: 6px; font-size: 12px; z-index: 9999; border-bottom: 1px solid var(--red);
+    }
+  </style>
+</head>
+<body>
+<div id="conn-banner">⚠ Sensing server not responding — some data may be unavailable</div>
+
+<div id="shell">
+
+  <!-- ══ Global navigation ══════════════════════════════════════════════ -->
+  <nav id="global-nav">
+    <a class="gnav-brand" href="index.html">π IONITY</a>
+    <span class="gnav-sep">|</span>
+    <a class="gnav-link" href="index.html">Dashboard</a>
+    <a class="gnav-link active" href="monitor.html">Monitor</a>
+    <a class="gnav-link" href="pose-fusion.html">Pose Fusion</a>
+    <a class="gnav-link" href="observatory.html">Observatory</a>
+    <a class="gnav-link" href="viz.html" target="_blank">3D View ↗</a>
+    <div class="gnav-status">
+      <span class="dot dot-dim" id="srv-dot"></span>
+      <span id="srv-label" style="font-size:11px">OFFLINE</span>
+      <span id="ws-indicator" style="font-size:10px;color:var(--dim)">WS —</span>
+    </div>
+  </nav>
+
+  <!-- ══ Tab bar ════════════════════════════════════════════════════════ -->
+  <div id="tab-bar">
+    <button class="tab-btn active" data-tab="overview">Overview</button>
+    <button class="tab-btn" data-tab="view3d">3D View</button>
+    <button class="tab-btn" data-tab="esp32">ESP32</button>
+    <button class="tab-btn" data-tab="signals">Signals</button>
+    <button class="tab-btn" data-tab="vitals">Vitals</button>
+    <button class="tab-btn" data-tab="logs">Logs</button>
+    <button class="tab-btn" data-tab="scripts">Scripts</button>
+  </div>
+
+  <!-- ══ Tab content ════════════════════════════════════════════════════ -->
+  <div id="content">
+
+    <!-- ── Overview ───────────────────────────────────────────────────── -->
+    <div class="tab-panel active" id="tab-overview">
+      <div class="card">
+        <div class="card-title">Server Status</div>
+        <div class="status-grid">
+          <div class="status-cell">
+            <div class="status-cell-label">Server</div>
+            <div class="status-cell-value val-dim" id="ov-server">—</div>
+            <div class="status-cell-sub" id="ov-server-src">source: —</div>
+          </div>
+          <div class="status-cell">
+            <div class="status-cell-label">Tick</div>
+            <div class="status-cell-value val-blue" id="ov-tick">—</div>
+            <div class="status-cell-sub">frame counter</div>
+          </div>
+          <div class="status-cell">
+            <div class="status-cell-label">Persons</div>
+            <div class="status-cell-value val-green" id="ov-persons">0</div>
+            <div class="status-cell-sub">detected now</div>
+          </div>
+          <div class="status-cell">
+            <div class="status-cell-label">Confidence</div>
+            <div class="status-cell-value val-blue" id="ov-conf">—</div>
+            <div class="status-cell-sub" id="ov-conf-bar-wrap">
+              <div class="hbar"><div class="hbar-fill" id="ov-conf-bar" style="width:0%"></div></div>
+            </div>
+          </div>
+          <div class="status-cell">
+            <div class="status-cell-label">Heart Rate</div>
+            <div class="status-cell-value val-red" id="ov-hr">—</div>
+            <div class="status-cell-sub">bpm</div>
+          </div>
+          <div class="status-cell">
+            <div class="status-cell-label">Resp. Rate</div>
+            <div class="status-cell-value val-blue" id="ov-rr">—</div>
+            <div class="status-cell-sub">breaths/min</div>
+          </div>
+          <div class="status-cell">
+            <div class="status-cell-label">ESP32 Nodes</div>
+            <div class="status-cell-value val-green" id="ov-nodes">—</div>
+            <div class="status-cell-sub">online</div>
+          </div>
+          <div class="status-cell">
+            <div class="status-cell-label">WebSocket</div>
+            <div class="status-cell-value" id="ov-ws">—</div>
+            <div class="status-cell-sub" id="ov-ws-msgs">msgs: 0</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col card">
+          <div class="card-title">Quick Links</div>
+          <div class="btn-row" style="flex-direction:column;gap:6px;align-items:flex-start">
+            <a class="btn btn-primary" href="index.html">Main Dashboard</a>
+            <a class="btn" href="pose-fusion.html">Pose Fusion</a>
+            <a class="btn" href="observatory.html">Observatory</a>
+            <a class="btn" href="viz.html" target="_blank">3D Visualization ↗</a>
+            <a class="btn" id="ov-health-link" href="#" target="_blank">Health API ↗</a>
+            <a class="btn" id="ov-api-link" href="#" target="_blank">Sensing API ↗</a>
+          </div>
+        </div>
+        <div class="col card">
+          <div class="card-title">Server Controls</div>
+          <div class="btn-row" style="flex-direction:column;gap:6px;align-items:flex-start">
+            <button class="btn btn-green" id="btn-start-srv">▶ Start Server</button>
+            <button class="btn btn-danger" id="btn-stop-srv">■ Stop Server</button>
+            <button class="btn" id="btn-refresh-all">↺ Refresh Status</button>
+            <button class="btn" id="btn-open-gui">⊞ Open All GUIs</button>
+          </div>
+          <div style="margin-top:10px;font-size:11px;color:var(--text-dim)">
+            Server: <code id="ctrl-srv-url">http://localhost:3000</code>
+          </div>
+        </div>
+        <div class="col card">
+          <div class="card-title">Active Zones</div>
+          <div id="ov-zones" style="font-size:12px;color:var(--text-dim)">No zone data — start server</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Nodes Online</div>
+        <div id="ov-nodes-table"><span style="color:var(--text-dim);font-size:12px">No node data yet</span></div>
+      </div>
+    </div>
+
+    <!-- ── 3D View ─────────────────────────────────────────────────────── -->
+    <div class="tab-panel" id="tab-view3d" style="padding:0;">
+      <div id="view3d-wrap" style="flex:1;border-radius:0;border:none;">
+        <iframe id="view3d-frame" src="viz.html" allowfullscreen
+          sandbox="allow-scripts allow-same-origin allow-popups"></iframe>
+      </div>
+    </div>
+
+    <!-- ── ESP32 ───────────────────────────────────────────────────────── -->
+    <div class="tab-panel" id="tab-esp32">
+      <div class="card">
+        <div class="card-title">Connected Nodes (via Server)</div>
+        <div class="btn-row" style="margin-bottom:10px">
+          <button class="btn btn-primary" id="btn-esp-scan">⟳ Scan / Refresh</button>
+          <span id="esp-scan-status" style="font-size:11px;color:var(--text-dim)"></span>
+        </div>
+        <div id="esp-table-wrap">
+          <table class="esp-table">
+            <thead><tr>
+              <th>#</th><th>Node ID</th><th>IP / Port</th><th>Chip</th>
+              <th>Status</th><th>RSSI</th><th>FW Version</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="esp-tbody"><tr><td colspan="8" style="color:var(--text-dim);padding:14px">
+              Click Scan to detect connected nodes
+            </td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">USB Board Detection</div>
+        <div class="btn-row" style="margin-bottom:10px">
+          <button class="btn" id="btn-usb-scan">⟳ Detect USB Boards</button>
+          <span id="usb-scan-status" style="font-size:11px;color:var(--text-dim)"></span>
+        </div>
+        <div id="usb-boards-output" style="font-size:12px;color:var(--text-dim)">
+          Run a USB scan to detect boards on serial ports
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Provision Wizard</div>
+        <div class="field-row">
+          <span class="field-label">Serial Port</span>
+          <input class="field-input" id="prov-port" type="text" placeholder="/dev/ttyACM0">
+        </div>
+        <div class="field-row">
+          <span class="field-label">Node ID</span>
+          <input class="field-input" id="prov-nodeid" type="number" value="1" min="1" max="8">
+        </div>
+        <div class="field-row">
+          <span class="field-label">WiFi SSID</span>
+          <input class="field-input" id="prov-ssid" type="text" placeholder="YourWiFiSSID">
+        </div>
+        <div class="field-row">
+          <span class="field-label">WiFi Password</span>
+          <input class="field-input" id="prov-pass" type="password" placeholder="••••••••">
+        </div>
+        <div class="field-row">
+          <span class="field-label">Hub IP</span>
+          <input class="field-input" id="prov-hub-ip" type="text" placeholder="192.168.1.20">
+        </div>
+        <div class="field-row">
+          <span class="field-label">Flash Size</span>
+          <select class="field-input" id="prov-flash">
+            <option value="8mb">8MB (ESP32-S3 standard)</option>
+            <option value="4mb">4MB (ESP32-S3 SuperMini)</option>
+          </select>
+        </div>
+        <div class="btn-row" style="margin-top:8px">
+          <button class="btn btn-primary" id="btn-provision">Flash &amp; Provision</button>
+          <button class="btn" id="btn-prov-nvs">Write NVS Only</button>
+          <span id="prov-status" style="font-size:11px;color:var(--text-dim)"></span>
+        </div>
+        <div id="prov-output" class="card" style="margin-top:10px;display:none;font-size:11px;color:#aaddcc;background:#020208;max-height:200px;overflow-y:auto;white-space:pre-wrap"></div>
+      </div>
+    </div>
+
+    <!-- ── Signals ─────────────────────────────────────────────────────── -->
+    <div class="tab-panel" id="tab-signals">
+      <div class="card">
+        <div class="card-title">Real-time CSI Subcarrier Amplitudes — 56 channels @ WebSocket stream</div>
+        <div class="btn-row" style="margin-bottom:8px">
+          <button class="btn btn-primary" id="btn-sig-connect">Connect WS</button>
+          <button class="btn btn-danger" id="btn-sig-disconnect" style="display:none">Disconnect</button>
+          <span style="font-size:11px;color:var(--text-dim);margin-left:8px" id="sig-ws-status">Not connected</span>
+        </div>
+        <div id="signal-wrap">
+          <canvas id="signal-canvas" height="220"></canvas>
+        </div>
+        <div class="row" style="margin-top:8px;gap:16px;font-size:11px;color:var(--text-dim)">
+          <span>Frames/s: <b id="sig-fps" style="color:var(--accent2)">0</b></span>
+          <span>Subcarriers: <b id="sig-sub" style="color:var(--accent2)">—</b></span>
+          <span>Antennas: <b id="sig-ant" style="color:var(--accent2)">—</b></span>
+          <span>Avg amplitude: <b id="sig-avg" style="color:var(--green)">—</b></span>
+          <span>Latest tick: <b id="sig-tick" style="color:var(--text)">—</b></span>
+        </div>
+      </div>
+      <div class="card" style="flex:1;min-height:0">
+        <div class="card-title">Phase / Variance Waterfall</div>
+        <canvas id="waterfall-canvas" style="width:100%;height:160px;display:block;background:#020208;border-radius:4px"></canvas>
+      </div>
+    </div>
+
+    <!-- ── Vitals ─────────────────────────────────────────────────────── -->
+    <div class="tab-panel" id="tab-vitals">
+      <div class="card">
+        <div class="card-title">Live Vital Signs — /api/v1/vital-signs + /api/v1/edge-vitals</div>
+        <div class="vitals-grid">
+          <div class="vital-card">
+            <div class="vital-value val-red" id="vit-hr">—</div>
+            <div class="vital-unit">bpm</div>
+            <div class="vital-label">Heart Rate</div>
+          </div>
+          <div class="vital-card">
+            <div class="vital-value val-blue" id="vit-rr">—</div>
+            <div class="vital-unit">br/min</div>
+            <div class="vital-label">Respiration</div>
+          </div>
+          <div class="vital-card">
+            <div class="vital-value val-green" id="vit-spo2">—</div>
+            <div class="vital-unit">%</div>
+            <div class="vital-label">SpO₂ (est.)</div>
+          </div>
+          <div class="vital-card">
+            <div class="vital-value" id="vit-conf">—</div>
+            <div class="vital-unit">%</div>
+            <div class="vital-label">Confidence</div>
+          </div>
+          <div class="vital-card">
+            <div class="vital-value val-yellow" id="vit-motion">—</div>
+            <div class="vital-unit"></div>
+            <div class="vital-label">Motion State</div>
+          </div>
+          <div class="vital-card">
+            <div class="vital-value val-blue" id="vit-presence">—</div>
+            <div class="vital-unit"></div>
+            <div class="vital-label">Presence</div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="flex:1">
+        <div class="card-title">HR/RR Trend (last 60 readings)</div>
+        <canvas id="vitals-trend-canvas" style="width:100%;height:150px;display:block;background:#020208;border-radius:4px"></canvas>
+      </div>
+      <div class="card">
+        <div class="card-title">Edge Vitals (ESP32)</div>
+        <div id="edge-vitals-out" style="font-size:12px;color:var(--text-dim)">Not available</div>
+      </div>
+    </div>
+
+    <!-- ── Logs ───────────────────────────────────────────────────────── -->
+    <div class="tab-panel" id="tab-logs" style="height:calc(100vh - 80px)">
+      <div class="card">
+        <div class="card-title">Server Logs  — /api/v1/sensing/latest + health</div>
+        <div class="btn-row" style="margin-bottom:8px">
+          <button class="btn btn-primary" id="btn-log-start">▶ Start Polling</button>
+          <button class="btn btn-danger" id="btn-log-stop" style="display:none">■ Stop</button>
+          <button class="btn" id="btn-log-clear">Clear</button>
+          <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-dim)">
+            <input type="checkbox" id="log-autoscroll" checked> Auto-scroll
+          </label>
+        </div>
+      </div>
+      <div id="log-output"></div>
+    </div>
+
+    <!-- ── Scripts ────────────────────────────────────────────────────── -->
+    <div class="tab-panel" id="tab-scripts">
+      <div class="card">
+        <div class="card-title">Script Library — API-accessible diagnostic tools</div>
+        <div class="script-list" id="script-list"></div>
+      </div>
+      <div class="card" style="flex:1">
+        <div class="card-title">Output</div>
+        <div id="script-output">Select a script above to see its output…</div>
+      </div>
+    </div>
+
+  </div><!-- #content -->
+</div><!-- #shell -->
+
+<script>
+'use strict';
+// ── Config ────────────────────────────────────────────────────────────────────
+const BASE_URL   = (() => {
+  const p = window.location.port ? `:${window.location.port}` : '';
+  const h = window.location.hostname || 'localhost';
+  return `${window.location.protocol}//${h}${p}`;
+})();
+const WS_BASE    = BASE_URL.replace(/^http/, 'ws');
+const API        = `${BASE_URL}/api/v1`;
+const HEALTH_URL = `${BASE_URL}/health`;
+
+// Update quick-links with real server URL
+document.getElementById('ctrl-srv-url').textContent = BASE_URL;
+document.getElementById('ov-health-link').href = HEALTH_URL + ' ';
+document.getElementById('ov-health-link').href = HEALTH_URL;
+document.getElementById('ov-api-link').href = `${API}/sensing/latest`;
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+const tabBtns   = document.querySelectorAll('.tab-btn');
+const tabPanels = document.querySelectorAll('.tab-panel');
+tabBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const target = btn.dataset.tab;
+    tabBtns.forEach(b => b.classList.toggle('active', b === btn));
+    tabPanels.forEach(p => p.classList.toggle('active', p.id === `tab-${target}`));
+    if (target === 'view3d') ensureViz3dLoaded();
+    if (target === 'signals') resizeSignalCanvas();
+  });
+});
+
+// ── Polling state ─────────────────────────────────────────────────────────────
+let healthInterval = null;
+let vitalsInterval = null;
+let logsInterval   = null;
+let wsConn         = null;
+let wsMsgs         = 0;
+let sigFps         = 0;
+let sigFrameCount  = 0;
+let sigHistory     = []; // [{amps, variance}]
+const MAX_SIGNAL_HISTORY = 120;
+
+// HR/RR trend
+const HR_HIST = []; const RR_HIST = [];
+const MAX_TREND = 60;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const q  = id => document.getElementById(id);
+const fmt = v  => (v == null || v === undefined || v === '') ? '—' : v;
+
+async function apiFetch(url, opts) {
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(4000), ...opts });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch { return null; }
+}
+
+function colorClass(val, lo, hi) {
+  if (val == null) return '';
+  if (val >= hi) return 'val-green';
+  if (val >= lo) return 'val-yellow';
+  return 'val-red';
+}
+
+// ── Health polling ────────────────────────────────────────────────────────────
+async function pollHealth() {
+  const data = await apiFetch(HEALTH_URL);
+  const srvDot   = q('srv-dot');
+  const srvLabel = q('srv-label');
+  const banner   = q('conn-banner');
+
+  if (!data) {
+    srvDot.className = 'dot dot-red';
+    srvLabel.textContent = 'OFFLINE';
+    banner.style.display = 'block';
+    q('ov-server').textContent = 'OFFLINE';
+    q('ov-server').className   = 'status-cell-value val-red';
+    return;
+  }
+
+  banner.style.display = 'none';
+  srvDot.className = 'dot dot-green';
+  srvLabel.textContent = 'ONLINE';
+  q('ov-server').textContent = 'ONLINE';
+  q('ov-server').className   = 'status-cell-value val-green';
+  q('ov-server-src').textContent = `source: ${fmt(data.source)}`;
+  q('ov-tick').textContent = fmt(data.tick);
+
+  // Persons
+  const persons = data.persons ?? data.person_count ?? 0;
+  q('ov-persons').textContent = fmt(persons);
+
+  // Confidence
+  const conf = data.confidence ?? data.avg_confidence;
+  if (conf != null) {
+    const pct = Math.round(conf * 100);
+    q('ov-conf').textContent = `${pct}%`;
+    const fill = q('ov-conf-bar');
+    fill.style.width = `${pct}%`;
+    fill.className = `hbar-fill ${pct >= 70 ? '' : pct >= 40 ? 'warn' : 'crit'}`;
+  }
+}
+
+// ── Vitals polling ────────────────────────────────────────────────────────────
+async function pollVitals() {
+  const [v, ev, nodes] = await Promise.all([
+    apiFetch(`${API}/vital-signs`),
+    apiFetch(`${API}/edge-vitals`),
+    apiFetch(`${API}/nodes`),
+  ]);
+
+  if (v) {
+    const hr  = v.heart_rate ?? v.hr;
+    const rr  = v.respiration_rate ?? v.rr ?? v.resp_rate;
+    const spo = v.spo2 ?? v.SpO2;
+    const conf= v.confidence;
+    const mst = v.motion_state ?? v.motion;
+    const pres= v.presence;
+
+    q('ov-hr').textContent  = hr  != null ? Math.round(hr)  : '—';
+    q('ov-rr').textContent  = rr  != null ? Math.round(rr)  : '—';
+    q('vit-hr').textContent = hr  != null ? Math.round(hr)  : '—';
+    q('vit-rr').textContent = rr  != null ? Math.round(rr)  : '—';
+    q('vit-spo2').textContent  = spo  != null ? Math.round(spo) : '—';
+    q('vit-conf').textContent  = conf != null ? `${Math.round(conf*100)}` : '—';
+    q('vit-motion').textContent   = fmt(mst);
+    q('vit-presence').textContent = pres != null ? (pres ? 'YES' : 'NO') : '—';
+    q('vit-presence').className   = 'vital-value ' + (pres ? 'val-green' : 'val-dim');
+
+    if (hr != null) { HR_HIST.push(hr); if (HR_HIST.length > MAX_TREND) HR_HIST.shift(); }
+    if (rr != null) { RR_HIST.push(rr); if (RR_HIST.length > MAX_TREND) RR_HIST.shift(); }
+    drawVitalsTrend();
+  }
+
+  if (ev) {
+    q('edge-vitals-out').innerHTML = `<pre style="font-size:11px">${JSON.stringify(ev, null, 2)}</pre>`;
+  }
+
+  if (nodes) {
+    const arr = Array.isArray(nodes) ? nodes : (nodes.nodes ?? []);
+    q('ov-nodes').textContent = arr.length;
+    renderNodesTable(arr);
+    renderEspTable(arr);
+  }
+}
+
+function renderNodesTable(arr) {
+  const el = q('ov-nodes-table');
+  if (!arr.length) { el.innerHTML = '<span style="color:var(--text-dim);font-size:12px">No nodes online</span>'; return; }
+  el.innerHTML = `<table class="esp-table"><thead><tr>
+    <th>Node</th><th>IP</th><th>Status</th><th>Firmware</th><th>RSSI</th>
+  </tr></thead><tbody>${arr.map(n => `<tr>
+    <td>${fmt(n.node_id ?? n.id)}</td>
+    <td>${fmt(n.ip ?? n.address)}</td>
+    <td><span class="badge ${(n.status||'').toLowerCase()==='online'?'badge-green':'badge-dim'}">${fmt(n.status)}</span></td>
+    <td>${fmt(n.firmware_version ?? n.fw)}</td>
+    <td>${fmt(n.rssi)} dBm</td>
+  </tr>`).join('')}</tbody></table>`;
+}
+
+function renderEspTable(arr) {
+  const tbody = q('esp-tbody');
+  if (!arr.length) { tbody.innerHTML = '<tr><td colspan="8" style="color:var(--text-dim);padding:14px">No nodes detected</td></tr>'; return; }
+  tbody.innerHTML = arr.map((n,i) => `<tr>
+    <td>${i+1}</td>
+    <td>${fmt(n.node_id ?? n.id)}</td>
+    <td>${fmt(n.ip ?? n.address)}</td>
+    <td><span class="badge badge-blue">${fmt(n.chip ?? 'ESP32-S3')}</span></td>
+    <td><span class="badge ${(n.status||'').toLowerCase()==='online'?'badge-green':'badge-dim'}">${fmt(n.status)}</span></td>
+    <td>${fmt(n.rssi)} dBm</td>
+    <td>${fmt(n.firmware_version ?? n.fw ?? '—')}</td>
+    <td><button class="btn" style="padding:3px 8px;font-size:10px" onclick="pingNode('${n.ip}')">Ping</button></td>
+  </tr>`).join('');
+}
+
+async function pingNode(ip) {
+  if (!ip) return;
+  appendLog(`Pinging node ${ip}…`, 'info');
+  const r = await apiFetch(`${BASE_URL}/api/v1/nodes`);
+  appendLog(r ? `Node ${ip}: OK` : `Node ${ip}: no response`, r ? 'ok' : 'warn');
+}
+
+// ── Zones ─────────────────────────────────────────────────────────────────────
+async function pollZones() {
+  const data = await apiFetch(`${API}/pose/zones/summary`);
+  const el = q('ov-zones');
+  if (!data) { el.innerHTML = '<span style="color:var(--text-dim);font-size:12px">No zone data</span>'; return; }
+  const zones = Array.isArray(data) ? data : (data.zones ?? []);
+  if (!zones.length) { el.innerHTML = '<span style="color:var(--text-dim);font-size:12px">No zones configured</span>'; return; }
+  el.innerHTML = zones.map(z => `<div style="display:flex;gap:12px;align-items:center;margin-bottom:6px">
+    <span class="badge badge-blue">${fmt(z.zone_id ?? z.id)}</span>
+    <span style="font-size:12px">${fmt(z.name ?? z.label)}</span>
+    <span style="color:${z.occupied ? 'var(--green)' : 'var(--dim)'};font-size:11px">${z.occupied ? '● OCCUPIED' : '○ empty'}</span>
+    <span style="font-size:11px;color:var(--text-dim)">${fmt(z.count)} person(s)</span>
+  </div>`).join('');
+}
+
+// ── WebSocket signal stream ───────────────────────────────────────────────────
+function connectSignalWs() {
+  if (wsConn) wsConn.close();
+  const url = `${WS_BASE}/ws/sensing`;
+  q('sig-ws-status').textContent = `Connecting to ${url}…`;
+  try {
+    wsConn = new WebSocket(url);
+  } catch(e) {
+    q('sig-ws-status').textContent = `Failed: ${e.message}`;
+    return;
+  }
+  wsConn.onopen = () => {
+    q('sig-ws-status').textContent = 'Connected';
+    q('ws-indicator').textContent  = 'WS ●';
+    q('ws-indicator').style.color  = 'var(--green)';
+    q('btn-sig-connect').style.display    = 'none';
+    q('btn-sig-disconnect').style.display = '';
+    q('ov-ws').textContent = 'LIVE';
+    q('ov-ws').className   = 'status-cell-value val-green';
+  };
+  wsConn.onclose = () => {
+    q('sig-ws-status').textContent = 'Disconnected';
+    q('ws-indicator').textContent  = 'WS —';
+    q('ws-indicator').style.color  = 'var(--dim)';
+    q('btn-sig-connect').style.display    = '';
+    q('btn-sig-disconnect').style.display = 'none';
+    q('ov-ws').textContent = 'OFF';
+    q('ov-ws').className   = 'status-cell-value val-red';
+    wsConn = null;
+  };
+  wsConn.onerror = () => {
+    q('sig-ws-status').textContent = 'Error — server may be offline';
+  };
+  wsConn.onmessage = (ev) => {
+    wsMsgs++;
+    sigFrameCount++;
+    q('ov-ws-msgs').textContent = `msgs: ${wsMsgs}`;
+    try {
+      const d = JSON.parse(ev.data);
+      handleSensingFrame(d);
+    } catch {}
+  };
+}
+
+function disconnectSignalWs() {
+  if (wsConn) { wsConn.close(); wsConn = null; }
+}
+
+function handleSensingFrame(d) {
+  // Extract CSI subcarrier amplitudes
+  const amps = d.csi_amplitudes ?? d.amplitudes ?? d.subcarriers ?? [];
+  const variance = d.csi_variance ?? d.variance ?? null;
+  const tick = d.tick ?? d.frame_id ?? null;
+
+  if (amps.length) {
+    sigHistory.push({ amps: [...amps], variance });
+    if (sigHistory.length > MAX_SIGNAL_HISTORY) sigHistory.shift();
+    drawSignalCanvas(amps);
+    drawWaterfallCanvas();
+    q('sig-sub').textContent  = amps.length;
+    q('sig-avg').textContent  = (amps.reduce((a,b)=>a+b,0)/amps.length).toFixed(2);
+  }
+  if (tick != null) q('sig-tick').textContent = tick;
+
+  const ant = d.num_antennas ?? d.antennas;
+  if (ant) q('sig-ant').textContent = ant;
+}
+
+// ── Signal canvas renderer ────────────────────────────────────────────────────
+function resizeSignalCanvas() {
+  const c = q('signal-canvas');
+  c.width  = c.offsetWidth  || 800;
+  c.height = c.offsetHeight || 220;
+  if (sigHistory.length) drawSignalCanvas(sigHistory[sigHistory.length-1].amps);
+}
+
+function drawSignalCanvas(amps) {
+  const c = q('signal-canvas');
+  if (!c.width) resizeSignalCanvas();
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid
+  ctx.strokeStyle = '#0a1428'; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = H * i / 4;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  const maxAmp = Math.max(1, ...amps);
+  const minAmp = Math.min(0, ...amps);
+  const range  = maxAmp - minAmp || 1;
+  const N      = amps.length;
+  const barW   = Math.max(1, W / N);
+
+  // Draw bars
+  amps.forEach((a, i) => {
+    const norm = (a - minAmp) / range;
+    const barH = Math.max(1, norm * (H - 4));
+    const x    = i * barW;
+    const hue  = 200 + norm * 60; // blue → cyan → green
+    ctx.fillStyle = `hsl(${hue}, 90%, ${30 + norm * 40}%)`;
+    ctx.fillRect(x, H - barH, barW - 1, barH);
+  });
+
+  // Overlay line
+  ctx.beginPath(); ctx.strokeStyle = 'rgba(0,200,255,0.7)'; ctx.lineWidth = 2;
+  amps.forEach((a, i) => {
+    const norm = (a - minAmp) / range;
+    const x = i * barW + barW / 2;
+    const y = H - norm * (H - 4) - 2;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Labels
+  ctx.fillStyle = 'rgba(100,160,220,0.7)'; ctx.font = '10px monospace';
+  ctx.fillText(`${N} subcarriers`, 6, 14);
+  ctx.fillText(`max: ${maxAmp.toFixed(2)}`, 6, 26);
+}
+
+// ── Waterfall canvas ──────────────────────────────────────────────────────────
+function drawWaterfallCanvas() {
+  const c = q('waterfall-canvas');
+  c.width  = c.offsetWidth  || 800;
+  c.height = 160;
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const rows = sigHistory.slice(-H);
+  if (!rows.length) return;
+  const N = rows[0].amps.length || 1;
+  const cellW = W / N;
+  const cellH = H / rows.length;
+
+  rows.forEach((row, ri) => {
+    const maxA = Math.max(1, ...row.amps);
+    const minA = Math.min(0, ...row.amps);
+    const rng  = maxA - minA || 1;
+    row.amps.forEach((a, ci) => {
+      const norm = (a - minA) / rng;
+      const hue  = 250 - norm * 200;
+      ctx.fillStyle = `hsla(${hue}, 90%, ${20 + norm * 50}%, 0.92)`;
+      ctx.fillRect(ci * cellW, ri * cellH, cellW, cellH);
+    });
+  });
+}
+
+// ── Vitals trend canvas ───────────────────────────────────────────────────────
+function drawVitalsTrend() {
+  const c = q('vitals-trend-canvas');
+  c.width  = c.offsetWidth  || 600;
+  c.height = 150;
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+  ctx.clearRect(0, 0, W, H);
+
+  function drawLine(data, color, label, yMin, yMax) {
+    if (!data.length) return;
+    const rng = yMax - yMin || 1;
+    ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 2;
+    data.forEach((v, i) => {
+      const x = (i / MAX_TREND) * W;
+      const y = H - ((v - yMin) / rng) * (H - 20) - 10;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    if (data.length) {
+      ctx.fillStyle = color; ctx.font = '10px monospace';
+      ctx.fillText(`${label}: ${data[data.length-1].toFixed(0)}`, 4, 12);
+    }
+  }
+  drawLine(HR_HIST, 'rgba(255,80,80,0.9)',  'HR', 30, 200);
+  drawLine(RR_HIST, 'rgba(50,180,255,0.9)', 'RR', 0, 40);
+}
+
+// ── Logs ──────────────────────────────────────────────────────────────────────
+let logPoller = null;
+function appendLog(msg, type='info') {
+  const el = q('log-output');
+  const line = document.createElement('div');
+  const ts   = new Date().toTimeString().slice(0,8);
+  line.className = type === 'err' ? 'err' : type === 'ok' ? 'ok' : type === 'warn' ? 'warn' : '';
+  line.textContent = `[${ts}] ${msg}`;
+  el.appendChild(line);
+  if (q('log-autoscroll').checked) el.scrollTop = el.scrollHeight;
+  if (el.children.length > 400) el.removeChild(el.firstChild);
+}
+
+async function pollLogs() {
+  const [h, s] = await Promise.all([
+    apiFetch(HEALTH_URL),
+    apiFetch(`${API}/sensing/latest`),
+  ]);
+  if (h) appendLog(`health: source=${h.source} tick=${h.tick} persons=${h.person_count ?? h.persons ?? '?'}`, 'ok');
+  if (s) appendLog(`sensing: ${JSON.stringify(s).slice(0,120)}`, 'info');
+  if (!h && !s) appendLog('Server not responding', 'err');
+}
+
+// ── Script list ───────────────────────────────────────────────────────────────
+const SCRIPTS = [
+  { label: 'health-check',    desc: 'Check sensing server health and live metrics',  endpoint: '/health' },
+  { label: 'sensing/latest',  desc: 'Latest CSI sensing frame',                      endpoint: '/api/v1/sensing/latest' },
+  { label: 'vital-signs',     desc: 'Heart rate / respiration estimates',             endpoint: '/api/v1/vital-signs' },
+  { label: 'edge-vitals',     desc: 'Edge vitals from ESP32',                        endpoint: '/api/v1/edge-vitals' },
+  { label: 'nodes',           desc: 'Per-node health and feature info',              endpoint: '/api/v1/nodes' },
+  { label: 'model/info',      desc: 'RVF model container info',                      endpoint: '/api/v1/model/info' },
+  { label: 'model/sona',      desc: 'SONA adapter profiles',                         endpoint: '/api/v1/model/sona/profiles' },
+  { label: 'pose/current',    desc: 'Current keypoint pose data',                    endpoint: '/api/v1/pose/current' },
+  { label: 'pose/stats',      desc: 'Pose detection statistics',                     endpoint: '/api/v1/pose/stats' },
+  { label: 'pose/zones',      desc: 'Zone occupancy summary',                        endpoint: '/api/v1/pose/zones/summary' },
+  { label: 'stream/status',   desc: 'Stream pipeline status',                        endpoint: '/api/v1/stream/status' },
+  { label: 'adaptive/status', desc: 'Adaptive classifier status',                    endpoint: '/api/v1/adaptive/status' },
+  { label: 'models',          desc: 'List RVF model files',                          endpoint: '/api/v1/models' },
+  { label: 'recording/list',  desc: 'List CSI recordings',                           endpoint: '/api/v1/recording/list' },
+  { label: 'train/status',    desc: 'Training pipeline status',                      endpoint: '/api/v1/train/status' },
+  { label: 'wasm-events',     desc: 'WASM events from ESP32',                        endpoint: '/api/v1/wasm-events' },
+  { label: 'metrics',         desc: 'Prometheus-style health metrics',                endpoint: '/health/metrics' },
+  { label: 'info',            desc: 'API info and version',                           endpoint: '/api/v1/info' },
+];
+
+function buildScriptList() {
+  const el = q('script-list');
+  el.innerHTML = SCRIPTS.map((s,i) => `
+    <div class="script-item" data-idx="${i}">
+      <span class="badge badge-blue script-badge">GET</span>
+      <span class="script-label">${s.label}</span>
+      <span class="script-desc">${s.desc}</span>
+      <button class="btn" style="padding:3px 8px;font-size:10px" onclick="runScript(${i})">Run</button>
+    </div>`).join('');
+}
+
+async function runScript(idx) {
+  const s = SCRIPTS[idx];
+  const out = q('script-output');
+  out.textContent = `Fetching ${BASE_URL}${s.endpoint}…\n`;
+  const data = await apiFetch(`${BASE_URL}${s.endpoint}`);
+  if (!data) { out.textContent += '⚠ No response from server'; return; }
+  out.textContent += JSON.stringify(data, null, 2);
+}
+
+// ── 3D View lazy load ─────────────────────────────────────────────────────────
+let viz3dLoaded = false;
+function ensureViz3dLoaded() {
+  if (viz3dLoaded) return;
+  viz3dLoaded = true;
+  // Already src-set; force reload if needed
+  const f = q('view3d-frame');
+  if (!f.src || f.src === 'about:blank') f.src = 'viz.html';
+}
+
+// ── Button wiring ─────────────────────────────────────────────────────────────
+q('btn-refresh-all').addEventListener('click', () => { pollHealth(); pollVitals(); pollZones(); });
+q('btn-open-gui').addEventListener('click', () => {
+  ['index.html','pose-fusion.html','observatory.html','viz.html'].forEach(p => window.open(p,'_blank'));
+});
+q('btn-start-srv').addEventListener('click', () => {
+  appendLog('Server start must be initiated from CLI: .ionity/ionity.sh run', 'warn');
+  q('tab-logs').querySelector && document.querySelector('.tab-btn[data-tab="logs"]').click();
+});
+q('btn-stop-srv').addEventListener('click', () => {
+  appendLog('Server stop must be initiated from CLI: .ionity/ionity.sh stop', 'warn');
+});
+
+// Signals
+q('btn-sig-connect').addEventListener('click', connectSignalWs);
+q('btn-sig-disconnect').addEventListener('click', disconnectSignalWs);
+
+// Logs
+q('btn-log-start').addEventListener('click', () => {
+  if (logPoller) return;
+  logPoller = setInterval(pollLogs, 2000);
+  q('btn-log-start').style.display = 'none';
+  q('btn-log-stop').style.display  = '';
+  appendLog('Polling started', 'ok');
+});
+q('btn-log-stop').addEventListener('click', () => {
+  clearInterval(logPoller); logPoller = null;
+  q('btn-log-start').style.display = '';
+  q('btn-log-stop').style.display  = 'none';
+  appendLog('Polling stopped', 'warn');
+});
+q('btn-log-clear').addEventListener('click', () => { q('log-output').innerHTML = ''; });
+
+// ESP32 scan
+q('btn-esp-scan').addEventListener('click', async () => {
+  q('esp-scan-status').textContent = 'Scanning…';
+  const data = await apiFetch(`${API}/nodes`);
+  if (!data) { q('esp-scan-status').textContent = 'Server offline'; return; }
+  const arr = Array.isArray(data) ? data : (data.nodes ?? []);
+  renderEspTable(arr);
+  q('esp-scan-status').textContent = `${arr.length} node(s) found`;
+});
+
+q('btn-usb-scan').addEventListener('click', async () => {
+  q('usb-scan-status').textContent = 'Querying server…';
+  const d = await apiFetch(`${API}/info`);
+  q('usb-boards-output').innerHTML = d
+    ? `<pre style="font-size:11px">${JSON.stringify(d, null, 2)}</pre>`
+    : '<span style="color:var(--text-dim)">Server not responding. Run board scan from CLI: .ionity/ionity.sh scan</span>';
+  q('usb-scan-status').textContent = 'Done';
+});
+
+// Provision (calls the provision.py script via the server — or shows CLI hint)
+q('btn-provision').addEventListener('click', () => {
+  const port    = q('prov-port').value.trim() || '/dev/ttyACM0';
+  const nodeId  = q('prov-nodeid').value || '1';
+  const ssid    = q('prov-ssid').value.trim();
+  const pass    = q('prov-pass').value;
+  const hubIp   = q('prov-hub-ip').value.trim();
+  const flash   = q('prov-flash').value;
+  const out     = q('prov-output');
+  out.style.display = 'block';
+  out.textContent = `To provision this node, run from the terminal:\n\n`;
+  out.textContent += `.ionity/ionity.sh provision ${port} ${nodeId} ${flash}\n`;
+  if (ssid) out.textContent += `\n# Or use the Python helper:\npython scripts/provision.py --port ${port} --ssid "${ssid}" --password "****" --target-ip ${hubIp || '192.168.1.20'}`;
+  q('prov-status').textContent = 'CLI command ready — see below';
+});
+
+q('btn-prov-nvs').addEventListener('click', () => {
+  const port = q('prov-port').value.trim() || '/dev/ttyACM0';
+  const out  = q('prov-output');
+  out.style.display = 'block';
+  out.textContent   = `.ionity/ionity.sh provision nvs ${port} node_id 1\n.ionity/ionity.sh provision nvs ${port} wifi_ssid "YourSSID"\n.ionity/ionity.sh provision nvs ${port} wifi_pass "YourPass"`;
+  q('prov-status').textContent = 'NVS CLI command ready — see below';
+});
+
+// ── FPS counter ───────────────────────────────────────────────────────────────
+setInterval(() => {
+  sigFps = sigFrameCount;
+  sigFrameCount = 0;
+  q('sig-fps').textContent = sigFps;
+}, 1000);
+
+// ── Startup ───────────────────────────────────────────────────────────────────
+buildScriptList();
+pollHealth();
+pollVitals();
+pollZones();
+healthInterval = setInterval(pollHealth, 3000);
+vitalsInterval = setInterval(() => { pollVitals(); pollZones(); }, 5000);
+resizeSignalCanvas();
+window.addEventListener('resize', resizeSignalCanvas);
+</script>
+</body>
+</html>

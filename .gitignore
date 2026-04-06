@@ -97,6 +97,9 @@ cover/
 
 # Django stuff:
 *.log
+# Allow structured runtime logs to be tracked in logs/
+!logs/
+!logs/**
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
@@ -250,3 +253,4 @@ v1/src/sensing/mac_wifi
 # Local build scripts
 firmware/esp32-csi-node/build_firmware.batdata/
 models/
+.env.local

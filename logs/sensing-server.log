@@ -1,0 +1,198 @@
+nohup: ignoring input
+[2m2026-04-06T11:34:10.880107Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WiFi-DensePose Sensing Server (Rust + Axum + RuVector)
+[2m2026-04-06T11:34:10.880139Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   HTTP:      http://localhost:3000
+[2m2026-04-06T11:34:10.880144Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   WebSocket: ws://localhost:3001/ws/sensing
+[2m2026-04-06T11:34:10.880147Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   UDP:       0.0.0.0:5005 (ESP32 CSI)
+[2m2026-04-06T11:34:10.880151Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   UI path:   ui
+[2m2026-04-06T11:34:10.880154Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   Source:    wifi:Ionity 2.4
+[2m2026-04-06T11:34:10.880160Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Data source: wifi:Ionity 2.4
+[2m2026-04-06T11:34:10.880162Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Vital sign detector sample rate: 10.0 Hz
+[2m2026-04-06T11:34:10.880168Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Loading RVF container from data/models/wifi-densepose-v1.rvf
+[2m2026-04-06T11:34:10.880559Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   RVF loaded: 7 segments, 13312 bytes
+[2m2026-04-06T11:34:10.880576Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   Model ID: "wifi-densepose"
+[2m2026-04-06T11:34:10.880582Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   Version:  "1.0.0"
+[2m2026-04-06T11:34:10.880586Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   Weights: 2856 parameters
+[2m2026-04-06T11:34:10.880589Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   Vital sign config: present
+[2m2026-04-06T11:34:10.880592Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   Witness/proof: present
+[2m2026-04-06T11:34:10.938479Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Discovered 1 model files, 2 recording files
+[2m2026-04-06T11:34:10.938592Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Simulated data source active (tick=100ms)
+[2m2026-04-06T11:34:10.938611Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket server listening on 0.0.0.0:3001
+[2m2026-04-06T11:34:10.938770Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m HTTP server listening on 0.0.0.0:3000
+[2m2026-04-06T11:34:10.938775Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Open http://localhost:3000/ui/index.html in your browser
+[2m2026-04-06T11:34:36.335875Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket client connected (sensing)
+[2m2026-04-06T11:34:36.542728Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket client disconnected (sensing)
+[2m2026-04-06T11:39:10.940141Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #10: healthy=true, tick=3001, RSS=6.1MB, uptime=300s, recoveries=0
+[2m2026-04-06T11:44:10.940823Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #20: healthy=true, tick=6001, RSS=6.1MB, uptime=600s, recoveries=0
+[2m2026-04-06T11:49:10.940789Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #30: healthy=true, tick=9001, RSS=6.1MB, uptime=900s, recoveries=0
+[2m2026-04-06T11:54:10.940256Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #40: healthy=true, tick=12001, RSS=6.1MB, uptime=1200s, recoveries=0
+[2m2026-04-06T11:59:10.940488Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #50: healthy=true, tick=15001, RSS=6.1MB, uptime=1500s, recoveries=0
+[2m2026-04-06T12:04:10.939979Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #60: healthy=true, tick=18001, RSS=6.2MB, uptime=1800s, recoveries=0
+[2m2026-04-06T12:09:10.940682Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #70: healthy=true, tick=21001, RSS=6.2MB, uptime=2100s, recoveries=0
+[2m2026-04-06T12:14:10.940285Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #80: healthy=true, tick=24001, RSS=6.2MB, uptime=2400s, recoveries=0
+[2m2026-04-06T12:19:10.940451Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #90: healthy=true, tick=27001, RSS=6.2MB, uptime=2700s, recoveries=0
+[2m2026-04-06T12:24:10.940546Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #100: healthy=true, tick=30001, RSS=6.2MB, uptime=3000s, recoveries=0
+[2m2026-04-06T12:29:10.940878Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #110: healthy=true, tick=33001, RSS=6.2MB, uptime=3300s, recoveries=0
+[2m2026-04-06T12:30:30.105525Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WiFi-DensePose Sensing Server (Rust + Axum + RuVector)
+[2m2026-04-06T12:30:30.105576Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   HTTP:      http://localhost:3000
+[2m2026-04-06T12:30:30.105582Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   WebSocket: ws://localhost:3001/ws/sensing
+[2m2026-04-06T12:30:30.105586Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   UDP:       0.0.0.0:5005 (ESP32 CSI)
+[2m2026-04-06T12:30:30.105590Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   UI path:   /home/antwerp/Creations/.2026/.Naked/RuView/ui
+[2m2026-04-06T12:30:30.105594Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   Source:    auto
+[2m2026-04-06T12:30:30.105600Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Auto-detecting data source...
+[2m2026-04-06T12:30:32.107030Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   No hardware detected, using simulation
+[2m2026-04-06T12:30:32.107062Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Data source: simulate
+[2m2026-04-06T12:30:32.107067Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Vital sign detector sample rate: 10.0 Hz
+[2m2026-04-06T12:30:32.154351Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Discovered 1 model files, 2 recording files
+[2m2026-04-06T12:30:32.154436Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Simulated data source active (tick=100ms)
+[2m2026-04-06T12:30:32.154505Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket server listening on 0.0.0.0:3001
+[2m2026-04-06T12:30:32.154654Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m HTTP server listening on 0.0.0.0:3000
+[2m2026-04-06T12:30:32.154660Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Open http://localhost:3000/ui/index.html in your browser
+nohup: ignoring input
+[2m2026-04-06T12:33:19.118633Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WiFi-DensePose Sensing Server (Rust + Axum + RuVector)
+[2m2026-04-06T12:33:19.118709Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   HTTP:      http://localhost:3000
+[2m2026-04-06T12:33:19.118720Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   WebSocket: ws://localhost:3001/ws/sensing
+[2m2026-04-06T12:33:19.118724Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   UDP:       0.0.0.0:5005 (ESP32 CSI)
+[2m2026-04-06T12:33:19.118729Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   UI path:   /home/antwerp/Creations/.2026/.Naked/RuView/ui
+[2m2026-04-06T12:33:19.118733Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   Source:    auto
+[2m2026-04-06T12:33:19.118743Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Auto-detecting data source...
+[2m2026-04-06T12:33:21.120373Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   No hardware detected, using simulation
+[2m2026-04-06T12:33:21.120407Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Data source: simulate
+[2m2026-04-06T12:33:21.120412Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Vital sign detector sample rate: 10.0 Hz
+[2m2026-04-06T12:33:21.163308Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Discovered 1 model files, 2 recording files
+[2m2026-04-06T12:33:21.163387Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Simulated data source active (tick=100ms)
+[2m2026-04-06T12:33:21.163442Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket server listening on 0.0.0.0:3001
+[2m2026-04-06T12:33:21.163591Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m HTTP server listening on 0.0.0.0:3000
+[2m2026-04-06T12:33:21.163597Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Open http://localhost:3000/ui/index.html in your browser
+[2m2026-04-06T12:36:11.084677Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WiFi-DensePose Sensing Server (Rust + Axum + RuVector)
+[2m2026-04-06T12:36:11.084739Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   HTTP:      http://localhost:3000
+[2m2026-04-06T12:36:11.084746Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   WebSocket: ws://localhost:3001/ws/sensing
+[2m2026-04-06T12:36:11.084752Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   UDP:       0.0.0.0:5005 (ESP32 CSI)
+[2m2026-04-06T12:36:11.084756Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   UI path:   /home/antwerp/Creations/.2026/.Naked/RuView/ui
+[2m2026-04-06T12:36:11.084760Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   Source:    auto
+[2m2026-04-06T12:36:11.084766Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Auto-detecting data source...
+[2m2026-04-06T12:36:13.085966Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   No hardware detected, using simulation
+[2m2026-04-06T12:36:13.085998Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Data source: simulate
+[2m2026-04-06T12:36:13.086003Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Vital sign detector sample rate: 10.0 Hz
+[2m2026-04-06T12:36:13.137149Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Discovered 1 model files, 2 recording files
+[2m2026-04-06T12:36:13.137224Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Simulated data source active (tick=100ms)
+[2m2026-04-06T12:36:13.137272Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket server listening on 0.0.0.0:3001
+[2m2026-04-06T12:36:13.137422Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m HTTP server listening on 0.0.0.0:3000
+[2m2026-04-06T12:36:13.137428Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Open http://localhost:3000/ui/index.html in your browser
+[2m2026-04-06T12:36:48.608637Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WiFi-DensePose Sensing Server (Rust + Axum + RuVector)
+[2m2026-04-06T12:36:48.608696Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   HTTP:      http://localhost:3000
+[2m2026-04-06T12:36:48.608702Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   WebSocket: ws://localhost:3001/ws/sensing
+[2m2026-04-06T12:36:48.608706Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   UDP:       0.0.0.0:5005 (ESP32 CSI)
+[2m2026-04-06T12:36:48.608710Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   UI path:   /home/antwerp/Creations/.2026/.Naked/RuView/ui
+[2m2026-04-06T12:36:48.608714Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   Source:    auto
+[2m2026-04-06T12:36:48.608720Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Auto-detecting data source...
+[2m2026-04-06T12:36:50.610239Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   No hardware detected, using simulation
+[2m2026-04-06T12:36:50.610272Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Data source: simulate
+[2m2026-04-06T12:36:50.610277Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Vital sign detector sample rate: 10.0 Hz
+[2m2026-04-06T12:36:50.654558Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Discovered 1 model files, 2 recording files
+[2m2026-04-06T12:36:50.654644Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Simulated data source active (tick=100ms)
+[2m2026-04-06T12:36:50.654725Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket server listening on 0.0.0.0:3001
+[2m2026-04-06T12:36:50.654883Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m HTTP server listening on 0.0.0.0:3000
+[2m2026-04-06T12:36:50.654891Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Open http://localhost:3000/ui/index.html in your browser
+nohup: ignoring input
+[2m2026-04-06T12:40:49.464165Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WiFi-DensePose Sensing Server (Rust + Axum + RuVector)
+[2m2026-04-06T12:40:49.464232Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   HTTP:      http://localhost:3000
+[2m2026-04-06T12:40:49.464240Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   WebSocket: ws://localhost:3001/ws/sensing
+[2m2026-04-06T12:40:49.464254Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   UDP:       0.0.0.0:5005 (ESP32 CSI)
+[2m2026-04-06T12:40:49.464258Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   UI path:   ui
+[2m2026-04-06T12:40:49.464262Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   Source:    auto
+[2m2026-04-06T12:40:49.464269Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Auto-detecting data source...
+[2m2026-04-06T12:40:51.465816Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   No hardware detected, using simulation
+[2m2026-04-06T12:40:51.465850Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Data source: simulate
+[2m2026-04-06T12:40:51.465854Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Vital sign detector sample rate: 10.0 Hz
+[2m2026-04-06T12:40:51.522889Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Discovered 1 model files, 2 recording files
+[2m2026-04-06T12:40:51.523110Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket server listening on 0.0.0.0:3001
+[2m2026-04-06T12:40:51.523342Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m HTTP server listening on 0.0.0.0:3000
+[2m2026-04-06T12:40:51.523355Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Open http://localhost:3000/ui/index.html in your browser
+[2m2026-04-06T12:40:51.523554Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Simulated data source active (tick=100ms)
+nohup: ignoring input
+[2m2026-04-06T12:44:09.678109Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WiFi-DensePose Sensing Server (Rust + Axum + RuVector)
+[2m2026-04-06T12:44:09.678151Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   HTTP:      http://localhost:3000
+[2m2026-04-06T12:44:09.678158Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   WebSocket: ws://localhost:3001/ws/sensing
+[2m2026-04-06T12:44:09.678162Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   UDP:       0.0.0.0:5005 (ESP32 CSI)
+[2m2026-04-06T12:44:09.678165Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   UI path:   ui
+[2m2026-04-06T12:44:09.678169Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   Source:    esp32
+[2m2026-04-06T12:44:09.678177Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Data source: esp32
+[2m2026-04-06T12:44:09.678181Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Vital sign detector sample rate: 10.0 Hz
+[2m2026-04-06T12:44:09.728229Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Discovered 1 model files, 2 recording files
+[2m2026-04-06T12:44:09.728431Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m UDP listening on 0.0.0.0:5005 for ESP32 CSI frames
+[2m2026-04-06T12:44:09.728549Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket server listening on 0.0.0.0:3001
+[2m2026-04-06T12:44:09.728717Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m HTTP server listening on 0.0.0.0:3000
+[2m2026-04-06T12:44:09.728727Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Open http://localhost:3000/ui/index.html in your browser
+nohup: ignoring input
+[2m2026-04-06T12:44:16.522274Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WiFi-DensePose Sensing Server (Rust + Axum + RuVector)
+[2m2026-04-06T12:44:16.522317Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   HTTP:      http://localhost:3000
+[2m2026-04-06T12:44:16.522323Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   WebSocket: ws://localhost:3001/ws/sensing
+[2m2026-04-06T12:44:16.522327Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   UDP:       0.0.0.0:5005 (ESP32 CSI)
+[2m2026-04-06T12:44:16.522331Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   UI path:   ui
+[2m2026-04-06T12:44:16.522335Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   Source:    esp32
+[2m2026-04-06T12:44:16.522341Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Data source: esp32
+[2m2026-04-06T12:44:16.522345Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Vital sign detector sample rate: 10.0 Hz
+[2m2026-04-06T12:44:16.579379Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Discovered 1 model files, 2 recording files
+[2m2026-04-06T12:44:16.579663Z[0m [31mERROR[0m [2msensing_server[0m[2m:[0m Failed to bind UDP 0.0.0.0:5005: Address already in use (os error 98)
+
+thread 'main' (481239) panicked at crates/wifi-densepose-sensing-server/src/main.rs:5141:10:
+Failed to bind WebSocket port: Os { code: 98, kind: AddrInUse, message: "Address already in use" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+[2m2026-04-06T12:49:09.729288Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #10: healthy=true, tick=0, RSS=5.2MB, uptime=300s, recoveries=0
+nohup: ignoring input
+[2m2026-04-06T12:50:41.548827Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WiFi-DensePose Sensing Server (Rust + Axum + RuVector)
+[2m2026-04-06T12:50:41.548884Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   HTTP:      http://localhost:3000
+[2m2026-04-06T12:50:41.548895Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   WebSocket: ws://localhost:3001/ws/sensing
+[2m2026-04-06T12:50:41.548900Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   UDP:       0.0.0.0:5005 (ESP32 CSI)
+[2m2026-04-06T12:50:41.548905Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   UI path:   ui
+[2m2026-04-06T12:50:41.548909Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   Source:    wifi
+[2m2026-04-06T12:50:41.548918Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Data source: wifi
+[2m2026-04-06T12:50:41.548922Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Vital sign detector sample rate: 10.0 Hz
+[2m2026-04-06T12:50:41.608499Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Discovered 1 model files, 2 recording files
+[2m2026-04-06T12:50:41.615999Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Linux WiFi sensing: interface=wlan0 — scanning all visible BSSIDs
+[2m2026-04-06T12:50:41.616086Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Linux multi-BSSID WiFi sensing active (iface=wlan0, tick=100ms, max_bssids=64)
+[2m2026-04-06T12:50:41.616103Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   Scanning all visible APs — own + neighbours — as passive RF beacons
+[2m2026-04-06T12:50:41.616240Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket server listening on 0.0.0.0:3001
+[2m2026-04-06T12:50:41.616446Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m HTTP server listening on 0.0.0.0:3000
+[2m2026-04-06T12:50:41.616462Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Open http://localhost:3000/ui/index.html in your browser
+nohup: ignoring input
+[2m2026-04-06T12:50:48.974888Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WiFi-DensePose Sensing Server (Rust + Axum + RuVector)
+[2m2026-04-06T12:50:48.974941Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   HTTP:      http://localhost:3000
+[2m2026-04-06T12:50:48.974950Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   WebSocket: ws://localhost:3001/ws/sensing
+[2m2026-04-06T12:50:48.974954Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   UDP:       0.0.0.0:5005 (ESP32 CSI)
+[2m2026-04-06T12:50:48.974959Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   UI path:   ui
+[2m2026-04-06T12:50:48.974963Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   Source:    wifi
+[2m2026-04-06T12:50:48.974972Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Data source: wifi
+[2m2026-04-06T12:50:48.974976Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Vital sign detector sample rate: 10.0 Hz
+[2m2026-04-06T12:50:49.027863Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Discovered 1 model files, 2 recording files
+[2m2026-04-06T12:50:49.037761Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Linux WiFi sensing: interface=wlan0 — scanning all visible BSSIDs
+[2m2026-04-06T12:50:49.037858Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Linux multi-BSSID WiFi sensing active (iface=wlan0, tick=100ms, max_bssids=64)
+[2m2026-04-06T12:50:49.037886Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m   Scanning all visible APs — own + neighbours — as passive RF beacons
+
+thread 'main' (486912) panicked at crates/wifi-densepose-sensing-server/src/main.rs:5141:10:
+Failed to bind WebSocket port: Os { code: 98, kind: AddrInUse, message: "Address already in use" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+[2m2026-04-06T12:53:01.160090Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket client connected (sensing)
+[2m2026-04-06T12:53:01.272710Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket client connected (pose)
+[2m2026-04-06T12:53:08.762445Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket client connected (sensing)
+[2m2026-04-06T12:53:08.919799Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket client connected (pose)
+[2m2026-04-06T12:53:16.736507Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket client connected (sensing)
+[2m2026-04-06T12:53:16.966387Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket client connected (pose)
+[2m2026-04-06T12:55:41.617169Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #10: healthy=true, tick=3000, RSS=11.9MB, uptime=300s, recoveries=0
+[2m2026-04-06T12:56:30.638943Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket client disconnected (pose)
+[2m2026-04-06T12:56:30.641750Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket client disconnected (sensing)
+[2m2026-04-06T12:57:06.856954Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket client disconnected (pose)
+[2m2026-04-06T12:57:06.858073Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket client disconnected (sensing)
+[2m2026-04-06T12:57:06.858205Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket client disconnected (pose)
+[2m2026-04-06T12:57:06.858063Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m WebSocket client disconnected (sensing)
+[2m2026-04-06T13:00:41.616737Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #20: healthy=true, tick=6000, RSS=11.9MB, uptime=600s, recoveries=0
+[2m2026-04-06T13:05:41.616817Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #30: healthy=true, tick=9000, RSS=11.9MB, uptime=900s, recoveries=0
+[2m2026-04-06T13:10:41.617283Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #40: healthy=true, tick=12000, RSS=11.9MB, uptime=1200s, recoveries=0
+[2m2026-04-06T13:15:41.617357Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #50: healthy=true, tick=15000, RSS=11.9MB, uptime=1500s, recoveries=0
+[2m2026-04-06T13:20:41.616808Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #60: healthy=true, tick=18000, RSS=11.9MB, uptime=1800s, recoveries=0
+[2m2026-04-06T13:25:41.616684Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #70: healthy=true, tick=21000, RSS=11.9MB, uptime=2100s, recoveries=0
+[2m2026-04-06T13:30:41.616980Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #80: healthy=true, tick=24000, RSS=11.9MB, uptime=2400s, recoveries=0
+[2m2026-04-06T13:35:41.617317Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #90: healthy=true, tick=27000, RSS=11.9MB, uptime=2700s, recoveries=0
+[2m2026-04-06T13:40:41.621707Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #100: healthy=true, tick=30000, RSS=11.9MB, uptime=3000s, recoveries=0
+[2m2026-04-06T13:45:41.616554Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #110: healthy=true, tick=33000, RSS=11.9MB, uptime=3300s, recoveries=0
+[2m2026-04-06T13:50:41.616692Z[0m [32m INFO[0m [2msensing_server[0m[2m:[0m Autorepair selfcheck #120: healthy=true, tick=36000, RSS=11.2MB, uptime=3600s, recoveries=0

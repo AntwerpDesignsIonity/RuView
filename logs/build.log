@@ -1,0 +1,351 @@
+warning: unused variable: `n_links`
+   --> crates/wifi-densepose-signal/src/ruvsense/field_model.rs:456:13
+    |
+456 |         let n_links = observations.len();
+    |             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_n_links`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `phase_aligner` and `gate_policy` are never read
+   --> crates/wifi-densepose-signal/src/ruvsense/mod.rs:185:5
+    |
+183 | pub struct RuvSensePipeline {
+    |            ---------------- fields in this struct
+184 |     config: RuvSenseConfig,
+185 |     phase_aligner: PhaseAligner,
+    |     ^^^^^^^^^^^^^
+186 |     coherence_state: CoherenceState,
+187 |     gate_policy: GatePolicy,
+    |     ^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `timestamp_us` is never read
+   --> crates/wifi-densepose-signal/src/ruvsense/intention.rs:110:5
+    |
+108 | struct TrajectoryPoint {
+    |        --------------- field in this struct
+109 |     embedding: Vec<f64>,
+110 |     timestamp_us: u64,
+    |     ^^^^^^^^^^^^
+    |
+    = note: `TrajectoryPoint` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `predict_only_noise` is never read
+  --> crates/wifi-densepose-signal/src/ruvsense/coherence_gate.rs:99:5
+   |
+91 | pub struct GatePolicy {
+   |            ---------- field in this struct
+...
+99 |     predict_only_noise: f32,
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `GatePolicy` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `num_channels` is never read
+  --> crates/wifi-densepose-signal/src/ruvsense/phase_align.rs:72:5
+   |
+70 | pub struct PhaseAligner {
+   |            ------------ field in this struct
+71 |     /// Number of channels expected.
+72 |     num_channels: usize,
+   |     ^^^^^^^^^^^^
+   |
+   = note: `PhaseAligner` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: `wifi-densepose-signal` (lib) generated 5 warnings (run `cargo fix --lib -p wifi-densepose-signal` to apply 1 suggestion)
+warning: associated function `new` is never used
+   --> crates/wifi-densepose-sensing-server/src/rvf_container.rs:128:8
+    |
+126 | impl SegmentHeader {
+    | ------------------ associated function in this implementation
+127 |     /// Create a new header with the given type and segment ID.
+128 |     fn new(seg_type: u8, segment_id: u64) -> Self {
+    |        ^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: associated function `batch_loss_components` is never used
+   --> crates/wifi-densepose-sensing-server/src/trainer.rs:719:8
+    |
+428 | impl Trainer {
+    | ------------ associated function in this implementation
+...
+719 |     fn batch_loss_components(params: &[f32], batch: &[TrainingSample]) ...
+    |        ^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `d_proj` is never read
+   --> crates/wifi-densepose-sensing-server/src/embedding.rs:586:5
+    |
+583 | pub struct PoseEncoder {
+    |            ----------- field in this struct
+...
+586 |     d_proj: usize,
+    |     ^^^^^^
+    |
+    = note: `PoseEncoder` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: `wifi-densepose-sensing-server` (lib) generated 3 warnings
+   Compiling wifi-densepose-sensing-server v0.3.0 (/home/antwerp/Creations/.2026/.Naked/RuView/rust-port/wifi-densepose-rs/crates/wifi-densepose-sensing-server)
+warning: unused imports: `KeypointState`, `PoseTrack`, and `self`
+  --> crates/wifi-densepose-sensing-server/src/tracker_bridge.rs:10:5
+   |
+10 |     self, KeypointState, PoseTrack, TrackLifecycleState, TrackId, NUM_KE...
+   |     ^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `wifi_densepose_wifiscan::parse_iw_scan_output`
+  --> crates/wifi-densepose-sensing-server/src/main.rs:63:5
+   |
+63 | use wifi_densepose_wifiscan::parse_iw_scan_output;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: fields `prev_keypoints`, `motion_energy_history`, and `coherence_score` are never read
+   --> crates/wifi-densepose-sensing-server/src/main.rs:332:5
+    |
+307 | struct NodeState {
+    |        --------- fields in this struct
+...
+332 |     prev_keypoints: Option<Vec<[f64; 3]>>,
+    |     ^^^^^^^^^^^^^^
+333 |     /// Rolling buffer of motion_energy...
+334 |     motion_energy_history: VecDeque<f64>,
+    |     ^^^^^^^^^^^^^^^^^^^^^
+335 |     /// Coherence score [0.0, 1.0]: low...
+336 |     coherence_score: f64,
+    |     ^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `TEMPORAL_EMA_ALPHA_DEFAULT` is never used
+   --> crates/wifi-densepose-sensing-server/src/main.rs:342:7
+    |
+342 | const TEMPORAL_EMA_ALPHA_DEFAULT: f64 = 0.15;
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `TEMPORAL_EMA_ALPHA_LOW_COHERENCE` is never used
+   --> crates/wifi-densepose-sensing-server/src/main.rs:344:7
+    |
+344 | const TEMPORAL_EMA_ALPHA_LOW_COHERENCE: f64 = 0.05;
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `COHERENCE_LOW_THRESHOLD` is never used
+   --> crates/wifi-densepose-sensing-server/src/main.rs:346:7
+    |
+346 | const COHERENCE_LOW_THRESHOLD: f64 = 0.3;
+    |       ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MAX_BONE_CHANGE_RATIO` is never used
+   --> crates/wifi-densepose-sensing-server/src/main.rs:348:7
+    |
+348 | const MAX_BONE_CHANGE_RATIO: f64 = 0.20;
+    |       ^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `update_coherence` and `ema_alpha` are never used
+   --> crates/wifi-densepose-sensing-server/src/main.rs:386:8
+    |
+352 | impl NodeState {
+    | -------------- methods in this implementation
+...
+386 |     fn update_coherence(&mut self, motion_energy: f64) {
+    |        ^^^^^^^^^^^^^^^^
+...
+408 |     fn ema_alpha(&self) -> f64 {
+    |        ^^^^^^^^^
+
+warning: function `windows_wifi_task` is never used
+    --> crates/wifi-densepose-sensing-server/src/main.rs:1674:10
+     |
+1674 | async fn windows_wifi_task(state: SharedState, tick_ms: u64) {
+     |          ^^^^^^^^^^^^^^^^^
+
+warning: function `windows_wifi_fallback_tick` is never used
+    --> crates/wifi-densepose-sensing-server/src/main.rs:1898:10
+     |
+1898 | async fn windows_wifi_fallback_tick(state: &SharedState, seq: u32) {
+     |          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `POSE_BONE_PAIRS` is never used
+    --> crates/wifi-densepose-sensing-server/src/main.rs:2732:7
+     |
+2732 | const POSE_BONE_PAIRS: &[(usize, usize)] = &[
+     |       ^^^^^^^^^^^^^^^
+
+warning: function `apply_temporal_smoothing` is never used
+    --> crates/wifi-densepose-sensing-server/src/main.rs:2743:4
+     |
+2743 | fn apply_temporal_smoothing(persons: &mut [PersonDetection], ns: &mut ...
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `clamp_bone_lengths_f64` is never used
+    --> crates/wifi-densepose-sensing-server/src/main.rs:2783:4
+     |
+2783 | fn clamp_bone_lengths_f64(pose: &mut Vec<[f64; 3]>, prev: &[[f64; 3]]) {
+     |    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `dist_f64` is never used
+    --> crates/wifi-densepose-sensing-server/src/main.rs:2810:4
+     |
+2810 | fn dist_f64(a: &[f64; 3], b: &[f64; 3]) -> f64 {
+     |    ^^^^^^^^
+
+warning: constant `SEG_LORA` is never used
+  --> crates/wifi-densepose-sensing-server/src/rvf_container.rs:43:11
+   |
+43 | pub const SEG_LORA: u8 = 0x0D;
+   |           ^^^^^^^^
+
+warning: associated function `new` is never used
+   --> crates/wifi-densepose-sensing-server/src/rvf_container.rs:128:8
+    |
+126 | impl SegmentHeader {
+    | ------------------ associated function in this implementation
+127 |     /// Create a new header with the given type and segment ID.
+128 |     fn new(seg_type: u8, segment_id: u64) -> Self {
+    |        ^^^
+
+warning: method `add_lora_profile` is never used
+   --> crates/wifi-densepose-sensing-server/src/rvf_container.rs:314:12
+    |
+250 | impl RvfBuilder {
+    | --------------- method in this implementation
+...
+314 |     pub fn add_lora_profile(&mut self, name: &str, lora_weights: &[f32]) {
+    |            ^^^^^^^^^^^^^^^^
+
+warning: methods `vital_config`, `quant_info`, `witness`, `lora_profile`, and `lora_profiles` are never used
+   --> crates/wifi-densepose-sensing-server/src/rvf_container.rs:547:12
+    |
+438 | impl RvfReader {
+    | -------------- methods in this implementation
+...
+547 |     pub fn vital_config(&self) -> Option<VitalSignConfig> {
+    |            ^^^^^^^^^^^^
+...
+553 |     pub fn quant_info(&self) -> Option<serde_json::Value> {
+    |            ^^^^^^^^^^
+...
+559 |     pub fn witness(&self) -> Option<serde_json::Value> {
+    |            ^^^^^^^
+...
+588 |     pub fn lora_profile(&self, name: &str) -> Option<Vec<f32>> {
+    |            ^^^^^^^^^^^^
+...
+614 |     pub fn lora_profiles(&self) -> Vec<String> {
+    |            ^^^^^^^^^^^^^
+
+warning: constant `SEG_WASM` is never used
+  --> crates/wifi-densepose-sensing-server/src/rvf_pipeline.rs:21:11
+   |
+21 | pub const SEG_WASM: u8 = 0x10;
+   |           ^^^^^^^^
+
+warning: constant `SEG_DASHBOARD` is never used
+  --> crates/wifi-densepose-sensing-server/src/rvf_pipeline.rs:23:11
+   |
+23 | pub const SEG_DASHBOARD: u8 = 0x11;
+   |           ^^^^^^^^^^^^^
+
+warning: associated function `from_bytes` is never used
+  --> crates/wifi-densepose-sensing-server/src/rvf_pipeline.rs:86:12
+   |
+50 | impl HnswIndex {
+   | -------------- associated function in this implementation
+...
+86 |     pub fn from_bytes(data: &[u8]) -> Result<Self, String> {
+   |            ^^^^^^^^^^
+
+warning: associated functions `from_bytes`, `read_adj`, `read_u32`, `read_u64`, and `read_f32` are never used
+   --> crates/wifi-densepose-sensing-server/src/rvf_pipeline.rs:193:12
+    |
+168 | impl OverlayGraph {
+    | ----------------- associated functions in this implementation
+...
+193 |     pub fn from_bytes(data: &[u8]) -> Result<Self, String> {
+    |            ^^^^^^^^^^
+...
+230 |     fn read_adj(data: &[u8], off: &mut usize) -> Result<AdjacencyList, ...
+    |        ^^^^^^^^
+...
+243 |     fn read_u32(data: &[u8], off: &mut usize) -> Result<u32, String> {
+    |        ^^^^^^^^
+...
+252 |     fn read_u64(data: &[u8], off: &mut usize) -> Result<u64, String> {
+    |        ^^^^^^^^
+...
+261 |     fn read_f32(data: &[u8], off: &mut usize) -> Result<f32, String> {
+    |        ^^^^^^^^
+
+warning: struct `RvfBuildInfo` is never constructed
+   --> crates/wifi-densepose-sensing-server/src/rvf_pipeline.rs:275:12
+    |
+275 | pub struct RvfBuildInfo {
+    |            ^^^^^^^^^^^^
+
+warning: methods `set_hnsw_index`, `set_overlay`, `set_quantization`, `write_to_file`, and `build_info` are never used
+   --> crates/wifi-densepose-sensing-server/src/rvf_pipeline.rs:328:12
+    |
+301 | impl RvfModelBuilder {
+    | -------------------- methods in this implementation
+...
+328 |     pub fn set_hnsw_index(&mut self, index: HnswIndex) -> &mut Self {
+    |            ^^^^^^^^^^^^^^
+...
+334 |     pub fn set_overlay(&mut self, overlay: OverlayGraph) -> &mut Self {
+    |            ^^^^^^^^^^^
+...
+340 |     pub fn set_quantization(&mut self, mode: &str, scale: f32, zero_poi...
+    |            ^^^^^^^^^^^^^^^^
+...
+471 |     pub fn write_to_file(&self, path: &Path) -> Result<(), String> {
+    |            ^^^^^^^^^^^^^
+...
+478 |     pub fn build_info(&self) -> RvfBuildInfo {
+    |            ^^^^^^^^^^
+
+warning: field `manifest` is never read
+   --> crates/wifi-densepose-sensing-server/src/rvf_pipeline.rs:524:9
+    |
+523 | pub struct LayerAData {
+    |            ---------- field in this struct
+524 |     pub manifest: serde_json::Value,
+    |         ^^^^^^^^
+    |
+    = note: `LayerAData` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: struct `LayerBData` is never constructed
+   --> crates/wifi-densepose-sensing-server/src/rvf_pipeline.rs:532:12
+    |
+532 | pub struct LayerBData {
+    |            ^^^^^^^^^^
+
+warning: struct `LayerCData` is never constructed
+   --> crates/wifi-densepose-sensing-server/src/rvf_pipeline.rs:539:12
+    |
+539 | pub struct LayerCData {
+    |            ^^^^^^^^^^
+
+warning: methods `load_layer_b` and `load_layer_c` are never used
+   --> crates/wifi-densepose-sensing-server/src/rvf_pipeline.rs:586:12
+    |
+554 | impl ProgressiveLoader {
+    | ---------------------- methods in this implementation
+...
+586 |     pub fn load_layer_b(&mut self) -> Result<LayerBData, String> {
+    |            ^^^^^^^^^^^^
+...
+619 |     pub fn load_layer_c(&mut self) -> Result<LayerCData, String> {
+    |            ^^^^^^^^^^^^
+
+warning: method `reset` is never used
+   --> crates/wifi-densepose-sensing-server/src/vital_signs.rs:345:12
+    |
+ 87 | impl VitalSignDetector {
+    | ---------------------- method in this implementation
+...
+345 |     pub fn reset(&mut self) {
+    |            ^^^^^
+
+warning: `wifi-densepose-sensing-server` (bin "sensing-server") generated 29 warnings (run `cargo fix --bin "sensing-server" -p wifi-densepose-sensing-server` to apply 2 suggestions)
+    Finished `release` profile [optimized] target(s) in 1m 10s

@@ -19,6 +19,18 @@
       height: 100%;
       position: relative;
     }
+    /* nav bar for standalone mode */
+    #viz-nav {
+      position: absolute; top: 0; left: 0; right: 0; z-index: 10000;
+      display: flex; align-items: center; gap: 6px; padding: 6px 12px;
+      background: rgba(5,5,20,0.75); border-bottom: 1px solid #1a2040;
+      font-family: 'Courier New', monospace; font-size: 11px;
+    }
+    /* hide nav when embedded in iframe */
+    .in-iframe #viz-nav { display: none; }
+    .viz-nav-brand { color: #00ccff; font-weight: bold; letter-spacing: 2px; text-decoration: none; margin-right: 8px; }
+    .viz-nav-link  { color: #5577aa; text-decoration: none; padding: 3px 8px; border-radius: 3px; }
+    .viz-nav-link:hover { color: #c8d8f0; background: #111230; }
     #loading-overlay {
       position: absolute;
       top: 0; left: 0; right: 0; bottom: 0;
@@ -71,6 +83,14 @@
   </style>
 </head>
 <body>
+  <!-- Nav bar (hidden when embedded in iframe) -->
+  <nav id="viz-nav">
+    <a class="viz-nav-brand" href="index.html">π IONITY</a>
+    <a class="viz-nav-link" href="index.html">&larr; Dashboard</a>
+    <a class="viz-nav-link" href="monitor.html">&#9680; Monitor</a>
+    <a class="viz-nav-link" href="observatory.html">Observatory</a>
+    <a class="viz-nav-link" href="pose-fusion.html">Pose Fusion</a>
+  </nav>
   <div id="viz-container">
     <!-- Loading overlay -->
     <div id="loading-overlay">
@@ -83,6 +103,11 @@
     <!-- Stats.js container -->
     <div id="stats-container"></div>
   </div>
+
+  <script>
+    // Hide nav bar when embedded in an iframe
+    if (window.self !== window.top) document.body.classList.add('in-iframe');
+  </script>
 
   <!-- Three.js and OrbitControls from CDN -->
   <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
