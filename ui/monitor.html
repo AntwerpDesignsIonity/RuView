@@ -99,6 +99,7 @@
     .val-red   { color: var(--red); }
     .val-yellow{ color: var(--yellow); }
     .val-blue  { color: var(--accent2); }
+    .val-dim   { color: var(--dim); }
 
     /* ── Health bars ─────────────────────────────────────── */
     .hbar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: 4px; }
@@ -521,7 +522,6 @@ const HEALTH_URL = `${BASE_URL}/health`;
 
 // Update quick-links with real server URL
 document.getElementById('ctrl-srv-url').textContent = BASE_URL;
-document.getElementById('ov-health-link').href = HEALTH_URL + ' ';
 document.getElementById('ov-health-link').href = HEALTH_URL;
 document.getElementById('ov-api-link').href = `${API}/sensing/latest`;
 
