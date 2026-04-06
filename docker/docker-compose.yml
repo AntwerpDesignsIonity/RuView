@@ -5,7 +5,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.rust
-    image: ruvnet/wifi-densepose:latest
+    image: ionity/ruview:latest
     ports:
       - "3000:3000"   # REST API
       - "3001:3001"   # WebSocket
@@ -25,7 +25,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.python
-    image: ruvnet/wifi-densepose:python
+    image: ionity/ruview:python
     ports:
       - "8765:8765"   # WebSocket
       - "8080:8080"   # UI

@@ -294,4 +294,4 @@ Key design decisions documented in [`docs/adr/`](https://github.com/ruvnet/wifi-
 
 All crates are dual-licensed under [MIT](https://opensource.org/licenses/MIT) OR [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0).
 
-Copyright (c) 2024 rUv
+Copyright (c) 2026 Johan Wilhelm van Antwerp, Ionity Global (Pty) Ltd. Original work Copyright (c) 2024 rUv.

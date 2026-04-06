@@ -11,7 +11,7 @@ Prerequisites:
 
 Usage:
     python scripts/publish-huggingface.py
-    python scripts/publish-huggingface.py --repo ruvnet/wifi-densepose-pretrained --version v0.5.4
+    python scripts/publish-huggingface.py --repo ionity-global/wifi-densepose-pretrained --version v0.5.4
     python scripts/publish-huggingface.py --dry-run
     python scripts/publish-huggingface.py --token hf_xxxxx  # skip GCloud lookup
 """
@@ -205,8 +205,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--repo",
-        default="ruvnet/wifi-densepose-pretrained",
-        help="HuggingFace repo ID (default: ruvnet/wifi-densepose-pretrained)",
+        default="ionity-global/wifi-densepose-pretrained",
+        help="HuggingFace repo ID (default: ionity-global/wifi-densepose-pretrained)",
     )
     parser.add_argument(
         "--version",

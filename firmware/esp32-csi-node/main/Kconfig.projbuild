@@ -241,3 +241,45 @@ menu "Mock CSI (QEMU Testing)"
         depends on CSI_MOCK_ENABLED
         default n
 endmenu
+
+menu "Autorepair (WDT + Brownout + Selfcheck)"
+
+    config AUTOREPAIR_ENABLE
+        bool "Enable autorepair selfcheck loop"
+        default y
+        help
+            Periodically validate WiFi, heap, CSI pipeline health.
+            Attempts recovery on failure; reboots as last resort.
+            After 3+ consecutive autorepair reboots, activates
+            fallback config (reduced features, higher tolerances).
+
+    config AUTOREPAIR_WDT_TIMEOUT_S
+        int "Task watchdog timeout (seconds)"
+        default 15
+        range 5 120
+        depends on AUTOREPAIR_ENABLE
+        help
+            How long the main loop can go without feeding the WDT
+            before the system reboots. 15s is safe for CSI + edge DSP.
+            Increase for boards running WASM or heavy edge tiers.
+
+    config AUTOREPAIR_SELFCHECK_INTERVAL_S
+        int "Full selfcheck interval (seconds)"
+        default 30
+        range 5 300
+        depends on AUTOREPAIR_ENABLE
+        help
+            How often to run the full selfcheck (WiFi, heap, CSI).
+            The quick WDT feed runs every main-loop tick (10s).
+            The deep selfcheck runs at this interval.
+
+    config AUTOREPAIR_HEAP_MIN_KB
+        int "Minimum free heap threshold (KB)"
+        default 16
+        range 8 64
+        depends on AUTOREPAIR_ENABLE
+        help
+            Free heap below this triggers a HEAP_LOW warning.
+            Default 16 KB; raise for boards running WASM modules.
+
+endmenu

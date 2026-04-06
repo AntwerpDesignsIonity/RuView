@@ -12,6 +12,18 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_display.csv"
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
 
+# PSRAM (SPIRAM) configuration — 8MB Octal PSRAM on ESP32-S3
+# Critical: without PSRAM, CSI + WiFi + lwIP exhaust the 270KB internal SRAM
+# and stream_sender hits ENOMEM on every sendto()
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_BOOT_INIT=y
+# Allow malloc to fall back to PSRAM when internal RAM is full
+CONFIG_SPIRAM_USE_CAPS_ALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
+
 # Compiler optimization: optimize for size to reduce binary
 CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 
@@ -31,3 +43,22 @@ CONFIG_LWIP_SO_RCVBUF=y
 
 # FreeRTOS: increase task stack for CSI processing
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# ── Autorepair: Watchdog + Brownout ──────────────────────────────────
+# Task Watchdog Timer — reboots if main loop hangs
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=15
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=n
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+
+# Interrupt Watchdog — catches hard lock-ups on both cores
+CONFIG_ESP_INT_WDT=y
+CONFIG_ESP_INT_WDT_TIMEOUT_MS=800
+
+# Bootloader Watchdog — prevents bricked state from bootloader hang
+CONFIG_BOOTLOADER_WDT_ENABLE=y
+CONFIG_BOOTLOADER_WDT_TIME_MS=9000
+
+# Brownout Detector — resets on power sag (3.0V threshold for ESP32-S3)
+CONFIG_ESP_BROWNOUT_DET=y
+CONFIG_ESP_BROWNOUT_DET_LVL_SEL_7=y

@@ -9,10 +9,13 @@ description = "WiFi-based human pose estimation using CSI data and DensePose neu
 readme = "README.md"
 license = "MIT"
 authors = [
+    {name = "Johan Wilhelm van Antwerp", email = "ai@ionity.today"},
+    {name = "Ionity Global (Pty) Ltd"},
     {name = "rUv", email = "ruv@ruv.net"}
 ]
 maintainers = [
-    {name = "rUv", email = "ruv@ruv.net"}
+    {name = "Johan Wilhelm van Antwerp", email = "ai@ionity.today"},
+    {name = "Ionity Global (Pty) Ltd"}
 ]
 keywords = [
     "wifi",
@@ -167,11 +170,11 @@ deployment = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ruvnet/wifi-densepose"
-Documentation = "https://github.com/ruvnet/wifi-densepose#readme"
-Repository = "https://github.com/ruvnet/wifi-densepose.git"
-"Bug Tracker" = "https://github.com/ruvnet/wifi-densepose/issues"
-Changelog = "https://github.com/ruvnet/wifi-densepose/blob/main/CHANGELOG.md"
+Homepage = "https://www.ionity.today"
+Documentation = "https://www.ionity.today"
+Repository = "https://www.ionity.today"
+"Bug Tracker" = "https://www.ionity.today"
+Changelog = "https://www.ionity.today"
 
 [project.scripts]
 wifi-densepose = "src.cli:cli"

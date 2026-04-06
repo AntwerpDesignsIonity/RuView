@@ -117,17 +117,17 @@ setup(
     long_description_content_type="text/markdown",
     
     # Author information
-    author="rUv",
-    author_email="ruv@ruv.net",
-    maintainer="rUv",
-    maintainer_email="ruv@ruv.net",
+    author="Johan Wilhelm van Antwerp",
+    author_email="ai@ionity.today",
+    maintainer="Ionity Global (Pty) Ltd",
+    maintainer_email="ai@ionity.today",
     
     # URLs
-    url="https://github.com/ruvnet/wifi-densepose",
+    url="https://www.ionity.today",
     project_urls={
-        "Documentation": "https://github.com/ruvnet/wifi-densepose#readme",
-        "Source": "https://github.com/ruvnet/wifi-densepose",
-        "Tracker": "https://github.com/ruvnet/wifi-densepose/issues",
+        "Documentation": "https://www.ionity.today",
+        "Source": "https://www.ionity.today",
+        "Tracker": "https://www.ionity.today/issues",
     },
     
     # Package configuration

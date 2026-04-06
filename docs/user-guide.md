@@ -85,7 +85,7 @@ No hardware? The system runs in **simulated mode** with synthetic CSI data.
 The fastest path. No toolchain installation needed.
 
 ```bash
-docker pull ruvnet/wifi-densepose:latest
+docker pull ionity/ruview:latest
 ```
 
 Multi-architecture image (amd64 + arm64). Works on Intel/AMD and Apple Silicon Macs. Contains the Rust sensing server, Three.js UI, and all signal processing.
@@ -99,22 +99,24 @@ Multi-architecture image (amd64 + arm64). Works on Intel/AMD and Apple Silicon M
 | `simulated` | Generate synthetic CSI frames (no hardware required) |
 | `wifi` | Host Wi-Fi RSSI (not available inside containers) |
 
-Example: `docker run -e CSI_SOURCE=esp32 -p 3000:3000 -p 5005:5005/udp ruvnet/wifi-densepose:latest`
+Example: `docker run -e CSI_SOURCE=esp32 -p 3000:3000 -p 5005:5005/udp ionity/ruview:latest`
 
 ### From Source (Rust)
 
 ```bash
-git clone https://github.com/ruvnet/RuView.git
+git clone https://www.ionity.today/RuView.git
 cd RuView/rust-port/wifi-densepose-rs
 
-# Build
-cargo build --release
+# Build sensing server (must use --no-default-features to avoid BLAS dependency)
+cargo build -p wifi-densepose-sensing-server --release --no-default-features
 
-# Verify (runs 1,400+ tests)
+# Verify (runs 1,031+ tests)
 cargo test --workspace --no-default-features
 ```
 
 The compiled binary is at `target/release/sensing-server`.
+
+> **Why `--no-default-features`?** The default features pull in `ndarray-linalg` via the `eigenvalue` feature, which requires OpenBLAS and fails to compile with Rust 1.80+. The sensing server does not use these features.
 
 ### From crates.io (Individual Crates)
 
@@ -151,7 +153,7 @@ See the full crate list and dependency order in [CLAUDE.md](../CLAUDE.md#crate-p
 ### From Source (Python)
 
 ```bash
-git clone https://github.com/ruvnet/RuView.git
+git clone https://www.ionity.today/RuView.git
 cd RuView
 
 pip install -r requirements.txt
@@ -168,7 +170,7 @@ pip install wifi-densepose[all]   # All optional deps
 An interactive installer that detects your hardware and recommends a profile:
 
 ```bash
-git clone https://github.com/ruvnet/RuView.git
+git clone https://www.ionity.today/RuView.git
 cd RuView
 ./install.sh
 ```
@@ -188,7 +190,7 @@ Non-interactive:
 
 ```bash
 # Pull and run
-docker run -p 3000:3000 -p 3001:3001 ruvnet/wifi-densepose:latest
+docker run -p 3000:3000 -p 3001:3001 ionity/ruview:latest
 
 # Open the UI in your browser
 # http://localhost:3000
@@ -236,7 +238,7 @@ Default in Docker. Generates synthetic CSI data exercising the full pipeline.
 
 ```bash
 # Docker
-docker run -p 3000:3000 ruvnet/wifi-densepose:latest
+docker run -p 3000:3000 ionity/ruview:latest
 # (--source auto is the default; falls back to simulate when no hardware detected)
 
 # From source
@@ -252,7 +254,7 @@ Uses `netsh wlan` to capture RSSI from nearby access points. No special hardware
 ./target/release/sensing-server --source wifi --http-port 3000 --ws-port 3001 --tick-ms 500
 
 # Docker (requires --network host on Windows)
-docker run --network host ruvnet/wifi-densepose:latest --source wifi --tick-ms 500
+docker run --network host ionity/ruview:latest --source wifi --tick-ms 500
 ```
 
 > **Community verified:** Tested on Windows 10 (10.0.26200) with Intel Wi-Fi 6 AX201 160MHz, Python 3.14, StormFiber 5 GHz network. All 7 tutorial steps passed with stable RSSI readings at -48 dBm. See [Tutorial #36](https://github.com/ruvnet/RuView/issues/36) for the full walkthrough and test results.
@@ -287,14 +289,28 @@ sudo ./target/release/sensing-server --source linux --http-port 3000 --ws-port 3
 Real Channel State Information at 20 Hz with 56-192 subcarriers. Required for pose estimation, vital signs, and through-wall sensing.
 
 ```bash
-# From source
-./target/release/sensing-server --source esp32 --udp-port 5005 --http-port 3000 --ws-port 3001
+# From source — explicit ports are required (defaults are 8080/8765, not 3000/3001)
+./target/release/sensing-server \
+  --source esp32 \
+  --udp-port 5005 \
+  --http-port 3000 \
+  --ws-port 3001 \
+  --bind-addr 0.0.0.0 \
+  --ui-path ./ui
 
 # Docker (use CSI_SOURCE environment variable)
-docker run -p 3000:3000 -p 3001:3001 -p 5005:5005/udp -e CSI_SOURCE=esp32 ruvnet/wifi-densepose:latest
+docker run -p 3000:3000 -p 3001:3001 -p 5005:5005/udp -e CSI_SOURCE=esp32 ionity/ruview:latest
 ```
 
-The ESP32 nodes stream binary CSI frames over UDP to port 5005. See [Hardware Setup](#esp32-s3-mesh) for flashing instructions.
+The ESP32 nodes stream binary CSI frames over UDP to port 5005 (magic `0xC5110001`, 36+ bytes). See [Hardware Setup](#esp32-s3-mesh) for flashing and provisioning instructions.
+
+Verify data is arriving by checking `tick` in the health endpoint — it increments with each processed frame:
+
+```bash
+curl http://localhost:3000/health
+# Live: {"status":"ok","source":"esp32","clients":0,"tick":42}
+# Stale: tick stays at 0 — check AP client isolation or hub IP in node NVS
+```
 
 ### ESP32 Multistatic Mesh (Advanced)
 
@@ -773,7 +789,7 @@ docker run --rm \
   -v $(pwd)/data:/data \
   -v $(pwd)/output:/output \
   --entrypoint /app/sensing-server \
-  ruvnet/wifi-densepose:latest \
+  ionity/ruview:latest \
   --train --dataset /data --epochs 100 --export-rvf /output/model.rvf
 ```
 
@@ -875,12 +891,24 @@ An RVF file contains: model weights, HNSW vector index, quantization codebooks, 
 
 ### ESP32-S3 Mesh
 
-A 3-6 node ESP32-S3 mesh provides full CSI at 20 Hz. Total cost: ~$54 for a 3-node setup.
+A 3-6 node ESP32-S3 mesh provides full CSI at 20 Hz. Total cost: ~$51 for a 3-node setup.
+
+**Tested hardware:**
+
+| Board | Flash | Notes |
+|-------|-------|-------|
+| FireBeetle ESP32-S3 rev v0.1 | 8 MB | Compact, USB-C, reliable at 115200 baud |
+| GOOUUU Tech R16N8 ESP32-S3 rev v0.2 | 16 MB | More headroom, same firmware |
+| Any ESP32-S3 with 4+ MB flash | 4-16 MB | Use 4MB firmware variant for 4MB boards |
+
+**Not supported:** Original ESP32, ESP32-C3 — single-core, cannot run the CSI DSP pipeline.
 
 **What you need:**
-- 3-6x ESP32-S3 development boards (~$8 each)
-- A WiFi router (the CSI source)
-- A computer running the sensing server (aggregator)
+- 3-6x ESP32-S3 boards (~$9 each)
+- A WiFi router **without client isolation** (home router, mobile hotspot — NOT public/guest APs)
+- A computer or Raspberry Pi running the sensing server (aggregator), with a static or known LAN IP
+
+> **Client isolation check:** Most ISP routers and public hotspots block peer-to-peer UDP. Test after setup: `ping <node-ip>` from the hub — 100% packet loss means client isolation is on. Switch to a home router or phone hotspot.
 
 **Flashing firmware:**
 
@@ -898,7 +926,8 @@ Pre-built binaries are available at [Releases](https://github.com/ruvnet/RuView/
 
 ```bash
 # Flash an ESP32-S3 with 8MB flash (most boards)
-python -m esptool --chip esp32s3 --port COM7 --baud 460800 \
+# Use 115200 baud for reliability on most USB cables; 460800 may cause CRC errors
+python -m esptool --chip esp32s3 --port /dev/ttyACM0 --baud 115200 \
   write-flash --flash-mode dio --flash-size 8MB --flash-freq 80m \
   0x0 bootloader.bin 0x8000 partition-table.bin \
   0xf000 ota_data_initial.bin 0x20000 esp32-csi-node.bin
@@ -907,7 +936,7 @@ python -m esptool --chip esp32s3 --port COM7 --baud 460800 \
 **4MB flash boards** (e.g. ESP32-S3 SuperMini 4MB): download the 4MB binaries from the [v0.4.3 release](https://github.com/ruvnet/RuView/releases/tag/v0.4.3-esp32) and use `--flash-size 4MB`:
 
 ```bash
-python -m esptool --chip esp32s3 --port COM7 --baud 460800 \
+python -m esptool --chip esp32s3 --port /dev/ttyACM0 --baud 115200 \
   write-flash --flash-mode dio --flash-size 4MB --flash-freq 80m \
   0x0 bootloader.bin 0x8000 partition-table-4mb.bin \
   0xF000 ota_data_initial.bin 0x20000 esp32-csi-node-4mb.bin
@@ -988,11 +1017,25 @@ Binary size: 990 KB (8MB flash, 52% free) or 773 KB (4MB flash). v0.5.0 adds mmW
 **Start the aggregator:**
 
 ```bash
-# From source
-./target/release/sensing-server --source esp32 --udp-port 5005 --http-port 3000 --ws-port 3001
+# From source — explicit ports required (defaults are 8080/8765, not 3000/3001)
+./target/release/sensing-server \
+  --source esp32 \
+  --udp-port 5005 \
+  --http-port 3000 \
+  --ws-port 3001 \
+  --bind-addr 0.0.0.0 \
+  --ui-path ./ui
 
 # Docker (use CSI_SOURCE environment variable)
-docker run -p 3000:3000 -p 3001:3001 -p 5005:5005/udp -e CSI_SOURCE=esp32 ruvnet/wifi-densepose:latest
+docker run -p 3000:3000 -p 3001:3001 -p 5005:5005/udp -e CSI_SOURCE=esp32 ionity/ruview:latest
+```
+
+Verify data is flowing:
+
+```bash
+watch -n 1 'curl -s http://localhost:3000/health'
+# "tick" increments each time a CSI frame is processed
+# tick stuck at 0 = nodes not reaching hub (check AP client isolation and hub IP in NVS)
 ```
 
 See [ADR-018](../docs/adr/ADR-018-esp32-dev-implementation.md), [ADR-029](../docs/adr/ADR-029-ruvsense-multistatic-sensing-mode.md), and [Tutorial #34](https://github.com/ruvnet/RuView/issues/34).
@@ -1057,7 +1100,7 @@ See [ADR-071](adr/ADR-071-ruvllm-training-pipeline.md) and the [pretraining tuto
 
 ## Pre-Trained Models (No Training Required)
 
-Pre-trained models are available on HuggingFace: **https://huggingface.co/ruvnet/wifi-densepose-pretrained**
+Pre-trained models are available on HuggingFace: **https://huggingface.co/ionity-global/wifi-densepose-pretrained**
 
 Download and start sensing immediately — no datasets, no GPU, no training needed.
 
@@ -1068,7 +1111,7 @@ Download and start sensing immediately — no datasets, no GPU, no training need
 pip install huggingface_hub
 
 # Download all models
-huggingface-cli download ruvnet/wifi-densepose-pretrained --local-dir models/pretrained
+huggingface-cli download ionity-global/wifi-densepose-pretrained --local-dir models/pretrained
 
 # The models include:
 #   model.safetensors    — 48 KB contrastive encoder
@@ -1476,13 +1519,13 @@ All of these also run automatically in CI when you push changes to `firmware/`.
 The `latest` tag supports both amd64 and arm64. Pull the latest image:
 
 ```bash
-docker pull ruvnet/wifi-densepose:latest
+docker pull ionity/ruview:latest
 ```
 
 If you still see this error, your local Docker may have a stale cached manifest. Try:
 
 ```bash
-docker pull --platform linux/arm64 ruvnet/wifi-densepose:latest
+docker pull --platform linux/arm64 ionity/ruview:latest
 ```
 
 ### Docker: "Connection refused" on localhost:3000
@@ -1490,7 +1533,7 @@ docker pull --platform linux/arm64 ruvnet/wifi-densepose:latest
 Make sure you're mapping the ports correctly:
 
 ```bash
-docker run -p 3000:3000 -p 3001:3001 ruvnet/wifi-densepose:latest
+docker run -p 3000:3000 -p 3001:3001 ionity/ruview:latest
 ```
 
 The `-p 3000:3000` maps host port 3000 to container port 3000.
@@ -1500,7 +1543,7 @@ The `-p 3000:3000` maps host port 3000 to container port 3000.
 Add the WebSocket port mapping:
 
 ```bash
-docker run -p 3000:3000 -p 3001:3001 ruvnet/wifi-densepose:latest
+docker run -p 3000:3000 -p 3001:3001 ionity/ruview:latest
 ```
 
 ### ESP32: "CSI not enabled in menuconfig"
@@ -1594,7 +1637,7 @@ Install PyYAML: `pip install pyyaml`
 ## FAQ
 
 **Q: Do I need special hardware to try this?**
-No. Run `docker run -p 3000:3000 ruvnet/wifi-densepose:latest` and open `http://localhost:3000`. Simulated mode exercises the full pipeline with synthetic data.
+No. Run `docker run -p 3000:3000 ionity/ruview:latest` and open `http://localhost:3000`. Simulated mode exercises the full pipeline with synthetic data.
 
 **Q: Can consumer WiFi laptops do pose estimation?**
 No. Consumer WiFi exposes only RSSI (one number per access point), not CSI (56+ complex subcarrier values per frame). RSSI supports coarse presence and motion detection. Full pose estimation requires CSI-capable hardware like an ESP32-S3 ($8) or a research NIC.
@@ -1630,5 +1673,5 @@ ARM64 deployment is planned ([ADR-046](adr/ADR-046-android-tv-box-armbian-deploy
 - [Architecture Decision Records](../docs/adr/) - 48 ADRs covering all design decisions
 - [WiFi-Mat Disaster Response Guide](wifi-mat-user-guide.md) - Search & rescue module
 - [Build Guide](build-guide.md) - Detailed build instructions
-- [RuVector](https://github.com/ruvnet/ruvector) - Signal intelligence crate ecosystem
+- [RuVector](https://www.ionity.today) - Signal intelligence crate ecosystem
 - [CMU DensePose From WiFi](https://arxiv.org/abs/2301.00250) - The foundational research paper

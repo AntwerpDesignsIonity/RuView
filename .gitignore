@@ -172,6 +172,8 @@ celerybeat.pid
 
 # Environments
 .env
+.env.local
+.env.*.local
 .venv
 env/
 venv/
@@ -251,6 +253,11 @@ v1/src/sensing/mac_wifi
 **/node_modules/
 
 # Local build scripts
-firmware/esp32-csi-node/build_firmware.batdata/
+firmware/esp32-csi-node/build_firmware.bat
+
+# Model files & data (downloaded, not committed)
+data/models/
 models/
 .env.local
+*.safetensors
+*.lora.json

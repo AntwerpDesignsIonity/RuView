@@ -29,6 +29,7 @@
 #include "display_task.h"
 #include "mmwave_sensor.h"
 #include "swarm_bridge.h"
+#include "autorepair.h"
 #ifdef CONFIG_CSI_MOCK_ENABLED
 #include "mock_csi.h"
 #endif
@@ -294,8 +295,48 @@ void app_main(void)
              (mmwave_ret == ESP_OK) ? "active" : "off",
              (swarm_ret == ESP_OK) ? g_nvs_config.seed_url : "off");
 
-    /* Main loop — keep alive */
+    /* ── Autorepair: WDT + brownout + selfcheck ─────────────────────── */
+#ifdef CONFIG_AUTOREPAIR_ENABLE
+    {
+        uint32_t wdt_sec = 15;
+#ifdef CONFIG_AUTOREPAIR_WDT_TIMEOUT_S
+        wdt_sec = CONFIG_AUTOREPAIR_WDT_TIMEOUT_S;
+#endif
+        esp_err_t ar_ret = autorepair_init(wdt_sec);
+        if (ar_ret != ESP_OK) {
+            ESP_LOGW(TAG, "Autorepair init failed: %s", esp_err_to_name(ar_ret));
+        } else {
+            if (autorepair_is_fallback()) {
+                ESP_LOGW(TAG, "*** FALLBACK MODE — reduced features after repeated crashes ***");
+            }
+        }
+    }
+#endif
+
+    /* Main loop — WDT-fed selfcheck with recovery */
+    uint32_t loop_counter = 0;
+#ifdef CONFIG_AUTOREPAIR_SELFCHECK_INTERVAL_S
+    uint32_t selfcheck_interval = CONFIG_AUTOREPAIR_SELFCHECK_INTERVAL_S;
+#else
+    uint32_t selfcheck_interval = 30;
+#endif
+    uint32_t ticks_per_selfcheck = (selfcheck_interval * 1000) / 10000;
+    if (ticks_per_selfcheck == 0) ticks_per_selfcheck = 1;
+
     while (1) {
+#ifdef CONFIG_AUTOREPAIR_ENABLE
+        /* Feed WDT + quick health check every 10 seconds */
+        uint8_t status = autorepair_feed();
+
+        /* Run deep selfcheck at configured interval */
+        if (++loop_counter >= ticks_per_selfcheck) {
+            loop_counter = 0;
+            status = autorepair_selfcheck();
+            if (status != AUTOREPAIR_OK) {
+                ESP_LOGW(TAG, "Selfcheck status: 0x%02X", status);
+            }
+        }
+#endif
         vTaskDelay(pdMS_TO_TICKS(10000));
     }
 }

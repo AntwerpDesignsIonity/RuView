@@ -1,10 +1,16 @@
 # π RuView
 
 <p align="center">
-  <a href="https://x.com/rUv/status/2037556932802761004">
+  <a href="https://www.ionity.today">
     <img src="assets/ruview-small-gemini.jpg" alt="RuView - WiFi DensePose" width="100%">
   </a>
 </p>
+
+> **π RuView** by **Ionity Global (Pty) Ltd**, South Africa
+> 
+> ai@ionity.today | [www.ionity.today](https://www.ionity.today) | +27 646 999 877
+>
+> Special thanks to **rUv (ruvnet)** and the original **RuView** project for the WiFi-DensePose foundations.
 
 > **Beta Software** — Under active development. APIs and firmware may change. Known limitations:
 > - ESP32-C3 and original ESP32 are not supported (single-core, insufficient for CSI DSP)
@@ -294,8 +300,10 @@ See [ADR-069](docs/adr/ADR-069-cognitum-seed-csi-pipeline.md), [ADR-071](docs/ad
 |----------|-------------|
 | [User Guide](docs/user-guide.md) | Step-by-step guide: installation, first run, API usage, hardware setup, training |
 | [Build Guide](docs/build-guide.md) | Building from source (Rust and Python) |
-| [Architecture Decisions](docs/adr/README.md) | 62 ADRs — why each technical choice was made, organized by domain (hardware, signal processing, ML, platform, infrastructure) |
-| [Domain Models](docs/ddd/README.md) | 7 DDD models (RuvSense, Signal Processing, Training Pipeline, Hardware Platform, Sensing Server, WiFi-Mat, CHCI) — bounded contexts, aggregates, domain events, and ubiquitous language |
+| [File System & Folder Path](docs/Folderpath.md) | Complete project structure map — every crate, module, firmware file, UI component, and infrastructure config with edge computing architecture |
+| [Architecture Decisions](docs/adr/README.md) | 78 ADRs — why each technical choice was made, organized by domain (hardware, signal processing, ML, platform, infrastructure) |
+| [Domain Models](docs/ddd/README.md) | 8 DDD models (RuvSense, Signal Processing, Training Pipeline, Hardware Platform, Sensing Server, WiFi-Mat, CHCI, Deployment Platform) — bounded contexts, aggregates, domain events, and ubiquitous language |
+| [Edge Modules](docs/edge-modules/README.md) | 11 categories of edge computing modules — core, medical, security, industrial, retail, adaptive learning, and more |
 | [Desktop App](rust-port/wifi-densepose-rs/crates/wifi-densepose-desktop/README.md) | **WIP** — Tauri v2 desktop app for node management, OTA updates, WASM deployment, and mesh visualization |
 | [Medical Examples](examples/medical/README.md) | Contactless blood pressure, heart rate, breathing rate via 60 GHz mmWave radar — $15 hardware, no wearable |
 
@@ -822,6 +830,65 @@ docker run --rm -v $(pwd):/out ruvnet/wifi-densepose:latest --export-rvf /out/mo
 - **Storage**: 2GB free space for models and data
 - **Network**: WiFi interface with CSI capability (optional — installer detects what you have)
 - **GPU**: Optional (NVIDIA CUDA or Apple Metal)
+
+</details>
+
+<details>
+<summary><strong>PyTorch & ML Requirements</strong> — Full ML stack for training and inference</summary>
+
+RuView uses PyTorch for the Python v1 pipeline and training. The Rust pipeline uses `tch` (libtorch bindings), ONNX Runtime, and Candle for inference.
+
+**Python ML Stack (v1):**
+
+| Package | Min Version | Purpose |
+|---------|------------|---------|
+| `torch` | ≥2.1.0 | Neural network training & inference |
+| `torchvision` | ≥0.16.0 | Image transforms, pretrained backbones |
+| `numpy` | ≥1.24.0 | Array computation, CSI frame buffers |
+| `scipy` | ≥1.11.0 | Signal processing (FFT, filters, interpolation) |
+| `scikit-learn` | ≥1.3.0 | Clustering, PCA, metrics evaluation |
+| `opencv-python` | ≥4.8.0 | Image processing (pose overlay, visualization) |
+| `pillow` | ≥10.0.0 | Image I/O for DensePose outputs |
+| `pandas` | ≥2.1.0 | CSI dataset management, time series |
+| `matplotlib` | ≥3.7.0 | Training curves, signal visualization |
+
+**Install PyTorch (choose your platform):**
+
+```bash
+# CPU only (all platforms)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+# CUDA 12.4 (NVIDIA GPU — Linux/Windows)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+
+# Apple Silicon (Metal Performance Shaders — macOS)
+pip install torch torchvision
+
+# Full ML stack
+pip install -r requirements.txt
+pip install wifi-densepose[gpu]    # Includes NVIDIA helpers
+```
+
+**Rust ML Stack (primary — 810x faster):**
+
+| Crate | Version | Purpose |
+|-------|---------|---------|
+| `tch` | 0.14 | PyTorch C++ (libtorch) bindings |
+| `ort` | 2.0.0-rc.11 | ONNX Runtime inference |
+| `candle-core` | 0.4 | Pure Rust tensor computation |
+| `candle-nn` | 0.4 | Pure Rust neural network layers |
+| `ndarray` | 0.15 | N-dimensional arrays (CSI frames) |
+| `ndarray-linalg` | 0.16 | Linear algebra (SVD, eigenvalue) |
+| `rustfft` | 6.1 | FFT for signal processing |
+
+**Edge ML (ESP32 — 8 KB quantized model):**
+
+| Component | Size | Runs on |
+|-----------|------|---------|
+| INT4 quantized model | 8 KB | ESP32-S3 SRAM (no_std) |
+| INT2 ultra-compact | 4 KB | ESP32-S3 minimal |
+| WASM inference module | ~50 KB | wasm3 runtime on ESP32 |
+| LoRA room adapter | 2,048 params | Per-room fine-tuning |
 
 </details>
 
@@ -2259,14 +2326,172 @@ Complete Rust sensing server, SOTA signal processing, WiFi-Mat disaster response
 
 ---
 
-## 📄 License
+## 🏗️ Edge Computing & Logging Infrastructure
 
-MIT License — see [LICENSE](LICENSE) for details.
+<details>
+<summary><strong>Three-Tier Edge Architecture</strong></summary>
 
-## 📞 Support
+RuView runs across three deployment tiers — all fully local with no cloud dependency:
 
-[GitHub Issues](https://github.com/ruvnet/RuView/issues) | [Discussions](https://github.com/ruvnet/RuView/discussions) | [PyPI](https://pypi.org/project/wifi-densepose/)
+```
+┌─────────────────────────────────────────────────┐
+│  EDGE TIER — On-Device (ESP32-S3, $9/node)      │
+│  • CSI capture at 20 Hz per channel             │
+│  • INT4 inference (8 KB model in SRAM)          │
+│  • WASM hot-swappable edge modules              │
+│  • Mesh networking (TDM + channel hopping)      │
+│  • Power management + battery monitoring        │
+│  Firmware: firmware/esp32-csi-node/             │
+└──────────────────────┬──────────────────────────┘
+                       │ UDP/TCP (CSI frames)
+                       ▼
+┌─────────────────────────────────────────────────┐
+│  FOG TIER — Local Server (any x86/ARM)          │
+│  • Sensing server (Axum, Rust binary)           │
+│  • Real-time inference + adaptive classifier    │
+│  • Model management + hot-swap                  │
+│  • Prometheus metrics + Grafana dashboards      │
+│  • Fluentd log aggregation                      │
+│  Binary: sensing-server (132 MB Docker image)   │
+└──────────────────────┬──────────────────────────┘
+                       │ (optional)
+                       ▼
+┌─────────────────────────────────────────────────┐
+│  CLOUD TIER — Optional                          │
+│  • Docker Hub: ruvnet/wifi-densepose            │
+│  • HuggingFace: ruv/ruview (model hosting)      │
+│  • GPU training: gcloud-train.sh                │
+│  • Kubernetes: Helm + HPA autoscaling           │
+└─────────────────────────────────────────────────┘
+```
+
+**Edge Modules** (11 categories in `docs/edge-modules/`):
+
+| Category | Examples | Hardware |
+|----------|---------|----------|
+| Core | Presence, motion, occupancy, vitals | 1x ESP32-S3 |
+| Medical | BP estimation, fall detection, respiratory distress | 1x ESP32 + optional mmWave |
+| Security | Intrusion, perimeter, anti-spoofing | 2x ESP32-S3 mesh |
+| Industrial | Machine vibration, worker proximity, confined space | 3x ESP32-S3 mesh |
+| Retail | Customer flow, dwell heatmap, queue length | Existing WiFi AP |
+| Adaptive Learning | SNN online learning, LoRA room adapters | 1x ESP32 + Cognitum Seed |
+| Exotic | Through-wall imaging, passive radar, RF tomography | 4+ ESP32 mesh |
+
+</details>
+
+<details>
+<summary><strong>Monitoring Stack</strong></summary>
+
+**Prometheus** (`monitoring/prometheus-config.yml`):
+- 15-second scrape interval across all targets
+- Kubernetes discovery (API server, nodes, pods, cadvisor)
+- Custom metrics: CSI frame rate, inference latency, signal quality, node health
+- Alert rules: high latency, node down, vital sign anomaly, frame drops, mesh partition
+
+**Grafana** (`monitoring/grafana-dashboard.json`):
+- 12-panel pre-built dashboard
+- CSI frame rate, signal quality score, vital signs (HR/BR)
+- Node health matrix, inference latency histogram, person count
+- Memory/CPU usage, model version tracker, mesh topology
+- Training progress and edge inference stats
+
+**Alerting** (`monitoring/alerting-rules.yml`):
+
+| Alert | Condition | Severity |
+|-------|-----------|----------|
+| NodeDown | ESP32 offline > 5 min | Critical |
+| HighLatency | CSI processing > 100 ms | Warning |
+| VitalSignAnomaly | HR/BR out of physiological range | Critical |
+| HighMemoryUsage | Server > 80% memory | Warning |
+| CsiFrameDropRate | > 5% frame drops | Warning |
+| MeshPartition | Node unreachable from mesh | Critical |
+
+</details>
+
+<details>
+<summary><strong>Logging Infrastructure</strong></summary>
+
+**Application Logging (Rust — tracing crate):**
+```bash
+# Structured JSON logs with span context
+RUST_LOG=wifi_densepose_sensing_server=debug,tower_http=info
+
+# Log output includes:
+# - Timestamp (RFC 3339)
+# - Log level (TRACE/DEBUG/INFO/WARN/ERROR)
+# - Span context (request_id, node_id, session_id)
+# - Structured fields (frame_count, latency_us, signal_quality)
+```
+
+**Application Logging (Python — structlog):**
+```bash
+# Configured in v1/src/logger.py
+# JSON structured output with context binding
+# Automatic request_id propagation via middleware
+```
+
+**Log Aggregation (Fluentd — `logging/fluentd-config.yml`):**
+- Sources: Kubernetes containers, systemd journal, application logs
+- Filters: Kubernetes metadata enrichment, log level classification, CSI frame parsing
+- Outputs: Elasticsearch (search/analytics), S3 (archival), stdout (development)
+
+**Runtime Logs (`logs/`):**
+
+| File | Content |
+|------|---------|
+| `sensing-server.pid` | Server process ID |
+| `sensing-server.log` | Server output (daemonized mode) |
+| `csi-stream.log` | Raw CSI frame debug log |
+| `training.log` | Training pipeline output |
+| `mesh-events.log` | Mesh topology change events |
+
+**Log Levels for Edge Debugging:**
+
+```bash
+# Full debug (development)
+RUST_LOG=debug ./sensing-server
+
+# Production (info + warnings + errors)
+RUST_LOG=info ./sensing-server
+
+# CSI pipeline only
+RUST_LOG=wifi_densepose_signal=debug ./sensing-server
+
+# Vital signs debugging
+RUST_LOG=wifi_densepose_vitals=trace ./sensing-server
+```
+
+</details>
+
+<details>
+<summary><strong>CI/CD Pipelines</strong></summary>
+
+8 GitHub Actions workflows in `.github/workflows/`:
+
+| Workflow | Trigger | What it does |
+|----------|---------|-------------|
+| `ci.yml` | Push to main, PRs | Rust tests (1,463+) + Python proof + lint |
+| `cd.yml` | Tagged releases | Multi-arch Docker build + push |
+| `firmware-ci.yml` | firmware/ changes | ESP32 8MB + 4MB build verification |
+| `firmware-qemu.yml` | firmware/ changes | Firmware boot + mesh test in QEMU |
+| `verify-pipeline.yml` | Manual, main push | ADR-028 witness verification bundle |
+| `desktop-release.yml` | desktop/* tags | Tauri app for macOS/Linux/Windows |
+| `security-scan.yml` | Weekly + PRs | cargo-audit + bandit security scan |
+| `update-submodules.yml` | Weekly | Vendor submodule updates |
+
+</details>
 
 ---
 
-**WiFi DensePose** — Privacy-preserving human pose estimation through WiFi signals.
+## 📄 License
+
+MIT License — Copyright (c) 2026 Johan Wilhelm van Antwerp, Ionity Global (Pty) Ltd.
+Original work Copyright (c) 2024 rUv. See [LICENSE](LICENSE) for details.
+
+## 📞 Support
+
+[Ionity Global](https://www.ionity.today) | ai@ionity.today | +27 646 999 877 | [GitHub Issues](https://github.com/ruvnet/RuView/issues)
+
+---
+
+**π RuView** by **Ionity Global (Pty) Ltd** — Privacy-preserving human pose estimation through WiFi signals.

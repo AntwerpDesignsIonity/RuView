@@ -202,7 +202,7 @@
 
         // 8. WebSocket client
         state.wsClient = new WebSocketClient({
-          url: 'ws://localhost:8000/ws/pose',
+          url: `ws://${window.location.hostname}:${window.location.port || 3000}/ws/sensing`,
           onMessage: (msg) => handleWebSocketMessage(msg),
           onStateChange: (newState, oldState) => handleConnectionStateChange(newState, oldState),
           onError: (err) => console.error('[VIZ] WebSocket error:', err)

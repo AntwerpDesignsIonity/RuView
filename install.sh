@@ -745,6 +745,63 @@ check_docker_deps() {
 }
 
 # ======================================================================
+#  AUTO-PROVISION OFFER (for IoT profile)
+# ======================================================================
+
+auto_provision_offer() {
+    echo ""
+    echo -e "  ${CYAN}Checking for connected ESP32 boards...${RESET}"
+
+    local usb_devs
+    usb_devs="$(ls /dev/ttyUSB* /dev/ttyACM* /dev/cu.usbserial* /dev/cu.SLAB_USBtoUART* 2>/dev/null || true)"
+
+    if [ -z "$usb_devs" ]; then
+        info "No ESP32 boards connected via USB"
+        info "Connect boards and run: .ionity/ionity.sh provision auto"
+        return 0
+    fi
+
+    local count=0
+    for dev in $usb_devs; do count=$((count + 1)); done
+    ok "${count} USB serial device(s) detected"
+
+    # Check if Ionity provisioner is available
+    local ionity_prov="${SCRIPT_DIR}/.ionity/ionity.sh"
+    if [ ! -f "${ionity_prov}" ]; then
+        info "Ionity provisioner not found — run .ionity/ionity.sh provision auto after install"
+        return 0
+    fi
+
+    # Check for firmware binaries
+    local fw_dir="${SCRIPT_DIR}/firmware/esp32-csi-node/release_bins"
+    if [ ! -f "${fw_dir}/esp32-csi-node.bin" ] && [ ! -f "${fw_dir}/esp32-csi-node-4mb.bin" ]; then
+        info "No firmware binaries — download release or build first"
+        info "Then run: .ionity/ionity.sh provision auto"
+        return 0
+    fi
+
+    echo ""
+    echo -e "  ${BOLD}Auto-Provision Available${RESET}"
+    echo -e "  Detected ${count} board(s) — auto-assign TX/RX mesh roles and flash"
+    echo -e "  ${DIM}1 board = TX/RX (bistatic) | 2 boards = TX + RX | 3+ = TX + multi-RX${RESET}"
+    echo ""
+
+    if $SKIP_CONFIRM; then
+        echo "  Skipping auto-provision in --yes mode"
+        echo "  Run manually: .ionity/ionity.sh provision auto"
+        return 0
+    fi
+
+    read -rp "  Auto-provision now? [y/N]: " do_prov
+    if [[ "$do_prov" =~ ^[Yy] ]]; then
+        echo ""
+        bash "${ionity_prov}" provision auto
+    else
+        info "Skipped. Run later: .ionity/ionity.sh provision auto"
+    fi
+}
+
+# ======================================================================
 #  STEP 6: BUILD
 # ======================================================================
 
@@ -768,6 +825,8 @@ run_build() {
             ;;
         iot)
             build_rust_crate "wifi-densepose-hardware" "ESP32 aggregator"
+            # Offer auto-provision if ESP32 boards are connected
+            auto_provision_offer
             ;;
         docker)
             build_docker
@@ -970,23 +1029,21 @@ post_install() {
             echo "    # Then open: http://localhost:3000/viz.html"
             ;;
         iot)
-            echo "    # 1. Configure WiFi credentials:"
-            echo "    cp firmware/esp32-csi-node/sdkconfig.defaults.example \\"
-            echo "       firmware/esp32-csi-node/sdkconfig.defaults"
-            echo "    # Edit sdkconfig.defaults: set SSID, password, aggregator IP"
+            echo "    # 1. Auto-provision connected ESP32-S3 nodes (recommended):"
+            echo "    .ionity/ionity.sh provision auto"
+            echo "    # Scans all connected boards, assigns TX/RX roles automatically"
+            echo "    # 1 node = TX/RX (bistatic), 2 nodes = 1 TX + 1 RX, 3+ = 1 TX + N RX"
             echo ""
-            echo "    # 2. Build firmware (Docker — no local ESP-IDF needed):"
+            echo "    # 2. Or manually provision individual nodes:"
+            echo "    .ionity/ionity.sh provision     # interactive wizard"
+            echo ""
+            echo "    # 3. Build firmware from source (Docker — no local ESP-IDF needed):"
             echo "    cd firmware/esp32-csi-node"
             echo "    docker run --rm -v \"\$(pwd):/project\" -w /project \\"
             echo "      espressif/idf:v5.2 bash -c 'idf.py set-target esp32s3 && idf.py build'"
             echo ""
-            echo "    # 3. Flash to ESP32-S3 (replace COM7 with your port):"
-            echo "    cd build && python -m esptool --chip esp32s3 --port COM7 \\"
-            echo "      --baud 460800 write-flash @flash_args"
-            echo ""
-            echo "    # 4. Run the aggregator:"
-            echo "    cargo run -p wifi-densepose-hardware --bin aggregator -- \\"
-            echo "      --bind 0.0.0.0:5005 --verbose"
+            echo "    # 4. Start the sensing server:"
+            echo "    .ionity/ionity.sh run"
             ;;
         docker)
             echo "    # Development (with Postgres, Redis, Prometheus, Grafana):"

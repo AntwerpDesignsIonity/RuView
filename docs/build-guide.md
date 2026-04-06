@@ -179,32 +179,97 @@ A high-performance Rust port with ~810x speedup over the Python pipeline for the
 
 - Rust 1.70+ (install via [rustup](https://rustup.rs/))
 - cargo (included with Rust)
-- System dependencies for OpenBLAS (used by ndarray-linalg):
-  ```bash
-  # Ubuntu/Debian
-  sudo apt-get install build-essential gfortran libopenblas-dev pkg-config
+- No additional system libraries required when building with `--no-default-features`
 
-  # macOS
-  brew install openblas
-  ```
+> **Note:** The `sensing-server` crate must be built with `--no-default-features`. The default feature set enables `eigenvalue` → `ndarray-linalg` → `lax`, which fails to compile on Rust 1.80+ (Rust 1.94+ in particular). The signal processing used by the sensing server does not require BLAS.
 
 ### Build
 
 ```bash
 cd rust-port/wifi-densepose-rs
+
+# Build the sensing server (recommended — no BLAS dependency)
+cargo build -p wifi-densepose-sensing-server --release --no-default-features
+
+# Or build the full workspace (requires libopenblas-dev on Linux, openblas via brew on macOS)
 cargo build --release
 ```
 
 Release profile is configured with LTO, single codegen unit, and `-O3` for maximum performance.
 
+### Run
+
+The compiled binary is at `target/release/sensing-server`. Default ports are HTTP 8080 and WS 8765 — always override them explicitly:
+
+```bash
+# Native run (ESP32 live CSI source, shown on Pi at 172.23.9.61)
+./target/release/sensing-server \
+  --http-port 3000 \
+  --ws-port 3001 \
+  --udp-port 5005 \
+  --bind-addr 0.0.0.0 \
+  --source esp32 \
+  --ui-path /path/to/RuView/ui
+
+# Simulated mode (no hardware)
+./target/release/sensing-server \
+  --http-port 3000 \
+  --ws-port 3001 \
+  --source simulate
+```
+
+**CLI flags reference:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--http-port` | 8080 | HTTP / REST API port |
+| `--ws-port` | 8765 | WebSocket port (UI connects here) |
+| `--udp-port` | 5005 | UDP port receiving ESP32 CSI frames |
+| `--bind-addr` | 127.0.0.1 | Bind address — use `0.0.0.0` for LAN access |
+| `--source` | auto | `auto`, `esp32`, `simulate`, `wifi` |
+| `--ui-path` | (none) | Serve UI static files from this directory |
+
+**Health check:**
+
+```bash
+curl http://localhost:3000/health
+# {"status":"ok","source":"esp32","clients":0,"tick":0}
+# tick > 0 means frames are arriving from ESP32 nodes
+```
+
+**End-to-end self-test (no hardware):**
+
+```python
+# Send a synthetic ESP32 CSI frame to verify the server processes UDP
+import socket, struct, time
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+for seq in range(10):
+    pkt  = struct.pack('<I', 0xC5110001)   # [0..3]  magic
+    pkt += struct.pack('B', 1)             # [4]     node_id
+    pkt += struct.pack('B', 1)             # [5]     n_antennas
+    pkt += struct.pack('B', 8)             # [6]     n_subcarriers
+    pkt += struct.pack('B', 0)             # [7]     reserved
+    pkt += struct.pack('<H', 2412)         # [8..9]  freq_mhz
+    pkt += struct.pack('<I', seq)          # [10..13] sequence
+    pkt += struct.pack('b', -50)           # [14]    rssi (dBm)
+    pkt += struct.pack('b', -95)           # [15]    noise_floor
+    pkt += bytes(4)                        # [16..19] reserved
+    for k in range(8):
+        pkt += struct.pack('bb', 30+k, 10+k)  # I/Q pairs
+    sock.sendto(pkt, ('127.0.0.1', 5005))
+    time.sleep(0.05)
+sock.close()
+# Then: curl http://localhost:3000/health → tick should equal 10
+```
+
 ### Test
 
 ```bash
 cd rust-port/wifi-densepose-rs
-cargo test --workspace
+cargo test --workspace --no-default-features
 ```
 
-Runs 107 tests across all workspace crates.
+Runs 1,031+ tests across all workspace crates.
 
 ### Benchmark
 
@@ -385,16 +450,29 @@ The multi-stage `Dockerfile` provides four targets:
 
 Uses ESP32-S3 boards as WiFi CSI sensor nodes. See [ADR-012](adr/ADR-012-esp32-csi-sensor-mesh.md) for the full specification.
 
-### Bill of Materials (Starter Kit -- $54)
+### Tested Hardware
+
+| Board | Flash | MAC (example) | Role | Cost |
+|-------|-------|---------------|------|------|
+| FireBeetle ESP32-S3 rev v0.1 | 8 MB | 34:85:18:42:08:14 | CSI node 1 | ~$9 |
+| GOOUUU Tech R16N8 ESP32-S3 rev v0.2 | 16 MB | 98:a3:16:e3:88:e8 | CSI node 2 | ~$9 |
+| GOOUUU Tech R16N8 ESP32-S3 rev v0.2 | 16 MB | 98:a3:16:e7:fe:30 | CSI node 3 | ~$9 |
+| Raspberry Pi 5 (16 GB) | — | — | Aggregator hub | ~$80 |
+
+**Not supported:** Original ESP32, ESP32-C3 (single-core — cannot run the CSI DSP pipeline).
+
+### Bill of Materials (Starter Kit)
 
 | Item | Qty | Unit Cost | Total |
 |------|-----|-----------|-------|
-| ESP32-S3-DevKitC-1 | 3 | $10 | $30 |
+| ESP32-S3 board (any variant with 4+ MB flash) | 3 | ~$9 | ~$27 |
 | USB-A to USB-C cables | 3 | $3 | $9 |
 | USB power adapter (multi-port) | 1 | $15 | $15 |
-| Consumer WiFi router (any) | 1 | $0 (existing) | $0 |
-| Aggregator (laptop or Pi 4) | 1 | $0 (existing) | $0 |
-| **Total** | | | **$54** |
+| Aggregator (RPi 5 or laptop) | 1 | $0 (existing) | $0 |
+| WiFi router **without client isolation** | 1 | $0 (existing) | $0 |
+| **Total** | | | **~$51** |
+
+> **Router requirement:** The AP must allow WiFi client-to-client traffic. Many public/guest AP modes and some ISP routers enable _client isolation_, which blocks UDP between connected devices. Use a home router, mobile hotspot, or Pi as AP. Test with `ping <node-ip>` from the hub — if 100% packet loss, isolation is on.
 
 ### Prerequisites
 
@@ -417,28 +495,71 @@ git checkout v5.2  # Pin to tested version
 
 ### Flash a node
 
+There are two steps: **flash** the firmware binary, then **provision** WiFi credentials and hub address over serial.
+
+#### Step 1: Flash firmware
+
 ```bash
-cd firmware/esp32-csi-node
+# 8 MB boards (FireBeetle ESP32-S3, most DevKit variants)
+idf.py -p /dev/ttyACM0 -b 115200 flash
+# Note: use 115200 baud for reliability — higher speeds cause CRC errors on some cables
 
-# Set target chip
-idf.py set-target esp32s3
-
-# Configure WiFi SSID/password and aggregator IP
-idf.py menuconfig
-# Navigate to: Component config > WiFi-DensePose CSI Node
-#   - Set WiFi SSID
-#   - Set WiFi password
-#   - Set aggregator IP address
-#   - Set node ID (1, 2, 3, ...)
-#   - Set sampling rate (10-100 Hz)
-
-# Build and flash (with USB cable connected)
-idf.py build flash monitor
+# Or for 4 MB boards:
+cp sdkconfig.defaults.4mb sdkconfig.defaults
+idf.py -p /dev/ttyACM0 -b 115200 flash
 ```
 
-`idf.py monitor` shows live serial output including CSI callback data. Press `Ctrl+]` to exit.
+Pre-built binaries are in releases/ and on the GitHub Releases page. To flash from a pre-built release:
 
-Repeat for each node, incrementing the node ID.
+```bash
+esptool.py --chip esp32s3 --port /dev/ttyACM0 --baud 115200 write_flash \
+  0x0000  releases/bootloader.bin \
+  0x8000  releases/partition-table.bin \
+  0xd000  releases/ota_data_initial.bin \
+  0x10000 releases/esp32-csi-node.bin
+```
+
+#### Step 2: Provision credentials (NVS-based)
+
+Credentials are stored in NVS flash (survives OTA updates). The `provision.py` script handles this over serial — no menuconfig or firmware rebuild required:
+
+```bash
+# Plug in each node via USB, then:
+python3 firmware/esp32-csi-node/provision.py \
+  --port /dev/ttyACM0 \
+  --ssid "YourWiFi" \
+  --password "YourPass" \
+  --target-ip 192.168.1.20 \
+  --target-port 5005 \
+  --node-id 1 \
+  --edge-tier 0 \
+  --subk-count 8
+```
+
+Repeat for each node, incrementing `--node-id` (1, 2, 3, ...).
+
+**Provision script options:**
+
+| Flag | Description |
+|------|-------------|
+| `--port` | Serial port (`/dev/ttyACM0`, `/dev/ttyUSB0`, `COM7`) |
+| `--ssid` | WiFi SSID to connect to |
+| `--password` | WiFi password |
+| `--target-ip` | Hub/aggregator IP that receives UDP CSI frames |
+| `--target-port` | UDP port on hub (default: 5005) |
+| `--node-id` | Integer 1–255, unique per node |
+| `--edge-tier` | 0 = full CSI, 1 = feature-only (reduced bandwidth) |
+| `--subk-count` | Subcarrier count per frame (8 for compact, 56 for full) |
+
+#### Monitor serial output
+
+```bash
+python3 -m serial.tools.miniterm /dev/ttyACM0 115200
+```
+
+You should see the node connect to WiFi, resolve the hub IP, and begin logging `csi_send ok` lines. Press `Ctrl+]` to exit.
+
+Repeat for each node.
 
 ### Firmware project structure
 
@@ -459,26 +580,45 @@ firmware/esp32-csi-node/
 
 Each node does on-device feature extraction (raw I/Q to amplitude + phase + spectral bands), reducing bandwidth from ~11 KB/frame to ~470 bytes/frame. Nodes stream features via UDP to the aggregator.
 
-### Run the aggregator
+### Run the aggregator (sensing server)
 
-The aggregator collects UDP streams from all ESP32 nodes, performs feature-level fusion (not signal-level -- see ADR-012 for why), and feeds the fused data into the Rust or Python pipeline.
+The sensing server is the aggregator. It listens on a UDP port for CSI frames, fuses data from all nodes, and serves the web UI + WebSocket.
 
 ```bash
-# Start the aggregator and pipeline via Docker
-docker compose -f docker-compose.esp32.yml up
+# Native binary (built above)
+./rust-port/wifi-densepose-rs/target/release/sensing-server \
+  --http-port 3000 \
+  --ws-port 3001 \
+  --udp-port 5005 \
+  --bind-addr 0.0.0.0 \
+  --source esp32 \
+  --ui-path ./ui
 
-# Or run the Rust aggregator directly
-cd rust-port/wifi-densepose-rs
-cargo run --release --package wifi-densepose-hardware -- --mode esp32-aggregator --port 5000
+# Open the UI: http://<hub-ip>:3000/ui/index.html
+```
+
+Watch the health endpoint to confirm frames are arriving:
+
+```bash
+watch -n 1 'curl -s http://localhost:3000/health'
+# "tick" increments each time a CSI frame is processed
+# tick > 0 means real data is flowing
 ```
 
 ### Verify with real hardware
 
+After provisioning at least one node on the same network as the hub:
+
 ```bash
-docker exec aggregator python verify_esp32.py
+# Check tick is climbing
+curl -s http://localhost:3000/health
+# Expected with live nodes: {"status":"ok","source":"esp32","clients":0,"tick":42}
+
+# Check a sensing frame
+curl -s http://localhost:3000/api/v1/sensing/latest
 ```
 
-This captures 10 seconds of data, produces feature JSON, and verifies the hash against the proof bundle.
+If tick stays at 0, check for AP client isolation (see Router requirement above) and verify the hub IP in the node NVS matches the host running the sensing server.
 
 ### What the ESP32 mesh can and cannot detect
 

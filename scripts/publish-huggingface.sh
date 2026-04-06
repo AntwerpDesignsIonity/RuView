@@ -11,13 +11,13 @@
 #
 # Usage:
 #   bash scripts/publish-huggingface.sh
-#   bash scripts/publish-huggingface.sh --repo ruvnet/wifi-densepose-pretrained --version v0.5.4
+#   bash scripts/publish-huggingface.sh --repo ionity-global/wifi-densepose-pretrained --version v0.5.4
 #   bash scripts/publish-huggingface.sh --dry-run
 
 set -euo pipefail
 
 # ---------- defaults ----------
-REPO="ruvnet/wifi-densepose-pretrained"
+REPO="ionity-global/wifi-densepose-pretrained"
 VERSION=""
 GCLOUD_PROJECT="cognitum-20260110"
 SECRET_NAME="HUGGINGFACE_API_KEY"
@@ -37,7 +37,7 @@ while [[ $# -gt 0 ]]; do
       echo "Usage: bash scripts/publish-huggingface.sh [OPTIONS]"
       echo ""
       echo "Options:"
-      echo "  --repo REPO        HuggingFace repo (default: ruvnet/wifi-densepose-pretrained)"
+      echo "  --repo REPO        HuggingFace repo (default: ionity-global/wifi-densepose-pretrained)"
       echo "  --version VERSION  Version tag (default: auto from git describe)"
       echo "  --model-dir DIR    Model directory (default: dist/models)"
       echo "  --project PROJECT  GCloud project (default: cognitum-20260110)"

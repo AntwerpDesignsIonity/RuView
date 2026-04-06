@@ -30,10 +30,10 @@ License: MIT
 """
 
 __version__ = "1.1.0"
-__author__ = "WiFi-DensePose Team"
-__email__ = "team@wifi-densepose.com"
+__author__ = "Johan Wilhelm van Antwerp, Ionity Global (Pty) Ltd"
+__email__ = "ai@ionity.today"
 __license__ = "MIT"
-__copyright__ = "Copyright 2024 WiFi-DensePose Team"
+__copyright__ = "Copyright 2026 Ionity Global (Pty) Ltd. Original work Copyright 2024 rUv."
 
 # Package metadata
 __title__ = "wifi-densepose"

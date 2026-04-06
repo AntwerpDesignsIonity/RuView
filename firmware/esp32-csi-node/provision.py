@@ -80,6 +80,10 @@ def build_nvs_csv(args):
         chan_bytes = bytes(channels)
         writer.writerow(["chan_list", "data", "hex2bin", chan_bytes.hex()])
         writer.writerow(["dwell_ms", "data", "u32", str(args.hop_dwell)])
+    # Node role: 0=txrx (default), 1=tx (transmitter), 2=rx (receiver)
+    if args.node_role is not None:
+        role_map = {"txrx": 0, "tx": 1, "rx": 2}
+        writer.writerow(["node_role", "data", "u8", str(role_map[args.node_role])])
     # ADR-066: Swarm bridge configuration
     if args.seed_url is not None:
         writer.writerow(["seed_url", "data", "string", args.seed_url])
@@ -240,6 +244,10 @@ def main():
     # ADR-073: Multi-frequency channel hopping
     parser.add_argument("--hop-channels", type=str, help="Comma-separated channel list for hopping (e.g. '1,6,11')")
     parser.add_argument("--hop-dwell", type=int, default=200, help="Dwell time per channel in ms (default: 200)")
+    # Node role assignment for multistatic mesh
+    parser.add_argument("--node-role", type=str, choices=["tx", "rx", "txrx"],
+                        help="Node role: tx=transmitter (NDP injection), rx=receiver (CSI capture), "
+                             "txrx=both (default bistatic mode)")
     # ADR-066: Swarm bridge
     parser.add_argument("--seed-url", type=str, help="Cognitum Seed base URL (e.g. http://10.1.10.236)")
     parser.add_argument("--seed-token", type=str, help="Seed Bearer token (from pairing)")
@@ -259,6 +267,7 @@ def main():
         args.vital_int is not None, args.subk_count is not None,
         args.channel is not None, args.filter_mac is not None,
         args.seed_url is not None, args.zone is not None,
+        args.node_role is not None,
     ])
     if not has_value:
         parser.error("At least one config value must be specified")
@@ -296,6 +305,9 @@ def main():
         print(f"  Target Port:   {args.target_port}")
     if args.node_id is not None:
         print(f"  Node ID:       {args.node_id}")
+    if args.node_role is not None:
+        role_desc = {"tx": "transmitter (NDP injection)", "rx": "receiver (CSI capture)", "txrx": "transceiver (both)"}
+        print(f"  Node Role:     {args.node_role} ({role_desc.get(args.node_role, '?')})")
     if args.tdm_slot is not None:
         print(f"  TDM Slot:      {args.tdm_slot} of {args.tdm_total}")
     if args.edge_tier is not None:

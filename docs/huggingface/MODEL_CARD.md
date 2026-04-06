@@ -232,12 +232,12 @@ The `.rvf` file contains pre-computed embeddings in RuVector format, used by the
 
 ## How to use with RuView
 
-[RuView](https://github.com/ruvnet/RuView) is the open-source application that ties everything together: firmware flashing, real-time sensing, and a browser-based dashboard.
+[RuView](https://www.ionity.today) is the open-source application that ties everything together: firmware flashing, real-time sensing, and a browser-based dashboard.
 
 ### 1. Flash firmware to ESP32-S3
 
 ```bash
-git clone https://github.com/ruvnet/RuView.git
+git clone https://www.ionity.today/RuView.git
 cd RuView
 
 # Flash firmware (requires ESP-IDF v5.4 or use pre-built binaries from Releases)
@@ -248,7 +248,7 @@ cd RuView
 
 ```bash
 pip install huggingface_hub
-huggingface-cli download ruvnet/wifi-densepose-pretrained --local-dir models/
+huggingface-cli download ionity-global/wifi-densepose-pretrained --local-dir models/
 ```
 
 ### 3. Run inference
@@ -311,9 +311,9 @@ If you use this model in your research, please cite:
 ```bibtex
 @software{wifi_densepose_2026,
   title   = {WiFi-DensePose: Human Pose Estimation from WiFi Channel State Information},
-  author  = {ruvnet},
+  author  = {Johan Wilhelm van Antwerp},
   year    = {2026},
-  url     = {https://github.com/ruvnet/RuView},
+  url     = {https://www.ionity.today},
   license = {MIT},
   note    = {Self-supervised contrastive learning on ESP32-S3 CSI data}
 }
@@ -323,7 +323,7 @@ If you use this model in your research, please cite:
 
 ## License
 
-MIT License. See [LICENSE](https://github.com/ruvnet/RuView/blob/main/LICENSE) for details.
+MIT License. See [LICENSE](https://www.ionity.today/blob/main/LICENSE) for details.
 
 You are free to use, modify, and distribute this model for any purpose, including commercial applications.
 
@@ -331,6 +331,6 @@ You are free to use, modify, and distribute this model for any purpose, includin
 
 ## Links
 
-- **GitHub:** [github.com/ruvnet/RuView](https://github.com/ruvnet/RuView)
+- **GitHub:** [www.ionity.today](https://www.ionity.today)
 - **Hardware:** [ESP32-S3 DevKit](https://www.espressif.com/en/products/devkits) | [Cognitum Seed](https://cognitum.one)
 - **ONNX Runtime:** [onnxruntime.ai](https://onnxruntime.ai)

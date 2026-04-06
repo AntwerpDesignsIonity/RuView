@@ -56,6 +56,12 @@ use wifi_densepose_wifiscan::{
 };
 use wifi_densepose_wifiscan::parse_netsh_output as parse_netsh_bssid_output;
 
+// Linux multi-BSSID scanner (ADR-022 Linux path)
+#[cfg(target_os = "linux")]
+use wifi_densepose_wifiscan::LinuxIwScanner;
+#[cfg(target_os = "linux")]
+use wifi_densepose_wifiscan::parse_iw_scan_output;
+
 // Accuracy sprint: Kalman tracker, multistatic fusion, field model
 use wifi_densepose_signal::ruvsense::pose_tracker::PoseTracker;
 use wifi_densepose_signal::ruvsense::multistatic::{MultistaticFuser, MultistaticConfig};
@@ -1454,6 +1460,218 @@ fn parse_netsh_interfaces_output(output: &str) -> Option<(f64, f64, String)> {
     }
 }
 
+/// Detect the active wireless interface name by parsing `iw dev` output.
+/// Returns the first interface in station or managed mode, or falls back to "wlan0".
+#[cfg(target_os = "linux")]
+fn detect_wifi_interface() -> String {
+    let output = std::process::Command::new("iw")
+        .arg("dev")
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default();
+    // Parse: lines like "Interface wlan0"
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if let Some(iface) = trimmed.strip_prefix("Interface ") {
+            return iface.trim().to_string();
+        }
+    }
+    "wlan0".to_string()
+}
+
+/// Linux multi-BSSID WiFi sensing task (ADR-022 Linux path).
+///
+/// Uses `iw dev <iface> scan` to enumerate ALL visible BSSIDs: your own AP,
+/// neighbour routers, any open networks in range. Each BSSID acts as a passive
+/// RF beacon whose RSSI variations reflect motion in its Fresnel zone, enabling
+/// sensing without any ESP32 hardware and without being associated to the AP.
+///
+/// Mirrors `windows_wifi_task` logic but uses `LinuxIwScanner` instead of `netsh`.
+#[cfg(target_os = "linux")]
+async fn linux_wifi_task(state: SharedState, tick_ms: u64, iface: String) {
+    let mut interval = tokio::time::interval(Duration::from_millis(tick_ms));
+    let mut seq: u32 = 0;
+
+    let mut registry = BssidRegistry::new(64, 30);
+    let mut pipeline = WindowsWifiPipeline::new();
+
+    info!(
+        "Linux multi-BSSID WiFi sensing active (iface={iface}, tick={tick_ms}ms, max_bssids=64)"
+    );
+    info!("  Scanning all visible APs — own + neighbours — as passive RF beacons");
+
+    loop {
+        interval.tick().await;
+        seq += 1;
+
+        // Run iw scan inside spawn_blocking (blocking subprocess).
+        let iface_clone = iface.clone();
+        let scan_result = tokio::task::spawn_blocking(move || {
+            // Try live scan first (needs CAP_NET_ADMIN / root); fall back to dump.
+            let scanner = LinuxIwScanner::with_interface(&iface_clone);
+            match scanner.scan_sync() {
+                Ok(obs) if !obs.is_empty() => Ok(obs),
+                _ => {
+                    // Fall back to cached dump (no root required but may be stale ~30s).
+                    let cached = LinuxIwScanner::with_interface(&iface_clone).use_cached();
+                    cached.scan_sync().map_err(|e| format!("iw scan failed: {e}"))
+                }
+            }
+        })
+        .await;
+
+        let observations = match scan_result {
+            Ok(Ok(obs)) if !obs.is_empty() => obs,
+            Ok(Ok(_)) => {
+                debug!("Linux WiFi scan: 0 BSSIDs, skipping tick");
+                continue;
+            }
+            Ok(Err(e)) => {
+                warn!("Linux WiFi scan error: {e}");
+                continue;
+            }
+            Err(e) => {
+                error!("spawn_blocking panicked: {e}");
+                continue;
+            }
+        };
+
+        let obs_count = observations.len();
+        let ssid = observations
+            .first()
+            .map(|o| o.ssid.clone())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "unknown".into());
+        let first_rssi = observations.first().map(|o| o.rssi_dbm).unwrap_or(-80.0);
+
+        // Feed registry and run pipeline.
+        registry.update(&observations);
+        let multi_ap_frame = registry.to_multi_ap_frame();
+        let enhanced = pipeline.process(&multi_ap_frame);
+
+        let frame = Esp32Frame {
+            magic: 0xC511_0001,
+            node_id: 0,
+            n_antennas: 1,
+            n_subcarriers: obs_count.min(255) as u8,
+            freq_mhz: 2437,
+            sequence: seq,
+            rssi: first_rssi.clamp(-128.0, 127.0) as i8,
+            noise_floor: -95,
+            amplitudes: multi_ap_frame.amplitudes.clone(),
+            phases: multi_ap_frame.phases.clone(),
+        };
+
+        let mut s = state.write().await;
+        s.frame_history.push_back(frame.amplitudes.clone());
+        if s.frame_history.len() > FRAME_HISTORY_CAPACITY {
+            s.frame_history.pop_front();
+        }
+        let sample_rate_hz = 1000.0 / tick_ms as f64;
+        let (features, mut classification, breathing_rate_hz, sub_variances, raw_motion) =
+            extract_features_from_frame(&frame, &s.frame_history, sample_rate_hz);
+        smooth_and_classify(&mut s, &mut classification, raw_motion);
+        adaptive_override(&s, &features, &mut classification);
+
+        let enhanced_motion = Some(serde_json::json!({
+            "score": enhanced.motion.score,
+            "level": format!("{:?}", enhanced.motion.level),
+            "contributing_bssids": enhanced.motion.contributing_bssids,
+        }));
+        let enhanced_breathing = enhanced.breathing.as_ref().map(|b| {
+            serde_json::json!({
+                "rate_bpm": b.rate_bpm,
+                "confidence": b.confidence,
+                "bssid_count": b.bssid_count,
+            })
+        });
+        let posture_str = enhanced.posture.map(|p| format!("{p:?}"));
+        let sig_quality_score = Some(enhanced.signal_quality.score);
+        let verdict_str = Some(format!("{:?}", enhanced.verdict));
+        let bssid_n = Some(enhanced.bssid_count);
+
+        s.source = format!("wifi:{ssid}");
+        s.rssi_history.push_back(first_rssi);
+        if s.rssi_history.len() > 60 { s.rssi_history.pop_front(); }
+        s.tick += 1;
+        let tick = s.tick;
+
+        let motion_score = match classification.motion_level.as_str() {
+            "active" => 0.8,
+            "present_still" => 0.3,
+            _ => 0.05,
+        };
+
+        let raw_vitals = s.vital_detector.process_frame(&frame.amplitudes, &frame.phases);
+        let vitals = smooth_vitals(&mut s, &raw_vitals);
+        s.latest_vitals = vitals.clone();
+
+        let feat_variance = features.variance;
+        let raw_score = compute_person_score(&features);
+        s.smoothed_person_score = s.smoothed_person_score * 0.90 + raw_score * 0.10;
+        let est_persons = if classification.presence {
+            let count = s.person_count();
+            s.prev_person_count = count;
+            count
+        } else {
+            s.prev_person_count = 0;
+            0
+        };
+
+        let mut update = SensingUpdate {
+            msg_type: "sensing_update".to_string(),
+            timestamp: chrono::Utc::now().timestamp_millis() as f64 / 1000.0,
+            source: format!("wifi:{ssid}"),
+            tick,
+            nodes: vec![NodeInfo {
+                node_id: 0,
+                rssi_dbm: first_rssi,
+                position: [0.0, 0.0, 0.0],
+                amplitude: multi_ap_frame.amplitudes,
+                subcarrier_count: obs_count,
+            }],
+            features,
+            classification,
+            signal_field: generate_signal_field(
+                first_rssi, motion_score, breathing_rate_hz,
+                feat_variance.min(1.0), &sub_variances,
+            ),
+            vital_signs: Some(vitals),
+            enhanced_motion,
+            enhanced_breathing,
+            posture: posture_str,
+            signal_quality_score: sig_quality_score,
+            quality_verdict: verdict_str,
+            bssid_count: bssid_n,
+            pose_keypoints: None,
+            model_status: None,
+            persons: None,
+            estimated_persons: if est_persons > 0 { Some(est_persons) } else { None },
+            node_features: None,
+        };
+
+        let raw_persons = derive_pose_from_sensing(&update);
+        let tracked = {
+            let s_ref = &mut *s;
+            let (tracker, instant) = (&mut s_ref.pose_tracker, &mut s_ref.last_tracker_instant);
+            tracker_bridge::tracker_update(tracker, instant, raw_persons)
+        };
+        if !tracked.is_empty() {
+            update.persons = Some(tracked);
+        }
+
+        if let Ok(json) = serde_json::to_string(&update) {
+            let _ = s.tx.send(json);
+        }
+        s.latest_update = Some(update);
+
+        debug!(
+            "Linux WiFi tick #{tick}: {obs_count} BSSIDs, quality={:.2}, verdict={:?}",
+            enhanced.signal_quality.score, enhanced.verdict
+        );
+    }
+}
+
 async fn windows_wifi_task(state: SharedState, tick_ms: u64) {
     let mut interval = tokio::time::interval(Duration::from_millis(tick_ms));
     let mut seq: u32 = 0;
@@ -1655,9 +1873,10 @@ async fn windows_wifi_task(state: SharedState, tick_ms: u64) {
 
         // Populate persons from the sensing update (Kalman-smoothed via tracker).
         let raw_persons = derive_pose_from_sensing(&update);
-        let tracked = tracker_bridge::tracker_update(
-            &mut s.pose_tracker, &mut s.last_tracker_instant, raw_persons,
-        );
+        let tracked = {
+            let s_ref = &mut *s; let (tracker, instant) = (&mut s_ref.pose_tracker, &mut s_ref.last_tracker_instant);
+            tracker_bridge::tracker_update(tracker, instant, raw_persons)
+        };
         if !tracked.is_empty() {
             update.persons = Some(tracked);
         }
@@ -1791,9 +2010,10 @@ async fn windows_wifi_fallback_tick(state: &SharedState, seq: u32) {
     };
 
     let raw_persons = derive_pose_from_sensing(&update);
-    let tracked = tracker_bridge::tracker_update(
-        &mut s.pose_tracker, &mut s.last_tracker_instant, raw_persons,
-    );
+    let tracked = {
+        let s_ref = &mut *s; let (tracker, instant) = (&mut s_ref.pose_tracker, &mut s_ref.last_tracker_instant);
+        tracker_bridge::tracker_update(tracker, instant, raw_persons)
+    };
     if !tracked.is_empty() {
         update.persons = Some(tracked);
     }
@@ -2654,6 +2874,51 @@ async fn health_metrics(State(state): State<SharedState>) -> Json<serde_json::Va
             "disk": { "percent": 15.0 },
         },
         "tick": s.tick,
+    }))
+}
+
+async fn health_autorepair(State(state): State<SharedState>) -> Json<serde_json::Value> {
+    let s = state.read().await;
+    let uptime = s.start_time.elapsed().as_secs();
+    let src = s.effective_source();
+    let source_degraded = src.contains("offline") || src.contains("degraded");
+
+    // Read process RSS on Linux
+    let heap_mb = {
+        #[cfg(target_os = "linux")]
+        {
+            std::fs::read_to_string("/proc/self/status")
+                .ok()
+                .and_then(|status| {
+                    status.lines()
+                        .find(|l| l.starts_with("VmRSS:"))
+                        .and_then(|l| l.split_whitespace().nth(1))
+                        .and_then(|kb| kb.parse::<f64>().ok())
+                        .map(|kb| kb / 1024.0)
+                })
+                .unwrap_or(0.0)
+        }
+        #[cfg(not(target_os = "linux"))]
+        { 0.0_f64 }
+    };
+
+    let tick_ok = s.tick > 0;
+    let memory_ok = heap_mb < 256.0;
+    let healthy = tick_ok && memory_ok && !source_degraded;
+
+    Json(serde_json::json!({
+        "autorepair": {
+            "healthy": healthy,
+            "watchdog_interval_secs": 30,
+            "uptime_secs": uptime,
+            "tick": s.tick,
+            "tick_ok": tick_ok,
+            "source": src,
+            "source_degraded": source_degraded,
+            "memory_mb": format!("{:.1}", heap_mb),
+            "memory_ok": memory_ok,
+            "clients": s.tx.receiver_count(),
+        }
     }))
 }
 
@@ -3575,14 +3840,6 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                         else if vitals.presence { 0.3 }
                         else { 0.05 };
 
-<<<<<<< HEAD
-                    // Aggregate person count across all active nodes.
-                    let now = std::time::Instant::now();
-                    let total_persons: usize = s.node_states.values()
-                        .filter(|n| n.last_frame_time.map_or(false, |t| now.duration_since(t).as_secs() < 10))
-                        .map(|n| n.prev_person_count)
-                        .sum();
-=======
                     // Aggregate person count: gate on presence first (matching WiFi path).
                     let now = std::time::Instant::now();
                     let total_persons = if vitals.presence {
@@ -3605,12 +3862,14 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                     };
 
                     // Feed field model calibration if active (use per-node history for ESP32).
+                    // Extract frame_history before mutable field_model borrow to avoid split-borrow conflict.
+                    let _calib_history: Option<VecDeque<Vec<f64>>> = s.node_states.get(&node_id)
+                        .map(|ns| ns.frame_history.clone());
                     if let Some(ref mut fm) = s.field_model {
-                        if let Some(ns) = s.node_states.get(&node_id) {
-                            field_bridge::maybe_feed_calibration(fm, &ns.frame_history);
+                        if let Some(ref fh) = _calib_history {
+                            field_bridge::maybe_feed_calibration(fm, fh);
                         }
                     }
->>>>>>> a23bd2ec (fix(server): resolve adversarial review findings C1-C5, H1-H3, H5, M1-M2)
 
                     // Build nodes array with all active nodes.
                     let active_nodes: Vec<NodeInfo> = s.node_states.iter()
@@ -3690,9 +3949,13 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                         node_features: None,
                     };
 
-                    let persons = derive_pose_from_sensing(&update);
-                    if !persons.is_empty() {
-                        update.persons = Some(persons);
+                    let raw_persons = derive_pose_from_sensing(&update);
+                    let tracked = {
+                        let s_ref = &mut *s; let (tracker, instant) = (&mut s_ref.pose_tracker, &mut s_ref.last_tracker_instant);
+                        tracker_bridge::tracker_update(tracker, instant, raw_persons)
+                    };
+                    if !tracked.is_empty() {
+                        update.persons = Some(tracked);
                     }
 
                     if let Ok(json) = serde_json::to_string(&update) {
@@ -3829,14 +4092,6 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                         else if classification.motion_level == "present_still" { 0.3 }
                         else { 0.05 };
 
-<<<<<<< HEAD
-                    // Aggregate person count across all active nodes.
-                    let now = std::time::Instant::now();
-                    let total_persons: usize = s.node_states.values()
-                        .filter(|n| n.last_frame_time.map_or(false, |t| now.duration_since(t).as_secs() < 10))
-                        .map(|n| n.prev_person_count)
-                        .sum();
-=======
                     // Aggregate person count: gate on presence first (matching WiFi path).
                     let now = std::time::Instant::now();
                     let total_persons = if classification.presence {
@@ -3859,12 +4114,14 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                     };
 
                     // Feed field model calibration if active (use per-node history for ESP32).
+                    // Extract frame_history before mutable field_model borrow to avoid split-borrow conflict.
+                    let _calib_history: Option<VecDeque<Vec<f64>>> = s.node_states.get(&node_id)
+                        .map(|ns| ns.frame_history.clone());
                     if let Some(ref mut fm) = s.field_model {
-                        if let Some(ns) = s.node_states.get(&node_id) {
-                            field_bridge::maybe_feed_calibration(fm, &ns.frame_history);
+                        if let Some(ref fh) = _calib_history {
+                            field_bridge::maybe_feed_calibration(fm, fh);
                         }
                     }
->>>>>>> a23bd2ec (fix(server): resolve adversarial review findings C1-C5, H1-H3, H5, M1-M2)
 
                     // Build nodes array with all active nodes.
                     let active_nodes: Vec<NodeInfo> = s.node_states.iter()
@@ -3906,9 +4163,13 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                         node_features: None,
                     };
 
-                    let persons = derive_pose_from_sensing(&update);
-                    if !persons.is_empty() {
-                        update.persons = Some(persons);
+                    let raw_persons = derive_pose_from_sensing(&update);
+                    let tracked = {
+                        let s_ref = &mut *s; let (tracker, instant) = (&mut s_ref.pose_tracker, &mut s_ref.last_tracker_instant);
+                        tracker_bridge::tracker_update(tracker, instant, raw_persons)
+                    };
+                    if !tracked.is_empty() {
+                        update.persons = Some(tracked);
                     }
 
                     if let Ok(json) = serde_json::to_string(&update) {
@@ -4040,9 +4301,10 @@ async fn simulated_data_task(state: SharedState, tick_ms: u64) {
 
         // Populate persons from the sensing update (Kalman-smoothed via tracker).
         let raw_persons = derive_pose_from_sensing(&update);
-        let tracked = tracker_bridge::tracker_update(
-            &mut s.pose_tracker, &mut s.last_tracker_instant, raw_persons,
-        );
+        let tracked = {
+            let s_ref = &mut *s; let (tracker, instant) = (&mut s_ref.pose_tracker, &mut s_ref.last_tracker_instant);
+            tracker_bridge::tracker_update(tracker, instant, raw_persons)
+        };
         if !tracked.is_empty() {
             update.persons = Some(tracked);
         }
@@ -4073,6 +4335,146 @@ async fn broadcast_tick_task(state: SharedState, tick_ms: u64) {
                     let _ = s.tx.send(json);
                 }
             }
+        }
+    }
+}
+
+// ── Software Autorepair: Watchdog + selfcheck + fallback ─────────────────────
+
+/// Autorepair status bits (mirrors ESP32 autorepair.h)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AutorepairStatus {
+    healthy: bool,
+    tick_stall: bool,
+    memory_high: bool,
+    source_degraded: bool,
+    uptime_secs: u64,
+    last_tick: u64,
+    check_count: u64,
+    recovery_count: u64,
+    heap_mb: f64,
+}
+
+/// Background watchdog task that monitors server health and attempts recovery.
+///
+/// Checks every `interval_secs`:
+///  1. Tick progress — detects stalled source tasks.
+///  2. Process memory — warns if RSS exceeds threshold.
+///  3. Source health — detects offline/degraded sources.
+///
+/// Recovery actions:
+///  - Tick stall: logs critical warning (Tokio tasks can't be restarted externally,
+///    but the process supervisor in ionity.sh will catch an unresponsive /health).
+///  - Memory: logs warning (no forced GC in Rust, but signals need for investigation).
+///  - Source offline: updates state to mark degraded.
+///
+/// If the server is unresponsive for 3 consecutive checks, it exits the process
+/// so the ionity stack supervisor can restart it cleanly.
+async fn autorepair_watchdog_task(state: SharedState, interval_secs: u64) {
+    let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
+    let mut prev_tick: u64 = 0;
+    let mut stall_count: u32 = 0;
+    let mut check_count: u64 = 0;
+    let mut recovery_count: u64 = 0;
+    let max_stall_before_exit: u32 = 3;
+
+    // Skip the first tick (immediate)
+    interval.tick().await;
+
+    loop {
+        interval.tick().await;
+        check_count += 1;
+
+        let current_tick = {
+            let s = state.read().await;
+            s.tick
+        };
+
+        let mut status = AutorepairStatus {
+            healthy: true,
+            tick_stall: false,
+            memory_high: false,
+            source_degraded: false,
+            uptime_secs: 0,
+            last_tick: current_tick,
+            check_count,
+            recovery_count,
+            heap_mb: 0.0,
+        };
+
+        // 1. Tick progress check
+        if current_tick == prev_tick && current_tick > 0 {
+            stall_count += 1;
+            status.tick_stall = true;
+            status.healthy = false;
+            warn!(
+                "Autorepair: tick stalled at {} for {} consecutive checks",
+                current_tick, stall_count
+            );
+
+            if stall_count >= max_stall_before_exit {
+                error!(
+                    "Autorepair: tick stalled for {} checks — exiting for supervisor restart",
+                    stall_count
+                );
+                recovery_count += 1;
+                // Exit with non-zero code so supervisor knows to restart
+                std::process::exit(1);
+            }
+        } else {
+            if stall_count > 0 {
+                info!("Autorepair: tick recovered (was stalled for {} checks)", stall_count);
+                recovery_count += 1;
+            }
+            stall_count = 0;
+        }
+        prev_tick = current_tick;
+
+        // 2. Process memory check (read /proc/self/status on Linux)
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(proc_status) = tokio::fs::read_to_string("/proc/self/status").await {
+                for line in proc_status.lines() {
+                    if line.starts_with("VmRSS:") {
+                        if let Some(kb_str) = line.split_whitespace().nth(1) {
+                            if let Ok(kb) = kb_str.parse::<f64>() {
+                                status.heap_mb = kb / 1024.0;
+                                // Warn at 256MB (generous for arm64 Pi)
+                                if kb > 256.0 * 1024.0 {
+                                    status.memory_high = true;
+                                    status.healthy = false;
+                                    warn!(
+                                        "Autorepair: high memory usage: {:.1} MB RSS",
+                                        status.heap_mb
+                                    );
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 3. Source health check
+        {
+            let s = state.read().await;
+            let src = s.effective_source();
+            if src.contains("offline") || src.contains("degraded") {
+                status.source_degraded = true;
+                status.healthy = false;
+                warn!("Autorepair: source degraded — {}", src);
+            }
+            status.uptime_secs = s.start_time.elapsed().as_secs();
+        }
+
+        // Periodic health summary (every 10 checks when healthy, every check when not)
+        if !status.healthy || check_count % 10 == 0 {
+            info!(
+                "Autorepair selfcheck #{}: healthy={}, tick={}, RSS={:.1}MB, uptime={}s, recoveries={}",
+                check_count, status.healthy, status.last_tick,
+                status.heap_mb, status.uptime_secs, recovery_count
+            );
         }
     }
 }
@@ -4705,12 +5107,24 @@ async fn main() {
             tokio::spawn(broadcast_tick_task(state.clone(), args.tick_ms));
         }
         "wifi" => {
-            tokio::spawn(windows_wifi_task(state.clone(), args.tick_ms));
+            #[cfg(target_os = "linux")]
+            {
+                let iface = detect_wifi_interface();
+                info!("Linux WiFi sensing: interface={iface} — scanning all visible BSSIDs");
+                tokio::spawn(linux_wifi_task(state.clone(), args.tick_ms, iface));
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                tokio::spawn(windows_wifi_task(state.clone(), args.tick_ms));
+            }
         }
         _ => {
             tokio::spawn(simulated_data_task(state.clone(), args.tick_ms));
         }
     }
+
+    // Autorepair: spawn software watchdog (checks every 30s)
+    tokio::spawn(autorepair_watchdog_task(state.clone(), 30));
 
     // ADR-050: Parse bind address once, use for all listeners
     let bind_ip: std::net::IpAddr = args.bind_addr.parse()
@@ -4743,6 +5157,7 @@ async fn main() {
         .route("/health/ready", get(health_ready))
         .route("/health/version", get(health_version))
         .route("/health/metrics", get(health_metrics))
+        .route("/health/autorepair", get(health_autorepair))
         // API info
         .route("/api/v1/info", get(api_info))
         .route("/api/v1/status", get(health_ready))

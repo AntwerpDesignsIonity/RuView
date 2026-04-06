@@ -4,6 +4,7 @@ set(SRCS
     "wasm_runtime.c" "wasm_upload.c" "rvf_parser.c"
     "mmwave_sensor.c"
     "swarm_bridge.c"
+    "autorepair.c"
 )
 
 set(REQUIRES "")

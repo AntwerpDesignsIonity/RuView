@@ -45,7 +45,7 @@ DRY_RUN=false
 SWEEP=false
 KEEP_VM=false
 INSTANCE_NAME=""
-REPO_URL="https://github.com/ruvnet/wifi-densepose.git"
+REPO_URL="https://github.com/ionity-global/RuView.git"
 BRANCH="main"
 
 # ── Parse arguments ───────────────────────────────────────────────────────────

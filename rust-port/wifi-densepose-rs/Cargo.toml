@@ -28,7 +28,7 @@ exclude = [
 [workspace.package]
 version = "0.3.0"
 edition = "2021"
-authors = ["rUv <ruv@ruv.net>", "WiFi-DensePose Contributors"]
+authors = ["Johan Wilhelm van Antwerp <ai@ionity.today>", "Ionity Global (Pty) Ltd", "rUv <ruv@ruv.net>", "WiFi-DensePose Contributors"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/ruvnet/wifi-densepose"
 documentation = "https://docs.rs/wifi-densepose"

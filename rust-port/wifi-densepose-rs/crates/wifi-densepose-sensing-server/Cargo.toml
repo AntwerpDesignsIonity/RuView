@@ -43,5 +43,12 @@ clap = { workspace = true }
 # Multi-BSSID WiFi scanning pipeline (ADR-022 Phase 3)
 wifi-densepose-wifiscan = { version = "0.3.0", path = "../wifi-densepose-wifiscan" }
 
+# Signal processing with RuvSense pose tracker (accuracy sprint)
+# default-features = false disables eigenvalue/ndarray-linalg (lax fails on Rust 1.94+)
+wifi-densepose-signal = { version = "0.3.0", path = "../wifi-densepose-signal", default-features = false }
+
+# Person-count graph algorithm (used directly in main.rs)
+ruvector-mincut = { workspace = true }
+
 [dev-dependencies]
 tempfile = "3.10"
