@@ -304,6 +304,7 @@ See [ADR-069](docs/adr/ADR-069-cognitum-seed-csi-pipeline.md), [ADR-071](docs/ad
 | [Architecture Decisions](docs/adr/README.md) | 78 ADRs — why each technical choice was made, organized by domain (hardware, signal processing, ML, platform, infrastructure) |
 | [Domain Models](docs/ddd/README.md) | 8 DDD models (RuvSense, Signal Processing, Training Pipeline, Hardware Platform, Sensing Server, WiFi-Mat, CHCI, Deployment Platform) — bounded contexts, aggregates, domain events, and ubiquitous language |
 | [Edge Modules](docs/edge-modules/README.md) | 11 categories of edge computing modules — core, medical, security, industrial, retail, adaptive learning, and more |
+| [LED Visual Interface](docs/led.md) | AEDI radar node LED spec — single WS2812B RGB LED visual language: boot sweep, signal beacons, human detection, AI processing, crash fault, and hub/edge role ping |
 | [Desktop App](rust-port/wifi-densepose-rs/crates/wifi-densepose-desktop/README.md) | **WIP** — Tauri v2 desktop app for node management, OTA updates, WASM deployment, and mesh visualization |
 | [Medical Examples](examples/medical/README.md) | Contactless blood pressure, heart rate, breathing rate via 60 GHz mmWave radar — $15 hardware, no wearable |
 

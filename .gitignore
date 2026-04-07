@@ -97,9 +97,6 @@ cover/
 
 # Django stuff:
 *.log
-# Allow structured runtime logs to be tracked in logs/
-!logs/
-!logs/**
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
@@ -258,6 +255,7 @@ firmware/esp32-csi-node/build_firmware.bat
 # Model files & data (downloaded, not committed)
 data/models/
 models/
-.env.local
 *.safetensors
 *.lora.json
+logs/
+ionity/.pio/
