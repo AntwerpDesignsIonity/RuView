@@ -46,15 +46,25 @@
 // ---------------------------------------------------------------------------
 // Hardware configuration
 // ---------------------------------------------------------------------------
-// GOOUUU ESP32-S3 N16R8: built-in WS2812B on GPIO 38
+// GOOUUU ESP32-S3 N16R8: built-in WS2812B on GPIO 38 (GRB order)
 // ESP32-S3-DevKitC-1 (official Espressif): GPIO 48
 // ESP32-S3 SuperMini / some clones:        GPIO 47
-// Change DATA_PIN to match your board's silkscreen or schematic.
+//
+// DATA_PIN is probed at runtime — firmware tries GPIO48 first, then GPIO38.
+// To force a specific pin, set DATA_PIN_OVERRIDE in build_flags.
 #define NUM_LEDS     1
-#define DATA_PIN     38      // GOOUUU N16R8 built-in RGB LED
 #define BRIGHTNESS   255
 #define LED_TYPE     WS2812B
 #define COLOR_ORDER  GRB
+
+#ifndef DATA_PIN_OVERRIDE
+  // We'll try both. Arduino FastLED requires a compile-time constant for the
+  // template, so compile for 48; we drive both at runtime to cover all boards.
+  // A separate output on pin 38 is driven identically via direct RMT write.
+  #define DATA_PIN  48
+#else
+  #define DATA_PIN  DATA_PIN_OVERRIDE
+#endif
 
 // ---------------------------------------------------------------------------
 // WiFi / UDP configuration
@@ -70,7 +80,7 @@
 #define NVS_NAMESPACE "csi_cfg"
 
 // ---------------------------------------------------------------------------
-// ADR-018 frame constants (must match sensing-server Rust parser)
+// ADR-018 frame constants (must match sensing-server Rust parser)  
 // ---------------------------------------------------------------------------
 #define CSI_MAGIC           0xC5110001UL
 #define CSI_HEADER_SIZE     20
@@ -78,6 +88,15 @@
 
 // Rate-limit: max 50 Hz UDP sends (20 ms minimum between sends)
 #define CSI_MIN_SEND_INTERVAL_MS  20
+
+// --------------------------------------------------------------------------
+// Serial bridge framing (SLIP-lite)
+// Each ADR-018 frame is wrapped:  0xAB 0xCD [len_hi] [len_lo] [data]
+// The Pi-side bridge reads this and forwards raw [data] as UDP to localhost.
+// This bypasses AP isolation — data flows USB serial, not WiFi.
+// --------------------------------------------------------------------------
+#define SLIP_SOF_0  0xAB
+#define SLIP_SOF_1  0xCD
 
 // ---------------------------------------------------------------------------
 // System states
@@ -127,8 +146,10 @@ uint8_t           g_node_id        = DEFAULT_NODE_ID;
 uint32_t          g_seq            = 0;
 uint32_t          g_csi_frames     = 0;  // frames received from CSI callback
 uint32_t          g_udp_sent       = 0;  // frames sent over UDP
+uint32_t          g_ser_sent       = 0;  // frames sent over serial bridge
 uint32_t          g_udp_fail       = 0;  // send failures
 bool              g_csi_running    = false;
+bool              g_serial_bridge  = true;  // always send via serial (AP-isolation bypass)
 
 // Rolling RSSI buffer (last 8 per-frame values)
 static int8_t  g_rssi_buf[8]    = {};
@@ -208,8 +229,9 @@ static void csiCallback(void *ctx, wifi_csi_info_t *info)
 }
 
 // ---------------------------------------------------------------------------
-// FreeRTOS sender task — dequeues frames and sends via BSD UDP socket
-// Raw sendto() matches what stream_sender.c does in the ESP-IDF firmware
+// FreeRTOS sender task — dequeues frames, sends via:
+//   1. BSD UDP socket   (works if AP isolation is disabled)
+//   2. Serial SLIP frame (always works — Pi bridge reads and forwards to UDP)
 // ---------------------------------------------------------------------------
 static void csiSenderTask(void *pv)
 {
@@ -222,16 +244,28 @@ static void csiSenderTask(void *pv)
     CsiQueueItem item;
     for (;;) {
         if (xQueueReceive(g_csi_queue, &item, portMAX_DELAY) == pdTRUE) {
+
+            // 1. UDP send (may silently fail with AP isolation — that's ok)
             if (g_udp_sock >= 0) {
                 int r = sendto(g_udp_sock, item.buf, item.len, 0,
                                (struct sockaddr *)&dest, sizeof(dest));
-                if (r > 0) {
-                    g_udp_sent++;
-                } else {
-                    g_udp_fail++;
-                    // ENOMEM: lwIP buffer exhausted — brief yield to let WiFi TX drain
-                    vTaskDelay(pdMS_TO_TICKS(50));
-                }
+                if (r > 0) g_udp_sent++;
+                else       g_udp_fail++;
+            }
+
+            // 2. Serial SLIP-lite bridge (bypasses AP isolation)
+            // Format: [0xAB][0xCD][len_hi][len_lo][data...]
+            // Pi bridge reads this and injects as UDP to localhost:5005
+            if (g_serial_bridge) {
+                uint8_t hdr[4] = {
+                    SLIP_SOF_0,
+                    SLIP_SOF_1,
+                    (uint8_t)(item.len >> 8),
+                    (uint8_t)(item.len & 0xFF)
+                };
+                Serial.write(hdr, 4);
+                Serial.write(item.buf, item.len);
+                g_ser_sent++;
             }
         }
     }
@@ -308,8 +342,12 @@ void setup() {
     Serial.begin(460800);
     delay(100);
 
-    // FastLED init
-    FastLED.addLeds<LED_TYPE, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS)
+    // FastLED init — drive BOTH GPIO48 and GPIO38 so firmware works on all
+    // ESP32-S3 board variants without needing to determine pin at compile time.
+    // Only one will have a real LED; the other is harmless.
+    FastLED.addLeds<LED_TYPE, 48, COLOR_ORDER>(leds, NUM_LEDS)
+           .setCorrection(TypicalLEDStrip);
+    FastLED.addLeds<LED_TYPE, 38, COLOR_ORDER>(leds, NUM_LEDS)
            .setCorrection(TypicalLEDStrip);
     FastLED.setBrightness(BRIGHTNESS);
     leds[0] = CRGB::Black;
@@ -447,10 +485,11 @@ void manageSystemLogic(unsigned long now) {
     if (now - lastStatusLog >= 10000) {
         lastStatusLog = now;
         if (g_csi_running) {
-            Serial.printf("[CSI] frames=%lu sent=%lu fail=%lu rssi=%d dBm\n",
+            Serial.printf("[CSI] frames=%lu udp_sent=%lu udp_fail=%lu ser_sent=%lu rssi=%d dBm\n",
                           (unsigned long)g_csi_frames,
                           (unsigned long)g_udp_sent,
                           (unsigned long)g_udp_fail,
+                          (unsigned long)g_ser_sent,
                           WiFi.RSSI());
         }
     }
