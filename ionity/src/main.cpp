@@ -1,28 +1,47 @@
 /**
  * @file main.cpp
- * @brief ESP32-S3 "AEDI" Radar Node — LED Visual Interface
+ * @brief ESP32-S3 "AEDI" Radar Node — CSI Sensing + LED Visual Interface
  *
- * Single WS2812B/NeoPixel RGB LED state machine implementing the complete
- * AEDI visual language spec (docs/led.md). Communicates radar, network,
- * and system state without a screen using layered animations.
+ * Full CSI sensing pipeline + ADR-018 UDP streaming + LED visual state machine.
  *
- * Hardware: ESP32-S3 N16R8 (built-in LED on GPIO 48, WS2812B GRB order)
+ * On boot:
+ *   1. Reads WiFi credentials + aggregator IP/port from NVS (namespace: csi_cfg)
+ *   2. Connects to WiFi in station mode
+ *   3. Enables promiscuous WiFi CSI collection
+ *   4. Streams ADR-018 binary CSI frames to the aggregator via UDP
+ *   5. Drives WS2812B LED according to sensing state
+ *
+ * ADR-018 binary frame layout (must match Rust sensing-server parser):
+ *   [0..3]   Magic: 0xC5110001 (LE)
+ *   [4]      Node ID (u8, from NVS key "node_id")
+ *   [5]      Antenna count (u8, always 1)
+ *   [6..7]   Subcarrier count (u16 LE) = rssi_count / 2
+ *   [8..11]  Frequency MHz (u32 LE)
+ *   [12..15] Sequence number (u32 LE)
+ *   [16]     RSSI (i8)
+ *   [17]     Noise floor (i8)
+ *   [18..19] Reserved (0x00)
+ *   [20..]   I/Q bytes (raw from CSI callback)
+ *
+ * Hardware: ESP32-S3 N16R8 (built-in WS2812B on GPIO 38)
  * Framework: Arduino (PlatformIO)
- * Library:   FastLED ^3.6.0
- *
- * LED pin 48 is the built-in addressable LED on most ESP32-S3 DevKitC-1
- * and compatible modules. Change DATA_PIN if your board differs.
- *
- * Node role (hub vs edge) is read from NVS key "led_hub" in namespace
- * "csi_cfg". Set with:
- *   python firmware/esp32-csi-node/provision.py --led-hub hub
- *   python firmware/esp32-csi-node/provision.py --led-hub edge
+ * NVS keys (namespace "csi_cfg"): ssid, password, target_ip, target_port,
+ *                                   node_id, led_hub
  */
 
 #include <Arduino.h>
 #include <FastLED.h>
 #include <Preferences.h>
 #include <WiFi.h>
+
+// BSD/POSIX socket API via lwIP (ESP-IDF style, avoids WiFiUDP pbuf issues)
+#include "lwip/sockets.h"
+#include "lwip/netdb.h"
+
+// ESP-IDF CSI API (available in Arduino ESP32 SDK)
+#include "esp_wifi.h"
+#include "esp_event.h"
+#include "freertos/queue.h"
 
 // ---------------------------------------------------------------------------
 // Hardware configuration
@@ -38,15 +57,27 @@
 #define COLOR_ORDER  GRB
 
 // ---------------------------------------------------------------------------
-// WiFi credentials — set these or provision via NVS
-// Reads from NVS "csi_cfg" namespace (keys: "ssid", "password").
-// Falls back to HARDCODED_SSID / HARDCODED_PASSWORD if NVS is empty.
+// WiFi / UDP configuration
+// All values read from NVS at boot; these are compile-time fallbacks only.
 // ---------------------------------------------------------------------------
-#define HARDCODED_SSID     ""
-#define HARDCODED_PASSWORD ""
+#define HARDCODED_SSID       ""
+#define HARDCODED_PASSWORD   ""
+#define DEFAULT_TARGET_IP    "172.23.9.61"  // Hub's IP (same as HUB_IP in .env.local)
+#define DEFAULT_TARGET_PORT  5005
+#define DEFAULT_NODE_ID      0              // Overridden by NVS node_id
 
 // NVS preference namespace (shared with main ESP-IDF firmware)
 #define NVS_NAMESPACE "csi_cfg"
+
+// ---------------------------------------------------------------------------
+// ADR-018 frame constants (must match sensing-server Rust parser)
+// ---------------------------------------------------------------------------
+#define CSI_MAGIC           0xC5110001UL
+#define CSI_HEADER_SIZE     20
+#define CSI_MAX_FRAME_SIZE  1500  // fits in one UDP datagram
+
+// Rate-limit: max 50 Hz UDP sends (20 ms minimum between sends)
+#define CSI_MIN_SEND_INTERVAL_MS  20
 
 // ---------------------------------------------------------------------------
 // System states
@@ -72,11 +103,183 @@ SystemState currentState  = BOOT_SWEEP;
 bool        isHubNode     = false;  // Deep Violet hub vs Teal edge
 int         currentRSSI   = 0;     // 0-100 scale (0 = disconnected)
 
-unsigned long stateStartTime    = 0;
-unsigned long lastYellowBeacon  = 0;
-unsigned long lastRolePing      = 0;
-unsigned long lastWiFiCheck     = 0;
-unsigned long lastRadarMockEvent = 0;
+unsigned long stateStartTime     = 0;
+unsigned long lastYellowBeacon   = 0;
+unsigned long lastRolePing       = 0;
+unsigned long lastWiFiCheck      = 0;
+unsigned long lastStatusLog      = 0;
+
+// CSI queue: callback pushes frames, sender task pops + sends UDP
+// Queue depth 8 gives ~160 ms buffer at 50 Hz; frames dropped if full (ok).
+#define CSI_QUEUE_DEPTH  8
+
+struct CsiQueueItem {
+    uint8_t  buf[CSI_MAX_FRAME_SIZE];
+    uint16_t len;
+};
+
+// CSI / UDP runtime state
+static int        g_udp_sock    = -1;   // raw BSD UDP socket
+QueueHandle_t     g_csi_queue   = nullptr;
+char              g_target_ip[32]  = DEFAULT_TARGET_IP;
+uint16_t          g_target_port    = DEFAULT_TARGET_PORT;
+uint8_t           g_node_id        = DEFAULT_NODE_ID;
+uint32_t          g_seq            = 0;
+uint32_t          g_csi_frames     = 0;  // frames received from CSI callback
+uint32_t          g_udp_sent       = 0;  // frames sent over UDP
+uint32_t          g_udp_fail       = 0;  // send failures
+bool              g_csi_running    = false;
+
+// Rolling RSSI buffer (last 8 per-frame values)
+static int8_t  g_rssi_buf[8]    = {};
+static uint8_t g_rssi_idx       = 0;
+
+// ---------------------------------------------------------------------------
+// ADR-018 frame serializer
+// Build the binary frame into buf[], return bytes written (0 = overflow/skip)
+// ---------------------------------------------------------------------------
+static size_t serializeADR018(int8_t rssi, int8_t noise, uint8_t ch,
+                               const int8_t *iq, uint16_t iq_len,
+                               uint8_t *buf, size_t buf_size)
+{
+    uint16_t n_sub = iq_len / 2;
+    size_t frame_len = CSI_HEADER_SIZE + iq_len;
+    if (frame_len > buf_size) return 0;
+
+    uint32_t magic   = CSI_MAGIC;
+    uint32_t freq    = (ch >= 1 && ch <= 13)  ? (2412 + (ch - 1) * 5) :
+                       (ch == 14)             ? 2484 :
+                       (ch >= 36 && ch <= 177)? (5000 + ch * 5) : 0;
+    uint32_t seq     = g_seq++;
+
+    memcpy(buf,      &magic,   4);
+    buf[4]  = g_node_id;
+    buf[5]  = 1;              // antenna count
+    memcpy(buf + 6,  &n_sub,  2);
+    memcpy(buf + 8,  &freq,   4);
+    memcpy(buf + 12, &seq,    4);
+    buf[16] = (uint8_t)rssi;
+    buf[17] = (uint8_t)noise;
+    buf[18] = 0;
+    buf[19] = 0;
+    memcpy(buf + CSI_HEADER_SIZE, iq, iq_len);
+    return frame_len;
+}
+
+// ---------------------------------------------------------------------------
+// WiFi CSI callback — called from WiFi task context (NOT a hardware ISR)
+// Serializes to ADR-018 and posts to queue for the sender task (rate-limited)
+// ---------------------------------------------------------------------------
+static uint32_t s_last_send_ms = 0;
+
+static void csiCallback(void *ctx, wifi_csi_info_t *info)
+{
+    (void)ctx;
+    if (!info || !info->buf || info->len == 0) return;
+
+    g_csi_frames++;
+
+    // Track rolling RSSI for LED state
+    g_rssi_buf[g_rssi_idx & 7] = info->rx_ctrl.rssi;
+    g_rssi_idx++;
+
+    // Rate-limit to 50 Hz
+    uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+    if ((now_ms - s_last_send_ms) < (uint32_t)CSI_MIN_SEND_INTERVAL_MS) return;
+    s_last_send_ms = now_ms;
+
+    if (!g_csi_queue) return;
+
+    // Serialize into a stack-allocated queue item (stack is fine in WiFi task)
+    CsiQueueItem item;
+    item.len = (uint16_t)serializeADR018(
+        info->rx_ctrl.rssi,
+        info->rx_ctrl.noise_floor,
+        info->rx_ctrl.channel,
+        (const int8_t *)info->buf,
+        (uint16_t)min((int)info->len, (int)(CSI_MAX_FRAME_SIZE - CSI_HEADER_SIZE)),
+        item.buf,
+        sizeof(item.buf)
+    );
+    if (item.len == 0) return;
+
+    // Non-blocking enqueue; drop frame silently if queue is full
+    xQueueSend(g_csi_queue, &item, 0);
+}
+
+// ---------------------------------------------------------------------------
+// FreeRTOS sender task — dequeues frames and sends via BSD UDP socket
+// Raw sendto() matches what stream_sender.c does in the ESP-IDF firmware
+// ---------------------------------------------------------------------------
+static void csiSenderTask(void *pv)
+{
+    // Build the sockaddr_in for the target once
+    struct sockaddr_in dest = {};
+    dest.sin_family = AF_INET;
+    dest.sin_port   = htons(g_target_port);
+    inet_pton(AF_INET, g_target_ip, &dest.sin_addr);
+
+    CsiQueueItem item;
+    for (;;) {
+        if (xQueueReceive(g_csi_queue, &item, portMAX_DELAY) == pdTRUE) {
+            if (g_udp_sock >= 0) {
+                int r = sendto(g_udp_sock, item.buf, item.len, 0,
+                               (struct sockaddr *)&dest, sizeof(dest));
+                if (r > 0) {
+                    g_udp_sent++;
+                } else {
+                    g_udp_fail++;
+                    // ENOMEM: lwIP buffer exhausted — brief yield to let WiFi TX drain
+                    vTaskDelay(pdMS_TO_TICKS(50));
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Enable WiFi CSI collection (called after WiFi STA connects)
+// ---------------------------------------------------------------------------
+static void startCSI()
+{
+    if (g_csi_running) return;
+
+    wifi_csi_config_t cfg = {};
+    cfg.lltf_en           = true;
+    cfg.htltf_en          = true;
+    cfg.stbc_htltf2_en    = true;
+    cfg.ltf_merge_en      = true;
+    cfg.channel_filter_en = false;
+    cfg.manu_scale        = false;
+    cfg.shift             = 0;
+
+    esp_wifi_set_csi_config(&cfg);
+    esp_wifi_set_csi_rx_cb(csiCallback, nullptr);
+    esp_wifi_set_csi(true);
+
+    // Open raw UDP socket (SO_SNDBUF tuned to 6 datagrams x ~1500 bytes)
+    g_udp_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (g_udp_sock < 0) {
+        Serial.printf("[CSI] socket() failed: %d\n", errno);
+    } else {
+        int sndbuf = 9000;
+        setsockopt(g_udp_sock, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
+    }
+
+    // Start the UDP sender task on core 0
+    xTaskCreatePinnedToCore(
+        csiSenderTask, "csi_udp",
+        4096,      // stack bytes
+        nullptr,   // arg
+        5,         // priority
+        nullptr,   // handle not needed
+        0          // core 0
+    );
+
+    g_csi_running = true;
+    Serial.printf("[CSI] Started — streaming to %s:%u  node_id=%u\n",
+                  g_target_ip, g_target_port, g_node_id);
+}
 
 Preferences prefs;
 
@@ -85,6 +288,7 @@ Preferences prefs;
 // ---------------------------------------------------------------------------
 void        setSystemState(SystemState s);
 void        manageSystemLogic(unsigned long ms);
+void        startCSI(void);
 CRGB        renderBootSweep(unsigned long ms);
 CRGB        renderCalibrating(unsigned long ms);
 CRGB        renderConnectionEstablished(unsigned long ms);
@@ -111,27 +315,38 @@ void setup() {
     leds[0] = CRGB::Black;
     FastLED.show();
 
-    // Read node role from NVS ("led_hub": 1=hub, 0=edge)
+    // Read all config from NVS
     prefs.begin(NVS_NAMESPACE, /* readOnly= */ true);
-    isHubNode = (prefs.getUChar("led_hub", 0) != 0);
+    isHubNode    = (prefs.getUChar("led_hub",  0) != 0);
+    g_node_id    = prefs.getUChar("node_id",   DEFAULT_NODE_ID);
+    g_target_port= prefs.getUShort("target_port", DEFAULT_TARGET_PORT);
 
-    // Read WiFi credentials from NVS
     char ssid[33]  = HARDCODED_SSID;
     char pass[65]  = HARDCODED_PASSWORD;
-    prefs.getString("ssid",     ssid, sizeof(ssid));
-    prefs.getString("password", pass, sizeof(pass));
+    char tip[32]   = DEFAULT_TARGET_IP;
+    prefs.getString("ssid",      ssid, sizeof(ssid));
+    prefs.getString("password",  pass, sizeof(pass));
+    prefs.getString("target_ip", tip,  sizeof(tip));
     prefs.end();
 
-    // Non-blocking WiFi init
+    strncpy(g_target_ip, tip, sizeof(g_target_ip) - 1);
+
+    // Create the CSI frame queue
+    g_csi_queue = xQueueCreate(CSI_QUEUE_DEPTH, sizeof(CsiQueueItem));
+
+    // WiFi STA mode
     WiFi.mode(WIFI_STA);
     if (strlen(ssid) > 0) {
         WiFi.begin(ssid, pass);
-        Serial.printf("[LED] Connecting to SSID: %s\n", ssid);
+        Serial.printf("[CSI] Connecting to SSID: %s\n", ssid);
     } else {
-        Serial.println("[LED] No SSID — skipping WiFi. Set with provision.py.");
+        Serial.println("[CSI] No SSID — skipping WiFi. Provision with provision.py.");
     }
 
-    Serial.printf("[LED] Node role: %s\n", isHubNode ? "hub (Deep Violet)" : "edge (Teal)");
+    Serial.printf("[CSI] Node ID: %u  role: %s  target: %s:%u\n",
+                  g_node_id,
+                  isHubNode ? "hub" : "edge",
+                  g_target_ip, g_target_port);
 
     stateStartTime = millis();
 }
@@ -219,21 +434,25 @@ void manageSystemLogic(unsigned long now) {
         }
     }
 
-    // Mock radar: randomly trigger HUMAN_DETECTED while idle
-    // Replace this block with real CSI event signals in production.
-    if (currentState == IDLE_SCANNING &&
-        (now - lastRadarMockEvent > 12000)) {
-        if (random(10) > 6) {
-            Serial.println("[LED] Mock CSI: human detected.");
-            setSystemState(HUMAN_DETECTED);
-            lastRadarMockEvent = now;
-        }
+    // Start CSI once WiFi connects (only run once)
+    if (!g_csi_running && WiFi.status() == WL_CONNECTED) {
+        startCSI();
     }
 
-    // Return to idle after 3 s of HUMAN_DETECTED
-    if (currentState == HUMAN_DETECTED && (now - stateStartTime > 3000)) {
-        Serial.println("[LED] Mock CSI: clearing — return to scan.");
-        setSystemState(IDLE_SCANNING);
+    // LED reflects CSI sensing: treat >0 UDP sends/sec as IDLE_SCANNING
+    // No mock events — LED state driven purely by real CSI activity.
+    // HUMAN_DETECTED must be driven externally (future: parse server response)
+
+    // Periodic status log every 10 s
+    if (now - lastStatusLog >= 10000) {
+        lastStatusLog = now;
+        if (g_csi_running) {
+            Serial.printf("[CSI] frames=%lu sent=%lu fail=%lu rssi=%d dBm\n",
+                          (unsigned long)g_csi_frames,
+                          (unsigned long)g_udp_sent,
+                          (unsigned long)g_udp_fail,
+                          WiFi.RSSI());
+        }
     }
 }
 
