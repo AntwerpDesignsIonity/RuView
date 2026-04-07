@@ -3,340 +3,354 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RuView Observatory — WiFi DensePose</title>
-  <link rel="stylesheet" href="observatory/css/observatory.css">
+  <title>RuView — Observatory</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #050510; --bg2: #0a0a1e; --bg3: #0f1028;
+      --border: #1a2040; --accent: #0088ff; --accent2: #00ccff;
+      --green: #00e676; --red: #ff3d57; --yellow: #ffd740;
+      --dim: #334466; --text: #c8d8f0; --text-dim: #5577aa;
+      --font: 'Courier New', 'Consolas', monospace;
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; overflow: hidden; }
+    #shell { display: flex; flex-direction: column; height: 100vh; }
+
+    /* Main scene + HUD */
+    #scene-wrap { flex: 1; position: relative; overflow: hidden; background: #020208; }
+    #scene-canvas { width: 100%; height: 100%; display: block; }
+
+    /* HUD overlay */
+    .hud { position: absolute; pointer-events: none; }
+    .hud-panel {
+      background: rgba(5,5,16,0.85); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 16px; pointer-events: auto;
+    }
+    #hud-tl { top: 12px; left: 12px; }
+    #hud-tr { top: 12px; right: 12px; }
+    #hud-bl { bottom: 12px; left: 12px; }
+    #hud-br { bottom: 12px; right: 12px; }
+
+    .hud-title { font-size: 16px; font-weight: bold; color: var(--accent2); letter-spacing: 2px; }
+    .hud-sub { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+    .hud-row { display: flex; justify-content: space-between; gap: 16px; padding: 2px 0; font-size: 11px; }
+    .hud-label { color: var(--text-dim); }
+    .hud-val { font-weight: bold; }
+    .hud-val.ok { color: var(--green); } .hud-val.warn { color: var(--yellow); } .hud-val.err { color: var(--red); }
+
+    .dot-sm { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+    .dot-sm.live { background: var(--green); box-shadow: 0 0 4px var(--green); }
+    .dot-sm.off { background: var(--dim); }
+
+    /* Bottom strip — capabilities */
+    #cap-bar {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      display: flex; justify-content: center; gap: 20px;
+      padding: 6px 12px; background: rgba(5,5,16,0.7);
+      font-size: 10px; color: var(--text-dim); letter-spacing: 1px;
+    }
+  </style>
 </head>
 <body>
-  <canvas id="observatory-canvas"></canvas>
-
-  <!-- ======= HUD Overlay ======= -->
-  <div id="hud">
+<div id="shell">
+  <nav id="global-nav"></nav>
+  <div id="scene-wrap">
+    <canvas id="scene-canvas"></canvas>
 
     <!-- Top-left: Branding -->
-    <div id="brand">
-      <div id="brand-logo"><span class="pi">&pi;</span> RuView</div>
-      <div id="brand-tagline">WiFi DensePose Sensing Observatory — Ionity Global</div>
-    </div>
-
-    <!-- Top-right: Connection + status + gear -->
-    <div id="status-bar">
-      <div id="data-source-badge">
-        <span class="dot dot--demo"></span>
-        <span id="data-source-label">DEMO</span>
-      </div>
-      <div id="scenario-area">
-        <span id="autoplay-icon" title="Auto-cycling">&#9654;</span>
-        <select id="scenario-quick-select" title="Change scenario">
-          <option value="auto">Auto-Cycle</option>
-          <option value="empty_room">Empty Room</option>
-          <option value="single_breathing">Vital Signs</option>
-          <option value="two_walking">Multi-Person</option>
-          <option value="fall_event">Fall Detect</option>
-          <option value="sleep_monitoring">Sleep Monitor</option>
-          <option value="intrusion_detect">Intrusion</option>
-          <option value="gesture_control">Gesture Ctrl</option>
-          <option value="crowd_occupancy">Crowd (4 ppl)</option>
-          <option value="search_rescue">Search Rescue</option>
-          <option value="elderly_care">Elderly Care</option>
-          <option value="fitness_tracking">Fitness</option>
-          <option value="security_patrol">Security Patrol</option>
-        </select>
-      </div>
-      <div id="scenario-description"></div>
-      <div id="fps-counter" style="display:none">60 FPS</div>
-      <button id="settings-btn" title="Settings">&#9881;</button>
-    </div>
-
-    <!-- Left panel: Vital Signs -->
-    <div id="panel-vitals" class="data-panel">
-      <div class="panel-header">Vital Signs</div>
-      <div class="vital-row">
-        <div class="vital-icon">&#9825;</div>
-        <div class="vital-data">
-          <div class="vital-label">Heart Rate</div>
-          <div class="vital-value"><span id="hr-value">--</span> <span class="vital-unit">BPM</span></div>
-          <div class="vital-bar"><div id="hr-bar" class="vital-bar-fill vital-bar--hr"></div></div>
-        </div>
-      </div>
-      <div class="vital-row">
-        <div class="vital-icon">&#9788;</div>
-        <div class="vital-data">
-          <div class="vital-label">Respiration</div>
-          <div class="vital-value"><span id="br-value">--</span> <span class="vital-unit">RPM</span></div>
-          <div class="vital-bar"><div id="br-bar" class="vital-bar-fill vital-bar--br"></div></div>
-        </div>
-      </div>
-      <div class="vital-row">
-        <div class="vital-icon">&#9878;</div>
-        <div class="vital-data">
-          <div class="vital-label">Confidence</div>
-          <div class="vital-value"><span id="conf-value">--</span><span class="vital-unit">%</span></div>
-          <div class="vital-bar"><div id="conf-bar" class="vital-bar-fill vital-bar--conf"></div></div>
-        </div>
+    <div class="hud hud-panel" id="hud-tl">
+      <div class="hud-title">π RuView Observatory</div>
+      <div class="hud-sub">WiFi DensePose Sensing — Ionity Global</div>
+      <div class="hud-row" style="margin-top:6px">
+        <span><span class="dot-sm off" id="obs-dot"></span><span id="obs-status">Connecting…</span></span>
+        <span id="obs-source" style="color:var(--accent2)">--</span>
       </div>
     </div>
 
-    <!-- Right panel: Signal & Presence -->
-    <div id="panel-signal" class="data-panel">
-      <div class="panel-header">WiFi Signal</div>
-      <div class="signal-row">
-        <span class="signal-label">RSSI</span>
-        <span class="signal-value" id="rssi-value">-- dBm</span>
-      </div>
-      <div class="signal-row">
-        <span class="signal-label">Variance</span>
-        <span class="signal-value" id="var-value">--</span>
-      </div>
-      <div class="signal-row">
-        <span class="signal-label">Motion</span>
-        <span class="signal-value" id="motion-value">--</span>
-      </div>
-      <div class="signal-row">
-        <span class="signal-label">Persons</span>
-        <span class="signal-value" id="persons-value">0</span>
-        <span id="persons-dots" class="persons-dots"></span>
-      </div>
-      <canvas id="rssi-sparkline" width="200" height="48"></canvas>
-
-      <div class="panel-header" style="margin-top:12px">Presence</div>
-      <div id="presence-indicator" class="presence-state presence--absent">
-        <span id="presence-label">ABSENT</span>
-      </div>
-      <div id="fall-alert" class="fall-alert" style="display:none">FALL DETECTED</div>
+    <!-- Top-right: Vitals -->
+    <div class="hud hud-panel" id="hud-tr">
+      <div style="font-size:10px;color:var(--accent2);letter-spacing:1.5px;margin-bottom:6px">VITAL SIGNS</div>
+      <div class="hud-row"><span class="hud-label">♥ Heart Rate</span><span class="hud-val" id="obs-hr">-- BPM</span></div>
+      <div class="hud-row"><span class="hud-label">☼ Breathing</span><span class="hud-val" id="obs-br">-- RPM</span></div>
+      <div class="hud-row"><span class="hud-label">☆ Confidence</span><span class="hud-val" id="obs-conf">--%</span></div>
+      <div style="margin-top:8px;font-size:10px;color:var(--accent2);letter-spacing:1.5px;margin-bottom:4px">PRESENCE</div>
+      <div class="hud-row"><span class="hud-label">Status</span><span class="hud-val" id="obs-pres">--</span></div>
+      <div class="hud-row"><span class="hud-label">Motion</span><span class="hud-val" id="obs-motion">--</span></div>
+      <div class="hud-row"><span class="hud-label">Persons</span><span class="hud-val" id="obs-persons">0</span></div>
     </div>
 
-    <!-- Edge module badges (populated dynamically by HudController) -->
-    <div id="edge-modules-bar"></div>
-
-    <!-- Bottom bar: capabilities -->
-    <div id="capabilities-bar">
-      <div class="cap-item"><span class="cap-icon">&#9898;</span><span>Human Pose Estimation</span></div>
-      <div class="cap-divider"></div>
-      <div class="cap-item"><span class="cap-icon">&#9829;</span><span>Vital Sign Monitoring</span></div>
-      <div class="cap-divider"></div>
-      <div class="cap-item"><span class="cap-icon">&#9784;</span><span>Presence Detection</span></div>
+    <!-- Bottom-left: Signal -->
+    <div class="hud hud-panel" id="hud-bl">
+      <div style="font-size:10px;color:var(--accent2);letter-spacing:1.5px;margin-bottom:4px">SIGNAL</div>
+      <div class="hud-row"><span class="hud-label">RSSI</span><span class="hud-val" id="obs-rssi">-- dBm</span></div>
+      <div class="hud-row"><span class="hud-label">Variance</span><span class="hud-val" id="obs-var">--</span></div>
+      <div class="hud-row"><span class="hud-label">Quality</span><span class="hud-val" id="obs-sq">--</span></div>
     </div>
 
-    <!-- Bottom-right: keyboard hints + nav links -->
-    <div id="key-hints">
-      <span class="key-hint">[A] Orbit</span>
-      <span class="key-hint">[D] Scenario</span>
-      <span class="key-hint">[F] FPS</span>
-      <span class="key-hint">[S] Settings</span>
-      <span class="key-hint">[Space] Pause</span>
-      <a href="monitor.html" style="color:#00ccff;font-size:11px;margin-left:12px;text-decoration:none;opacity:0.8">&#9680; Monitor</a>
-      <a href="index.html"   style="color:#88aacc;font-size:11px;margin-left:8px;text-decoration:none;opacity:0.8">&larr; Dashboard</a>
+    <!-- Bottom capabilities strip -->
+    <div id="cap-bar">
+      <span>◉ Human Pose Estimation</span>
+      <span>♥ Vital Sign Monitoring</span>
+      <span>☆ Presence Detection</span>
+      <span>⬡ Through-Wall Sensing</span>
     </div>
   </div>
+</div>
 
-  <!-- ======= Settings Dialog ======= -->
-  <div id="settings-overlay" class="settings-overlay" style="display:none">
-    <div class="settings-dialog">
-      <div class="settings-header">
-        <span>Settings</span>
-        <button id="settings-close">&times;</button>
-      </div>
+<script type="module">
+import { injectNav, NAV_CSS } from './shared/nav.js';
+const st = document.createElement('style'); st.textContent = NAV_CSS; document.head.appendChild(st);
+injectNav();
 
-      <div class="settings-tabs">
-        <button class="stab active" data-stab="rendering">Rendering</button>
-        <button class="stab" data-stab="wireframe">Wireframe</button>
-        <button class="stab" data-stab="scene">Scene</button>
-        <button class="stab" data-stab="data">Data</button>
-      </div>
+const $ = id => document.getElementById(id);
+const canvas = $('scene-canvas');
+const ctx = canvas.getContext('2d');
+const WS_URL = `ws://${location.hostname}:3001/ws/sensing`;
 
-      <!-- Rendering tab -->
-      <div class="stab-content active" id="stab-rendering">
-        <label class="setting-row">
-          <span>Bloom Strength</span>
-          <input type="range" id="opt-bloom" min="0" max="3" step="0.1" value="1.0">
-          <span class="range-val" id="opt-bloom-val">1.0</span>
-        </label>
-        <label class="setting-row">
-          <span>Bloom Radius</span>
-          <input type="range" id="opt-bloom-radius" min="0" max="1" step="0.05" value="0.5">
-          <span class="range-val" id="opt-bloom-radius-val">0.5</span>
-        </label>
-        <label class="setting-row">
-          <span>Bloom Threshold</span>
-          <input type="range" id="opt-bloom-thresh" min="0" max="1" step="0.05" value="0.25">
-          <span class="range-val" id="opt-bloom-thresh-val">0.25</span>
-        </label>
-        <label class="setting-row">
-          <span>Exposure</span>
-          <input type="range" id="opt-exposure" min="0.3" max="2" step="0.05" value="0.9">
-          <span class="range-val" id="opt-exposure-val">0.9</span>
-        </label>
-        <label class="setting-row">
-          <span>Vignette</span>
-          <input type="range" id="opt-vignette" min="0" max="1" step="0.05" value="0.5">
-          <span class="range-val" id="opt-vignette-val">0.5</span>
-        </label>
-        <label class="setting-row">
-          <span>Film Grain</span>
-          <input type="range" id="opt-grain" min="0" max="0.15" step="0.005" value="0.03">
-          <span class="range-val" id="opt-grain-val">0.03</span>
-        </label>
-        <label class="setting-row">
-          <span>Chromatic Aberration</span>
-          <input type="range" id="opt-chromatic" min="0" max="0.008" step="0.0005" value="0.0015">
-          <span class="range-val" id="opt-chromatic-val">0.0015</span>
-        </label>
-      </div>
+// Room dimensions (virtual meters)
+const ROOM_W = 6, ROOM_D = 8, ROOM_H = 3;
+// Camera angle for pseudo-3D
+const CAM_ANGLE = 0.5; // radians tilt
+const CAM_HEIGHT = 0.35; // 0-1 how much "above" we look
 
-      <!-- Wireframe tab -->
-      <div class="stab-content" id="stab-wireframe">
-        <label class="setting-row">
-          <span>Bone Thickness</span>
-          <input type="range" id="opt-bone-thick" min="0.005" max="0.06" step="0.002" value="0.02">
-          <span class="range-val" id="opt-bone-thick-val">0.02</span>
-        </label>
-        <label class="setting-row">
-          <span>Joint Size</span>
-          <input type="range" id="opt-joint-size" min="0.02" max="0.12" step="0.005" value="0.05">
-          <span class="range-val" id="opt-joint-size-val">0.05</span>
-        </label>
-        <label class="setting-row">
-          <span>Glow Intensity</span>
-          <input type="range" id="opt-glow" min="0" max="2" step="0.1" value="0.8">
-          <span class="range-val" id="opt-glow-val">0.8</span>
-        </label>
-        <label class="setting-row">
-          <span>Particle Trail</span>
-          <input type="range" id="opt-trail" min="0" max="1" step="0.05" value="0.6">
-          <span class="range-val" id="opt-trail-val">0.6</span>
-        </label>
-        <label class="setting-row">
-          <span>Wireframe Color</span>
-          <input type="color" id="opt-wire-color" value="#00d878">
-        </label>
-        <label class="setting-row">
-          <span>Joint Color</span>
-          <input type="color" id="opt-joint-color" value="#ff4060">
-        </label>
-        <label class="setting-row">
-          <span>Aura Opacity</span>
-          <input type="range" id="opt-aura" min="0" max="0.2" step="0.01" value="0.06">
-          <span class="range-val" id="opt-aura-val">0.06</span>
-        </label>
-      </div>
+let data = null;
+let animTime = 0;
 
-      <!-- Scene tab -->
-      <div class="stab-content" id="stab-scene">
-        <label class="setting-row">
-          <span>Signal Field</span>
-          <input type="range" id="opt-field" min="0" max="1" step="0.05" value="0.5">
-          <span class="range-val" id="opt-field-val">0.5</span>
-        </label>
-        <label class="setting-row">
-          <span>WiFi Waves</span>
-          <input type="range" id="opt-waves" min="0" max="1" step="0.05" value="0.6">
-          <span class="range-val" id="opt-waves-val">0.6</span>
-        </label>
-        <label class="setting-row">
-          <span>Room Brightness</span>
-          <input type="range" id="opt-ambient" min="0" max="1" step="0.05" value="0.4">
-          <span class="range-val" id="opt-ambient-val">0.4</span>
-        </label>
-        <label class="setting-row">
-          <span>Floor Reflection</span>
-          <input type="range" id="opt-reflect" min="0" max="1" step="0.05" value="0.3">
-          <span class="range-val" id="opt-reflect-val">0.3</span>
-        </label>
-        <label class="setting-row">
-          <span>FOV</span>
-          <input type="range" id="opt-fov" min="30" max="90" step="1" value="50">
-          <span class="range-val" id="opt-fov-val">50</span>
-        </label>
-        <label class="setting-row">
-          <span>Orbit Speed</span>
-          <input type="range" id="opt-orbit-speed" min="0.02" max="0.5" step="0.02" value="0.15">
-          <span class="range-val" id="opt-orbit-speed-val">0.15</span>
-        </label>
-        <label class="setting-row check-row">
-          <span>Show Grid</span>
-          <input type="checkbox" id="opt-grid" checked>
-        </label>
-        <label class="setting-row check-row">
-          <span>Show Room Boundary</span>
-          <input type="checkbox" id="opt-room" checked>
-        </label>
-      </div>
+function resize() {
+  canvas.width = canvas.parentElement.clientWidth;
+  canvas.height = canvas.parentElement.clientHeight;
+}
+resize();
+window.addEventListener('resize', resize);
 
-      <!-- Data tab -->
-      <div class="stab-content" id="stab-data">
-        <label class="setting-row">
-          <span>Scenario</span>
-          <select id="opt-scenario">
-            <option value="auto">Auto-Cycle (30s)</option>
-            <optgroup label="Core Sensing">
-              <option value="empty_room">Empty Room</option>
-              <option value="single_breathing">Vital Signs (Breathing)</option>
-              <option value="two_walking">Multi-Person Tracking</option>
-              <option value="fall_event">Fall Detection</option>
-            </optgroup>
-            <optgroup label="Medical / Health">
-              <option value="sleep_monitoring">Sleep Monitoring (Apnea)</option>
-              <option value="elderly_care">Elderly Care (Gait)</option>
-              <option value="fitness_tracking">Fitness Tracking</option>
-            </optgroup>
-            <optgroup label="Security">
-              <option value="intrusion_detect">Intrusion Detection</option>
-              <option value="security_patrol">Security Patrol</option>
-            </optgroup>
-            <optgroup label="Building / Retail">
-              <option value="crowd_occupancy">Crowd Occupancy (4 ppl)</option>
-              <option value="gesture_control">Gesture Control (DTW)</option>
-            </optgroup>
-            <optgroup label="Disaster / Tactical">
-              <option value="search_rescue">Search &amp; Rescue (WiFi-Mat)</option>
-            </optgroup>
-          </select>
-        </label>
-        <label class="setting-row">
-          <span>Cycle Speed (s)</span>
-          <input type="range" id="opt-cycle" min="10" max="120" step="5" value="30">
-          <span class="range-val" id="opt-cycle-val">30</span>
-        </label>
-        <label class="setting-row">
-          <span>Style Preset</span>
-          <select id="opt-preset">
-            <option value="custom">Custom</option>
-            <option value="foundation">Foundation (Default)</option>
-            <option value="cinematic">Cinematic</option>
-            <option value="minimal">Minimal / Clean</option>
-            <option value="neon">Neon Glow</option>
-            <option value="tactical">Tactical / Military</option>
-            <option value="medical">Medical Monitor</option>
-          </select>
-        </label>
-        <label class="setting-row">
-          <span>Data Source</span>
-          <select id="opt-data-source">
-            <option value="demo" selected>Demo Generator</option>
-            <option value="ws">Live WebSocket</option>
-          </select>
-        </label>
-        <label class="setting-row" id="ws-url-row" style="display:none">
-          <span>WS URL</span>
-          <input type="text" id="opt-ws-url" value="" placeholder="ws://localhost:3000/ws/sensing">
-        </label>
-        <button id="btn-reset-camera" class="settings-btn">Reset Camera</button>
-        <button id="btn-reset-settings" class="settings-btn">Reset to Defaults</button>
-        <button id="btn-export-settings" class="settings-btn">Export Settings</button>
-      </div>
-    </div>
-  </div>
+// === WebSocket ===
+let ws = null;
+function connect() {
+  if (ws && ws.readyState <= 1) return;
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => { $('obs-dot').className = 'dot-sm live'; $('obs-status').textContent = 'Live'; };
+  ws.onmessage = (evt) => { try { data = JSON.parse(evt.data); updateHUD(data); } catch {} };
+  ws.onclose = () => { $('obs-dot').className = 'dot-sm off'; $('obs-status').textContent = 'Reconnecting…'; setTimeout(connect, 2000); };
+  ws.onerror = () => ws.close();
+}
 
-  <!-- Three.js r160 + addons from CDN -->
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+function updateHUD(d) {
+  $('obs-source').textContent = d.source || '--';
+  const vs = d.vital_signs || {};
+  $('obs-hr').textContent = vs.heart_rate_bpm ? vs.heart_rate_bpm.toFixed(0) + ' BPM' : '-- BPM';
+  $('obs-hr').style.color = vs.heart_rate_bpm > 0 ? '#ff4060' : '';
+  $('obs-br').textContent = vs.breathing_rate_bpm ? vs.breathing_rate_bpm.toFixed(1) + ' RPM' : '-- RPM';
+  $('obs-br').style.color = vs.breathing_rate_bpm > 0 ? '#00e676' : '';
+  $('obs-conf').textContent = vs.breathing_confidence ? (vs.breathing_confidence * 100).toFixed(0) + '%' : '--%';
+
+  const cls = d.classification || {};
+  $('obs-pres').textContent = cls.presence ? 'PRESENT' : 'ABSENT';
+  $('obs-pres').className = 'hud-val ' + (cls.presence ? 'ok' : '');
+  const em = d.enhanced_motion || {};
+  $('obs-motion').textContent = (em.level || cls.motion_level || '--').toUpperCase();
+  $('obs-persons').textContent = d.estimated_persons || (cls.presence ? 1 : 0);
+
+  const f = d.features || {};
+  $('obs-rssi').textContent = f.mean_rssi != null ? f.mean_rssi.toFixed(0) + ' dBm' : '-- dBm';
+  $('obs-var').textContent = f.variance != null ? f.variance.toFixed(4) : '--';
+  $('obs-sq').textContent = d.quality_verdict || '--';
+  $('obs-sq').className = 'hud-val ' + (d.quality_verdict === 'Permit' ? 'ok' : d.quality_verdict === 'Deny' ? 'err' : 'warn');
+}
+
+// === Canvas 2D Pseudo-3D Rendering ===
+// Isometric-ish projection
+function project(x, y, z, w, h) {
+  const scale = Math.min(w, h) * 0.08;
+  const cx = w / 2, cy = h * 0.55;
+  const px = cx + (x - ROOM_W / 2) * scale - (z - ROOM_D / 2) * scale * 0.5;
+  const py = cy - y * scale * 0.8 + (z - ROOM_D / 2) * scale * 0.35;
+  return [px, py];
+}
+
+function drawRoom(w, h) {
+  const corners = [
+    [0, 0, 0], [ROOM_W, 0, 0], [ROOM_W, 0, ROOM_D], [0, 0, ROOM_D],
+    [0, ROOM_H, 0], [ROOM_W, ROOM_H, 0], [ROOM_W, ROOM_H, ROOM_D], [0, ROOM_H, ROOM_D],
+  ].map(([x, y, z]) => project(x, y, z, w, h));
+
+  // Floor
+  ctx.beginPath();
+  ctx.moveTo(...corners[0]); ctx.lineTo(...corners[1]); ctx.lineTo(...corners[2]); ctx.lineTo(...corners[3]);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(0,136,255,0.04)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,136,255,0.15)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Floor grid
+  ctx.strokeStyle = 'rgba(0,136,255,0.06)';
+  for (let i = 1; i < ROOM_W; i++) {
+    const a = project(i, 0, 0, w, h), b = project(i, 0, ROOM_D, w, h);
+    ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke();
+  }
+  for (let j = 1; j < ROOM_D; j++) {
+    const a = project(0, 0, j, w, h), b = project(ROOM_W, 0, j, w, h);
+    ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke();
+  }
+
+  // Walls (back + left)
+  ctx.strokeStyle = 'rgba(0,136,255,0.1)';
+  // Back wall
+  ctx.beginPath();
+  ctx.moveTo(...corners[0]); ctx.lineTo(...corners[1]); ctx.lineTo(...corners[5]); ctx.lineTo(...corners[4]);
+  ctx.closePath(); ctx.fillStyle = 'rgba(0,40,80,0.08)'; ctx.fill(); ctx.stroke();
+  // Left wall
+  ctx.beginPath();
+  ctx.moveTo(...corners[0]); ctx.lineTo(...corners[3]); ctx.lineTo(...corners[7]); ctx.lineTo(...corners[4]);
+  ctx.closePath(); ctx.fillStyle = 'rgba(0,40,80,0.05)'; ctx.fill(); ctx.stroke();
+}
+
+function drawSignalField(sf, w, h) {
+  if (!sf || !sf.values) return;
+  const [gx, , gz] = sf.grid_size || [20, 1, 20];
+  const vals = sf.values;
+  let mx = 0; for (const v of vals) if (Math.abs(v) > mx) mx = Math.abs(v);
+  if (!mx) return;
+
+  let idx = 0;
+  for (let z = 0; z < gz; z++) {
+    for (let x = 0; x < gx; x++) {
+      const v = Math.abs(vals[idx++] || 0) / mx;
+      if (v < 0.05) continue;
+      const rx = (x / gx) * ROOM_W;
+      const rz = (z / gz) * ROOM_D;
+      const [px, py] = project(rx, 0.01, rz, w, h);
+      const r = Math.max(2, v * 8);
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(0,${Math.floor(100 + v * 155)},${Math.floor(200 + v * 55)},${v * 0.5})`;
+      ctx.fill();
     }
   }
-  </script>
+}
 
-  <script type="module" src="observatory/js/main.js"></script>
+function drawWifiWaves(w, h, t) {
+  // Animated concentric wave from a "router" position
+  const [rx, ry] = project(ROOM_W * 0.8, 2.2, 0.5, w, h);
+  for (let i = 0; i < 4; i++) {
+    const phase = (t * 0.8 + i * 0.25) % 1;
+    const radius = phase * Math.min(w, h) * 0.35;
+    const alpha = (1 - phase) * 0.15;
+    ctx.beginPath();
+    ctx.arc(rx, ry, radius, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(0,204,255,${alpha})`;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+  // Router icon
+  ctx.beginPath(); ctx.arc(rx, ry, 4, 0, Math.PI * 2);
+  ctx.fillStyle = '#00ccff'; ctx.fill();
+}
+
+function drawPersons(d, w, h) {
+  if (!d) return;
+  const persons = d.persons || [];
+  const kps = d.pose_keypoints;
+  const cls = d.classification || {};
+
+  const BONES = [[0,1],[0,2],[1,3],[2,4],[5,6],[5,7],[7,9],[6,8],[8,10],[5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16]];
+  const colors = ['#00e676', '#00ccff', '#ff6040', '#ffd740'];
+
+  if (kps && kps.length > 0) {
+    drawWireframe(kps, w, h, '#00e676');
+  } else if (persons.length > 0) {
+    persons.forEach((p, i) => {
+      if (p.keypoints) { drawWireframe(p.keypoints, w, h, colors[i % colors.length]); return; }
+      // Position-only marker
+      const pos = p.position || [ROOM_W / 2, 0.9, ROOM_D / 2];
+      const [px, py] = project(pos[0], pos[1], pos[2], w, h);
+      // Body pillar
+      ctx.beginPath();
+      ctx.ellipse(px, py, 10, 20, 0, 0, Math.PI * 2);
+      ctx.fillStyle = colors[i % colors.length] + '30';
+      ctx.fill();
+      ctx.strokeStyle = colors[i % colors.length];
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      // Head
+      const [hx, hy] = project(pos[0], 1.7, pos[2], w, h);
+      ctx.beginPath(); ctx.arc(hx, hy, 6, 0, Math.PI * 2);
+      ctx.fillStyle = colors[i % colors.length]; ctx.fill();
+    });
+  } else if (cls.presence) {
+    // Show generic presence indicator in center of room
+    const [cx, cy] = project(ROOM_W / 2, 0.9, ROOM_D / 2, w, h);
+    ctx.beginPath(); ctx.arc(cx, cy, 16, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,230,118,0.15)'; ctx.fill();
+    ctx.strokeStyle = '#00e67680'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#00e676'; ctx.font = '10px Courier New'; ctx.textAlign = 'center';
+    ctx.fillText('PRESENCE', cx, cy + 28); ctx.textAlign = 'start';
+  }
+
+  function drawWireframe(keypoints, w, h, color) {
+    // Map normalized keypoints into room space
+    keypoints.forEach(([x, y, z, conf], i) => {
+      if (conf < 0.1) return;
+      const rx = ROOM_W * 0.2 + x * ROOM_W * 0.6;
+      const ry = y * ROOM_H;
+      const rz = ROOM_D * 0.3 + (z || 0.5) * ROOM_D * 0.4;
+      keypoints[i]._p = project(rx, ry, rz, w, h);
+    });
+    // Bones
+    ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+    for (const [a, b] of BONES) {
+      if (a >= keypoints.length || b >= keypoints.length) continue;
+      if (!keypoints[a]._p || !keypoints[b]._p) continue;
+      if (keypoints[a][3] < 0.1 || keypoints[b][3] < 0.1) continue;
+      ctx.strokeStyle = color + 'cc';
+      ctx.beginPath(); ctx.moveTo(...keypoints[a]._p); ctx.lineTo(...keypoints[b]._p); ctx.stroke();
+    }
+    // Joints
+    keypoints.forEach(([,,, conf], i) => {
+      if (conf < 0.1 || !keypoints[i]._p) return;
+      ctx.beginPath(); ctx.arc(...keypoints[i]._p, 3 + conf * 3, 0, Math.PI * 2);
+      ctx.fillStyle = color; ctx.fill();
+    });
+  }
+}
+
+// === Animation Loop ===
+function render(ts) {
+  requestAnimationFrame(render);
+  animTime = ts / 1000;
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  // Background gradient
+  const grad = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w * 0.7);
+  grad.addColorStop(0, '#0a0f20');
+  grad.addColorStop(1, '#020208');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+
+  // Room
+  drawRoom(w, h);
+
+  // Signal field heatmap on floor
+  if (data && data.signal_field) drawSignalField(data.signal_field, w, h);
+
+  // WiFi waves
+  drawWifiWaves(w, h, animTime);
+
+  // Persons / poses
+  drawPersons(data, w, h);
+
+  // Tick display
+  if (data) {
+    ctx.fillStyle = 'rgba(200,216,240,0.12)';
+    ctx.font = '10px Courier New';
+    ctx.fillText(`tick: ${data.tick || 0}`, w - 80, h - 40);
+  }
+}
+
+connect();
+requestAnimationFrame(render);
+</script>
 </body>
 </html>

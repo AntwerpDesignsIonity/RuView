@@ -84,6 +84,10 @@ def build_nvs_csv(args):
     if args.node_role is not None:
         role_map = {"txrx": 0, "tx": 1, "rx": 2}
         writer.writerow(["node_role", "data", "u8", str(role_map[args.node_role])])
+    # LED hub/edge role (read by ionity/src/main.cpp): 1=hub, 0=edge
+    if args.led_hub is not None:
+        led_hub_val = 1 if args.led_hub == "hub" else 0
+        writer.writerow(["led_hub", "data", "u8", str(led_hub_val)])
     # ADR-066: Swarm bridge configuration
     if args.seed_url is not None:
         writer.writerow(["seed_url", "data", "string", args.seed_url])
@@ -248,6 +252,10 @@ def main():
     parser.add_argument("--node-role", type=str, choices=["tx", "rx", "txrx"],
                         help="Node role: tx=transmitter (NDP injection), rx=receiver (CSI capture), "
                              "txrx=both (default bistatic mode)")
+    # LED visual role (stored as NVS key 'led_hub', read by ionity/src/main.cpp)
+    parser.add_argument("--led-hub", type=str, choices=["hub", "edge"],
+                        help="LED role: hub=Deep Violet double-ripple (receiving/aggregator node), "
+                             "edge=Teal single blink (transmitting sensor node)")
     # ADR-066: Swarm bridge
     parser.add_argument("--seed-url", type=str, help="Cognitum Seed base URL (e.g. http://10.1.10.236)")
     parser.add_argument("--seed-token", type=str, help="Seed Bearer token (from pairing)")
@@ -267,7 +275,7 @@ def main():
         args.vital_int is not None, args.subk_count is not None,
         args.channel is not None, args.filter_mac is not None,
         args.seed_url is not None, args.zone is not None,
-        args.node_role is not None,
+        args.node_role is not None, args.led_hub is not None,
     ])
     if not has_value:
         parser.error("At least one config value must be specified")
@@ -308,6 +316,9 @@ def main():
     if args.node_role is not None:
         role_desc = {"tx": "transmitter (NDP injection)", "rx": "receiver (CSI capture)", "txrx": "transceiver (both)"}
         print(f"  Node Role:     {args.node_role} ({role_desc.get(args.node_role, '?')})")
+    if args.led_hub is not None:
+        led_desc = {"hub": "Deep Violet ripple (aggregator)", "edge": "Teal blink (sensor)"}
+        print(f"  LED Role:      {args.led_hub} ({led_desc[args.led_hub]})")
     if args.tdm_slot is not None:
         print(f"  TDM Slot:      {args.tdm_slot} of {args.tdm_total}")
     if args.edge_tier is not None:

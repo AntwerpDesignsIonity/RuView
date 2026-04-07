@@ -219,6 +219,7 @@
     <a class="gnav-link" href="pose-fusion.html">Pose Fusion</a>
     <a class="gnav-link" href="observatory.html">Observatory</a>
     <a class="gnav-link" href="viz.html" target="_blank">3D View ↗</a>
+    <a class="gnav-link" href="aedi.html">⬡ AEDI</a>
     <div class="gnav-status">
       <span class="dot dot-dim" id="srv-dot"></span>
       <span id="srv-label" style="font-size:11px">OFFLINE</span>
@@ -516,7 +517,9 @@ const BASE_URL   = (() => {
   const h = window.location.hostname || 'localhost';
   return `${window.location.protocol}//${h}${p}`;
 })();
-const WS_BASE    = BASE_URL.replace(/^http/, 'ws');
+// WS runs on port 3001 (HTTP+1), not same port as HTTP server
+const WS_PORT    = 3001;
+const WS_BASE    = `ws://${window.location.hostname || 'localhost'}:${WS_PORT}`;
 const API        = `${BASE_URL}/api/v1`;
 const HEALTH_URL = `${BASE_URL}/health`;
 
@@ -754,9 +757,15 @@ function disconnectSignalWs() {
 }
 
 function handleSensingFrame(d) {
-  // Extract CSI subcarrier amplitudes
-  const amps = d.csi_amplitudes ?? d.amplitudes ?? d.subcarriers ?? [];
-  const variance = d.csi_variance ?? d.variance ?? null;
+  // Extract CSI subcarrier amplitudes from nodes
+  let amps = d.csi_amplitudes ?? d.amplitudes ?? d.subcarriers ?? [];
+  if (!amps.length && d.nodes && d.nodes.length) {
+    // Use amplitude data from first node
+    for (const n of d.nodes) {
+      if (n.amplitude && n.amplitude.length) { amps = n.amplitude; break; }
+    }
+  }
+  const variance = d.features?.variance ?? d.csi_variance ?? d.variance ?? null;
   const tick = d.tick ?? d.frame_id ?? null;
 
   if (amps.length) {
@@ -767,10 +776,37 @@ function handleSensingFrame(d) {
     q('sig-sub').textContent  = amps.length;
     q('sig-avg').textContent  = (amps.reduce((a,b)=>a+b,0)/amps.length).toFixed(2);
   }
-  if (tick != null) q('sig-tick').textContent = tick;
+  if (tick != null) { q('sig-tick').textContent = tick; q('ov-tick').textContent = tick; }
 
   const ant = d.num_antennas ?? d.antennas;
   if (ant) q('sig-ant').textContent = ant;
+
+  // Update vitals from WS data
+  const vs = d.vital_signs;
+  if (vs) {
+    const hr = vs.heart_rate_bpm; const rr = vs.breathing_rate_bpm;
+    const conf = vs.heartbeat_confidence ?? vs.breathing_confidence;
+    if (hr != null) { q('ov-hr').textContent = Math.round(hr); q('vit-hr').textContent = Math.round(hr); HR_HIST.push(hr); if (HR_HIST.length > MAX_TREND) HR_HIST.shift(); }
+    if (rr != null) { q('ov-rr').textContent = Math.round(rr); q('vit-rr').textContent = Math.round(rr); RR_HIST.push(rr); if (RR_HIST.length > MAX_TREND) RR_HIST.shift(); }
+    if (conf != null) q('vit-conf').textContent = Math.round(conf * 100);
+    q('vit-spo2').textContent = vs.signal_quality ? Math.round(vs.signal_quality * 100) : '—';
+    drawVitalsTrend();
+  }
+
+  // Update presence/motion from WS
+  const cls = d.classification;
+  if (cls) {
+    const pres = cls.presence;
+    q('vit-presence').textContent = pres ? 'YES' : 'NO';
+    q('vit-presence').className = 'vital-value ' + (pres ? 'val-green' : 'val-dim');
+    q('vit-motion').textContent = (d.enhanced_motion?.level || cls.motion_level || '—').toUpperCase();
+  }
+
+  // Update persons count
+  q('ov-persons').textContent = d.estimated_persons ?? (d.persons?.length || 0);
+
+  // Update nodes count
+  if (d.nodes) q('ov-nodes').textContent = d.nodes.length;
 }
 
 // ── Signal canvas renderer ────────────────────────────────────────────────────
@@ -1050,6 +1086,8 @@ healthInterval = setInterval(pollHealth, 3000);
 vitalsInterval = setInterval(() => { pollVitals(); pollZones(); }, 5000);
 resizeSignalCanvas();
 window.addEventListener('resize', resizeSignalCanvas);
+// Auto-connect WebSocket for live data across all tabs
+connectSignalWs();
 </script>
 </body>
 </html>
