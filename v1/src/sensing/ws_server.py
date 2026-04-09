@@ -6,6 +6,9 @@ browser UI.  Runs the RSSI feature extractor + classifier on a 500 ms
 tick and broadcasts JSON frames to all connected WebSocket clients on
 ``ws://localhost:8765``.
 
+Now also persists every tick into the SQLite sensing database
+(data/db/ruview_sensing.sqlite3) for ML training and historical analysis.
+
 Usage
 -----
     pip install websockets
@@ -49,11 +52,12 @@ logger = logging.getLogger(__name__)
 # Configuration
 # ---------------------------------------------------------------------------
 
-HOST = "localhost"
+HOST = "0.0.0.0"
 PORT = 8765
 TICK_INTERVAL = 0.5  # seconds between broadcasts
 SIGNAL_FIELD_GRID = 20  # NxN grid for signal field visualization
 ESP32_UDP_PORT = 5005
+TELEMETRY_MAGIC = 0xC5110003  # magic for ESP32 telemetry packets
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +98,9 @@ class Esp32UdpCollector:
         # Last CSI frame for enhanced UI
         self.last_csi: Optional[Dict] = None
         self._frames_received = 0
+
+        # Last telemetry packet from ESP32 (magic 0xC5110003)
+        self.last_telemetry: Optional[Dict] = None
 
     @property
     def sample_rate_hz(self) -> float:
@@ -144,10 +151,43 @@ class Esp32UdpCollector:
                     logger.exception("Error receiving ESP32 UDP packet")
 
     def _parse_and_store(self, raw: bytes, addr) -> None:
+        if len(raw) < 4:
+            return
+
+        magic = struct.unpack_from('<I', raw, 0)[0]
+
+        # Handle telemetry packet (0xC5110003) — 32 bytes
+        if magic == TELEMETRY_MAGIC and len(raw) >= 32:
+            node_id = raw[4]
+            temp_x10 = struct.unpack_from('<h', raw, 5)[0]
+            uptime_s = struct.unpack_from('<I', raw, 7)[0]
+            free_heap = struct.unpack_from('<I', raw, 11)[0]
+            wifi_rssi = raw[15] if raw[15] < 128 else raw[15] - 256
+            csi_frames = struct.unpack_from('<I', raw, 16)[0]
+            udp_sent = struct.unpack_from('<I', raw, 20)[0]
+            udp_fail = struct.unpack_from('<I', raw, 24)[0]
+            ser_sent = struct.unpack_from('<I', raw, 28)[0]
+            self.last_telemetry = {
+                "node_id": node_id,
+                "temp_c": temp_x10 / 10.0,
+                "uptime_ms": uptime_s * 1000,
+                "free_heap": free_heap,
+                "wifi_rssi": wifi_rssi,
+                "csi_frames": csi_frames,
+                "udp_sent": udp_sent,
+                "udp_fail": udp_fail,
+                "ser_sent": ser_sent,
+                "ip_address": addr[0] if addr else None,
+            }
+            logger.debug("Telemetry: node=%d temp=%.1f°C heap=%d rssi=%d",
+                         node_id, temp_x10 / 10.0, free_heap, wifi_rssi)
+            return
+
+        # Handle CSI frame (0xC5110001) — ADR-018
         if len(raw) < self.HEADER_SIZE:
             return
 
-        magic, node_id, n_ant, n_sc, freq_mhz, seq, rssi_u8, noise_u8 = \
+        (magic, node_id, n_ant, n_sc, freq_mhz, seq, rssi_u8, noise_u8) = \
             struct.unpack_from(self.HEADER_FMT, raw, 0)
 
         if magic != self.MAGIC:
@@ -315,6 +355,10 @@ class SensingWebSocketServer:
         self.source: str = "unknown"
         self._running = False
 
+        # Database — persists every tick to SQLite (RPi-friendly)
+        self._db = None
+        self._db_enabled = True  # set False to disable persistence
+
     def _create_collector(self):
         """Auto-detect data source: ESP32 UDP > platform WiFi > simulated.
 
@@ -397,6 +441,11 @@ class SensingWebSocketServer:
             },
             "signal_field": signal_field,
         }
+
+        # Attach ESP32 telemetry if available (temp, uptime, heap, counters)
+        if isinstance(self.collector, Esp32UdpCollector) and self.collector.last_telemetry:
+            msg["esp_telemetry"] = self.collector.last_telemetry
+
         return json.dumps(msg)
 
     async def _handler(self, websocket):
@@ -438,14 +487,30 @@ class SensingWebSocketServer:
                     message = self._build_message(features, result)
                     await self._broadcast(message)
 
+                    # Persist to SQLite DB
+                    if self._db and self._db_enabled:
+                        try:
+                            msg_dict = json.loads(message)
+                            self._db.insert_reading(msg_dict)
+
+                            # Also persist ESP32 telemetry if new
+                            if (isinstance(self.collector, Esp32UdpCollector)
+                                    and self.collector.last_telemetry):
+                                self._db.insert_telemetry(self.collector.last_telemetry)
+                        except Exception:
+                            logger.exception("DB insert failed")
+
                     # Print status every few ticks
                     if isinstance(self.collector, Esp32UdpCollector):
                         csi = self.collector.last_csi
                         if csi and self.collector.frames_received % 20 == 0:
+                            telem = self.collector.last_telemetry
+                            temp_str = f" temp:{telem['temp_c']:.1f}°C" if telem else ""
                             print(
                                 f"  [{csi['source_addr']}] node:{csi['node_id']} "
                                 f"seq:{csi['sequence']} sc:{csi['n_subcarriers']} "
-                                f"rssi:{csi['rssi_dbm']}dBm amp:{csi['mean_amplitude']:.1f} "
+                                f"rssi:{csi['rssi_dbm']}dBm amp:{csi['mean_amplitude']:.1f}"
+                                f"{temp_str} "
                                 f"=> {result.motion_level.value} ({result.confidence:.0%})"
                             )
                 else:
@@ -468,9 +533,25 @@ class SensingWebSocketServer:
         self.collector.start()
         self._running = True
 
+        # Initialize SQLite sensing database
+        if self._db_enabled:
+            try:
+                from v1.src.database.sensing_db import SensingDB
+                self._db = SensingDB()
+                sid = self._db.start_session(
+                    csi_source=self.source,
+                    config={"tick_interval": TICK_INTERVAL, "window_s": self.extractor.window_seconds},
+                )
+                print(f"  DB session: {sid}")
+                print(f"  DB path: {self._db._db_path}")
+            except Exception:
+                logger.exception("Failed to initialize sensing DB — running without persistence")
+                self._db = None
+
         print(f"\n  Sensing WebSocket server on ws://{HOST}:{PORT}")
         print(f"  Source: {self.source}")
         print(f"  Tick: {TICK_INTERVAL}s | Window: {self.extractor.window_seconds}s")
+        print(f"  Database: {'enabled' if self._db else 'disabled'}")
         print("  Press Ctrl+C to stop\n")
 
         async with websockets.serve(self._handler, HOST, PORT):
@@ -479,6 +560,13 @@ class SensingWebSocketServer:
     def stop(self) -> None:
         """Stop the server gracefully."""
         self._running = False
+        if self._db:
+            try:
+                self._db.end_session()
+                self._db.close()
+            except Exception:
+                pass
+            self._db = None
         if self.collector:
             self.collector.stop()
         logger.info("Sensing server stopped")

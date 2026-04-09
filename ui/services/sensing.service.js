@@ -10,10 +10,10 @@
  */
 
 // Derive WebSocket URL from the page origin so it works on any host.
-// The Axum WebSocket server listens on port 3001 (separate from HTTP on 3000).
+// The Python sensing WebSocket server listens on port 8765.
 const _wsProto = (typeof window !== 'undefined' && window.location.protocol === 'https:') ? 'wss:' : 'ws:';
 const _wsHostname = (typeof window !== 'undefined' && window.location.hostname) ? window.location.hostname : 'localhost';
-const SENSING_WS_URL = `${_wsProto}//${_wsHostname}:3001/ws/sensing`;
+const SENSING_WS_URL = `${_wsProto}//${_wsHostname}:8765`;
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000];
 const MAX_RECONNECT_ATTEMPTS = 20;
 // Number of failed attempts that must occur before simulation starts.

@@ -101,6 +101,16 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# RuView sensing databases (local data, not committed)
+data/db/*.sqlite3
+data/db/*.sqlite3-wal
+data/db/*.sqlite3-shm
+logs/*.sqlite3
+logs/*.sqlite3-wal
+logs/*.sqlite3-shm
+data/ml/exports/*.csv
+data/ml/tensors/*.pt
+
 # Flask stuff:
 instance/
 .webassets-cache

@@ -105,7 +105,7 @@ injectNav();
 const $ = id => document.getElementById(id);
 const canvas = $('scene-canvas');
 const ctx = canvas.getContext('2d');
-const WS_URL = `ws://${location.hostname}:3001/ws/sensing`;
+const WS_URL = `ws://${location.hostname}:8765`;
 
 // Room dimensions (virtual meters)
 const ROOM_W = 6, ROOM_D = 8, ROOM_H = 3;

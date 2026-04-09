@@ -43,6 +43,15 @@
 #include "esp_event.h"
 #include "freertos/queue.h"
 
+// ESP32-S3 internal temperature sensor (available via Arduino core)
+#ifdef __cplusplus
+extern "C" {
+#endif
+float temperatureRead(void);  // returns °C from internal sensor
+#ifdef __cplusplus
+}
+#endif
+
 // ---------------------------------------------------------------------------
 // Hardware configuration
 // ---------------------------------------------------------------------------
@@ -88,6 +97,16 @@
 
 // Rate-limit: max 50 Hz UDP sends (20 ms minimum between sends)
 #define CSI_MIN_SEND_INTERVAL_MS  20
+
+// ---------------------------------------------------------------------------
+// ADR-018 telemetry extension (magic 0xC5110003)
+// Sent every 10 s alongside the status log, carries chip temperature + stats.
+// Format: [magic:4][node_id:1][temp_c_x10:i16][uptime_s:u32][free_heap:u32]
+//         [wifi_rssi:i8][csi_frames:u32][udp_sent:u32][udp_fail:u32]
+//         [ser_sent:u32][channel:u8][tx_power:i8][reserved:2]  = 32 bytes
+// ---------------------------------------------------------------------------
+#define TELEMETRY_MAGIC     0xC5110003UL
+#define TELEMETRY_PKT_SIZE  32
 
 // --------------------------------------------------------------------------
 // Serial bridge framing (SLIP-lite)
@@ -481,16 +500,67 @@ void manageSystemLogic(unsigned long now) {
     // No mock events — LED state driven purely by real CSI activity.
     // HUMAN_DETECTED must be driven externally (future: parse server response)
 
-    // Periodic status log every 10 s
+    // Periodic status log + telemetry packet every 10 s
     if (now - lastStatusLog >= 10000) {
         lastStatusLog = now;
+
+        // Read chip temperature (ESP32-S3 internal sensor)
+        float chip_temp_c = temperatureRead();
+
         if (g_csi_running) {
-            Serial.printf("[CSI] frames=%lu udp_sent=%lu udp_fail=%lu ser_sent=%lu rssi=%d dBm\n",
+            Serial.printf("[CSI] frames=%lu udp_sent=%lu udp_fail=%lu ser_sent=%lu rssi=%d dBm temp=%.1f°C heap=%lu\n",
                           (unsigned long)g_csi_frames,
                           (unsigned long)g_udp_sent,
                           (unsigned long)g_udp_fail,
                           (unsigned long)g_ser_sent,
-                          WiFi.RSSI());
+                          WiFi.RSSI(),
+                          chip_temp_c,
+                          (unsigned long)ESP.getFreeHeap());
+
+            // Send telemetry packet (magic 0xC5110003) via UDP + serial bridge
+            uint8_t tpkt[TELEMETRY_PKT_SIZE];
+            memset(tpkt, 0, sizeof(tpkt));
+            uint32_t tmag = TELEMETRY_MAGIC;
+            memcpy(tpkt, &tmag, 4);
+            tpkt[4] = g_node_id;
+
+            int16_t temp_x10 = (int16_t)(chip_temp_c * 10.0f);
+            memcpy(tpkt + 5, &temp_x10, 2);
+
+            uint32_t uptime_s = (uint32_t)(millis() / 1000UL);
+            memcpy(tpkt + 7, &uptime_s, 4);
+
+            uint32_t freeheap = (uint32_t)ESP.getFreeHeap();
+            memcpy(tpkt + 11, &freeheap, 4);
+
+            tpkt[15] = (uint8_t)WiFi.RSSI();
+
+            uint32_t tmp32;
+            tmp32 = g_csi_frames; memcpy(tpkt + 16, &tmp32, 4);
+            tmp32 = g_udp_sent;   memcpy(tpkt + 20, &tmp32, 4);
+            tmp32 = g_udp_fail;   memcpy(tpkt + 24, &tmp32, 4);
+            tmp32 = g_ser_sent;   memcpy(tpkt + 28, &tmp32, 4);
+
+            // Send via UDP (best-effort)
+            if (g_udp_sock >= 0) {
+                struct sockaddr_in dest = {};
+                dest.sin_family = AF_INET;
+                dest.sin_port   = htons(g_target_port);
+                inet_pton(AF_INET, g_target_ip, &dest.sin_addr);
+                sendto(g_udp_sock, tpkt, TELEMETRY_PKT_SIZE, 0,
+                       (struct sockaddr *)&dest, sizeof(dest));
+            }
+
+            // Also send via serial bridge so RPi always gets it
+            if (g_serial_bridge) {
+                uint8_t hdr[4] = {
+                    SLIP_SOF_0, SLIP_SOF_1,
+                    (uint8_t)(TELEMETRY_PKT_SIZE >> 8),
+                    (uint8_t)(TELEMETRY_PKT_SIZE & 0xFF)
+                };
+                Serial.write(hdr, 4);
+                Serial.write(tpkt, TELEMETRY_PKT_SIZE);
+            }
         }
     }
 }

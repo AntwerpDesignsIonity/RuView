@@ -1,36 +1,30 @@
 [0;33mWarning:[0m Deprecated: Command 'write_flash' is deprecated. Use 'write-flash' instead.
 esptool v5.2.0
 Serial port /dev/ttyACM0:
-Connecting...
-[1A[2K[1A[2KConnected to ESP32-S3 on /dev/ttyACM0:
-Chip type:          ESP32-S3 (QFN56) (revision v0.1)
-Features:           Wi-Fi, BT 5 (LE), Dual Core + LP Core, 240MHz, Embedded PSRAM 8MB (AP_3v3)
-Crystal frequency:  40MHz
-USB mode:           USB-Serial/JTAG
-MAC:                34:85:18:42:08:14
-
-Uploading stub flasher...
-Running stub flasher...
-[1A[2K[1A[2KStub flasher running.
-Changing baud rate to 460800...
-Changed.
-
-Configuring flash size...
-Flash will be erased from 0x00009000 to 0x0000efff...
-Compressed 24576 bytes to 304...
-[KWriting at 0x00009000 [                              ]   0.0% 0/304 bytes... [KWriting at 0x0000f000 [==============================] 100.0% 304/304 bytes... 
-[1A[2K[1A[2KWrote 24576 bytes (304 compressed) at 0x00009000 in 0.3 seconds (774.1 kbit/s).
-Verifying written data...
-[1A[2KHash of data verified.
-
-Hard resetting via RTS pin...
+[1;31m
+A fatal error occurred: Could not open /dev/ttyACM0, the port is busy or doesn't exist.
+([Errno 11] Could not exclusively lock port /dev/ttyACM0: [Errno 11] Resource temporarily unavailable)
+[0m
 Building NVS configuration:
   WiFi SSID:     Ionity 2.4
   WiFi Password: ************
-  Target IP:     172.23.9.61
+  Target IP:     localhost
   Target Port:   5005
   Node ID:       1
-  Edge Tier:     0 (off (raw CSI))
+  Node Role:     tx (transmitter (NDP injection))
+  Edge Tier:     2 (vitals)
   Top-K Subcarr: 8
 Flashing NVS partition (24576 bytes) to /dev/ttyACM0...
-NVS provisioning complete!
+Traceback (most recent call last):
+  File "/home/antwerp/Creations/.2026/.Naked/RuView/firmware/esp32-csi-node/provision.py", line 381, in <module>
+    main()
+    ~~~~^^
+  File "/home/antwerp/Creations/.2026/.Naked/RuView/firmware/esp32-csi-node/provision.py", line 377, in main
+    flash_nvs(resolved_port, args.baud, nvs_bin)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/antwerp/Creations/.2026/.Naked/RuView/firmware/esp32-csi-node/provision.py", line 166, in flash_nvs
+    subprocess.check_call(cmd)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "/usr/lib/python3.13/subprocess.py", line 419, in check_call
+    raise CalledProcessError(retcode, cmd)
+subprocess.CalledProcessError: Command '['/usr/bin/python3', '-m', 'esptool', '--chip', 'esp32s3', '--port', '/dev/ttyACM0', '--baud', '460800', 'write_flash', '0x9000', '/tmp/tmpuz0ar4hf.bin']' returned non-zero exit status 2.

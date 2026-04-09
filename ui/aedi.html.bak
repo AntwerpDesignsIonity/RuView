@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AEDI — Automated Ecosystem Designs Ionity</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #050510;
+      --bg2:      #0a0a1e;
+      --bg3:      #0f1028;
+      --border:   #1a2040;
+      --accent:   #0088ff;
+      --accent2:  #00ccff;
+      --green:    #00e676;
+      --red:      #ff3d57;
+      --yellow:   #ffd740;
+      --dim:      #334466;
+      --text:     #c8d8f0;
+      --text-dim: #5577aa;
+      --font:     'Courier New', 'Consolas', monospace;
+      --user-bg:  #0d1535;
+      --aedi-bg:  #0a1225;
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; }
+
+    /* ── Nav ──────────────────────────────────────────────── */
+    #nav {
+      display: flex; align-items: center; gap: 0;
+      background: #070718; border-bottom: 1px solid var(--border);
+      height: 42px; padding: 0 12px; flex-shrink: 0;
+      overflow-x: auto; overflow-y: hidden;
+    }
+    .nav-brand {
+      font-size: 15px; font-weight: bold; color: var(--accent2);
+      letter-spacing: 2px; margin-right: 16px; white-space: nowrap;
+      text-decoration: none;
+    }
+    .nav-link {
+      display: inline-block; padding: 6px 12px; color: var(--text-dim);
+      text-decoration: none; border-radius: 4px; white-space: nowrap;
+      transition: color 0.15s, background 0.15s; font-size: 12px;
+    }
+    .nav-link:hover { color: var(--text); background: #111230; }
+    .nav-link.active { color: var(--accent2); background: #0d1535; border-bottom: 2px solid var(--accent2); }
+    .nav-status {
+      margin-left: auto; display: flex; align-items: center; gap: 10px;
+      font-size: 11px; color: var(--text-dim); flex-shrink: 0;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot-green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .dot-red   { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+    .dot-pulse { animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    /* ── Shell ────────────────────────────────────────────── */
+    #shell { display: flex; flex-direction: column; height: 100vh; }
+
+    /* ── Main Layout ──────────────────────────────────────── */
+    #main { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── Sidebar: Context Panel ────────────────────────────── */
+    #sidebar {
+      width: 280px; min-width: 280px; background: var(--bg2);
+      border-right: 1px solid var(--border); display: flex; flex-direction: column;
+      overflow-y: auto; padding: 12px;
+    }
+    .ctx-section { margin-bottom: 14px; }
+    .ctx-title {
+      font-size: 10px; color: var(--accent2); letter-spacing: 1.5px;
+      text-transform: uppercase; margin-bottom: 6px;
+      padding-bottom: 4px; border-bottom: 1px solid var(--border);
+    }
+    .ctx-row {
+      display: flex; justify-content: space-between; padding: 2px 0;
+      font-size: 11px;
+    }
+    .ctx-label { color: var(--text-dim); }
+    .ctx-val { color: var(--text); font-weight: bold; }
+    .ctx-val.ok { color: var(--green); }
+    .ctx-val.warn { color: var(--yellow); }
+    .ctx-val.err { color: var(--red); }
+
+    /* ── AEDI Identity Card ──────────────────────────────── */
+    .aedi-card {
+      background: linear-gradient(135deg, #0d1535 0%, #0a0a1e 100%);
+      border: 1px solid var(--accent); border-radius: 8px;
+      padding: 14px; margin-bottom: 14px; text-align: center;
+    }
+    .aedi-card h2 { color: var(--accent2); font-size: 16px; letter-spacing: 3px; margin-bottom: 4px; }
+    .aedi-card .subtitle { color: var(--text-dim); font-size: 10px; letter-spacing: 1px; }
+    .aedi-card .tagline { color: var(--dim); font-size: 9px; margin-top: 6px; }
+
+    /* ── Chat Area ────────────────────────────────────────── */
+    #chat-area {
+      flex: 1; display: flex; flex-direction: column; min-width: 0;
+    }
+    #messages {
+      flex: 1; overflow-y: auto; padding: 16px 20px;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .msg {
+      max-width: 85%; padding: 10px 14px; border-radius: 8px;
+      font-size: 13px; line-height: 1.5; word-wrap: break-word;
+      position: relative;
+    }
+    .msg-user {
+      align-self: flex-end; background: var(--user-bg);
+      border: 1px solid var(--accent); color: var(--text);
+      border-bottom-right-radius: 2px;
+    }
+    .msg-aedi {
+      align-self: flex-start; background: var(--aedi-bg);
+      border: 1px solid var(--border); color: var(--text);
+      border-bottom-left-radius: 2px;
+    }
+    .msg-aedi .msg-label {
+      font-size: 10px; color: var(--accent2); letter-spacing: 1px;
+      margin-bottom: 4px; display: block;
+    }
+    .msg-user .msg-label {
+      font-size: 10px; color: var(--accent); letter-spacing: 1px;
+      margin-bottom: 4px; display: block; text-align: right;
+    }
+    .msg-system {
+      align-self: center; background: transparent; border: 1px dashed var(--dim);
+      color: var(--text-dim); font-size: 11px; text-align: center;
+      max-width: 70%; padding: 8px 16px;
+    }
+    .msg-meta {
+      font-size: 9px; color: var(--dim); margin-top: 4px;
+    }
+    .msg-aedi pre {
+      background: #060612; border: 1px solid var(--border);
+      border-radius: 4px; padding: 8px; margin: 6px 0;
+      overflow-x: auto; font-size: 12px;
+    }
+    .msg-aedi code {
+      background: #0a0a1e; padding: 1px 4px; border-radius: 2px;
+      font-size: 12px;
+    }
+    .msg-aedi pre code { background: none; padding: 0; }
+
+    /* ── Typing indicator ─────────────────────────────────── */
+    .typing { display: flex; gap: 4px; padding: 8px 14px; }
+    .typing span {
+      width: 6px; height: 6px; background: var(--accent2); border-radius: 50%;
+      animation: typing 1.4s infinite;
+    }
+    .typing span:nth-child(2) { animation-delay: 0.2s; }
+    .typing span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes typing {
+      0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+      30% { transform: translateY(-6px); opacity: 1; }
+    }
+
+    /* ── Input Bar ────────────────────────────────────────── */
+    #input-bar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 16px; background: var(--bg2);
+      border-top: 1px solid var(--border);
+    }
+    #msg-input {
+      flex: 1; background: var(--bg3); border: 1px solid var(--border);
+      color: var(--text); font-family: var(--font); font-size: 13px;
+      padding: 10px 14px; border-radius: 6px; outline: none;
+      resize: none; min-height: 40px; max-height: 120px;
+    }
+    #msg-input:focus { border-color: var(--accent); }
+    #msg-input::placeholder { color: var(--dim); }
+    #send-btn {
+      background: var(--accent); color: #fff; border: none;
+      padding: 10px 20px; border-radius: 6px; cursor: pointer;
+      font-family: var(--font); font-size: 13px; font-weight: bold;
+      letter-spacing: 1px; transition: background 0.15s;
+    }
+    #send-btn:hover { background: var(--accent2); }
+    #send-btn:disabled { background: var(--dim); cursor: not-allowed; }
+    #clear-btn {
+      background: transparent; color: var(--text-dim); border: 1px solid var(--border);
+      padding: 10px 14px; border-radius: 6px; cursor: pointer;
+      font-family: var(--font); font-size: 11px;
+    }
+    #clear-btn:hover { color: var(--red); border-color: var(--red); }
+
+    /* ── Welcome ──────────────────────────────────────────── */
+    .welcome {
+      text-align: center; padding: 40px 20px; color: var(--text-dim);
+    }
+    .welcome h2 { color: var(--accent2); font-size: 20px; letter-spacing: 3px; margin-bottom: 8px; }
+    .welcome p { font-size: 12px; max-width: 500px; margin: 0 auto 12px; line-height: 1.6; }
+    .welcome .tips {
+      display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 16px;
+    }
+    .tip-btn {
+      background: var(--bg3); border: 1px solid var(--border); color: var(--text-dim);
+      padding: 8px 14px; border-radius: 6px; cursor: pointer; font-family: var(--font);
+      font-size: 11px; transition: all 0.15s;
+    }
+    .tip-btn:hover { color: var(--accent2); border-color: var(--accent); }
+
+    /* ── Scrollbar ────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--dim); border-radius: 3px; }
+
+    /* ── Mobile ───────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      #sidebar { display: none; }
+      .msg { max-width: 95%; }
+    }
+  </style>
+</head>
+<body>
+<div id="shell">
+  <!-- Nav -->
+  <nav id="nav">
+    <a class="nav-brand" href="index.html">π RUVIEW</a>
+    <a class="nav-link" href="index.html">Dashboard</a>
+    <a class="nav-link" href="monitor.html">Monitor</a>
+    <a class="nav-link" href="observatory.html">Observatory</a>
+    <a class="nav-link" href="viz.html">3D Viz</a>
+    <a class="nav-link active" href="aedi.html">AEDI</a>
+    <div class="nav-status">
+      <span id="nav-model">—</span>
+      <span class="dot dot-red" id="nav-dot"></span>
+      <span id="nav-status">offline</span>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <div id="main">
+    <!-- Sidebar: Context -->
+    <aside id="sidebar">
+      <div class="aedi-card">
+        <h2>⬡ AEDI</h2>
+        <div class="subtitle">AUTOMATED ECOSYSTEM DESIGNS IONITY</div>
+        <div class="tagline">By Antwerp Designs — Johan Wilhelm van Antwerp</div>
+      </div>
+
+      <div class="ctx-section">
+        <div class="ctx-title">&#9881; System</div>
+        <div class="ctx-row"><span class="ctx-label">Status</span><span class="ctx-val" id="ctx-status">—</span></div>
+        <div class="ctx-row"><span class="ctx-label">Model</span><span class="ctx-val" id="ctx-model">—</span></div>
+        <div class="ctx-row"><span class="ctx-label">Ollama</span><span class="ctx-val" id="ctx-ollama">—</span></div>
+        <div class="ctx-row"><span class="ctx-label">Sessions</span><span class="ctx-val" id="ctx-sessions">0</span></div>
+      </div>
+
+      <div class="ctx-section">
+        <div class="ctx-title">&#9201; Sensing</div>
+        <div class="ctx-row"><span class="ctx-label">Source</span><span class="ctx-val" id="ctx-source">—</span></div>
+        <div class="ctx-row"><span class="ctx-label">Tick</span><span class="ctx-val" id="ctx-tick">—</span></div>
+        <div class="ctx-row"><span class="ctx-label">Nodes</span><span class="ctx-val" id="ctx-nodes">—</span></div>
+        <div class="ctx-row"><span class="ctx-label">Motion</span><span class="ctx-val" id="ctx-motion">—</span></div>
+      </div>
+
+      <div class="ctx-section">
+        <div class="ctx-title">&#9829; Health</div>
+        <div class="ctx-row"><span class="ctx-label">Server</span><span class="ctx-val" id="ctx-health">—</span></div>
+        <div class="ctx-row"><span class="ctx-label">Autorepair</span><span class="ctx-val" id="ctx-autorepair">—</span></div>
+        <div class="ctx-row"><span class="ctx-label">Memory</span><span class="ctx-val" id="ctx-memory">—</span></div>
+        <div class="ctx-row"><span class="ctx-label">Uptime</span><span class="ctx-val" id="ctx-uptime">—</span></div>
+      </div>
+
+      <div class="ctx-section">
+        <div class="ctx-title">&#9432; Ionity</div>
+        <div class="ctx-row"><span class="ctx-label">Web</span><a class="ctx-val" href="https://www.ionity.today" target="_blank" style="color:var(--accent2);text-decoration:none">ionity.today</a></div>
+        <div class="ctx-row"><span class="ctx-label">Email</span><span class="ctx-val" style="color:var(--text-dim)">ai@ionity.today</span></div>
+        <div class="ctx-row"><span class="ctx-label">Location</span><span class="ctx-val" style="color:var(--text-dim)">Centurion, ZA</span></div>
+      </div>
+    </aside>
+
+    <!-- Chat -->
+    <div id="chat-area">
+      <div id="messages">
+        <div class="welcome" id="welcome">
+          <h2>⬡ AEDI</h2>
+          <p>Automated Ecosystem Designs Ionity — your AI assistant for WiFi sensing, system analysis, and Ionity platform intelligence.</p>
+          <p style="font-size:11px;color:var(--dim)">Powered by Gemma 4 E2B running locally on this RPi 5 via Ollama</p>
+          <div class="tips">
+            <button class="tip-btn" onclick="sendTip(this)">What's the current sensing status?</button>
+            <button class="tip-btn" onclick="sendTip(this)">How does WiFi CSI pose detection work?</button>
+            <button class="tip-btn" onclick="sendTip(this)">Analyze my node signal quality</button>
+            <button class="tip-btn" onclick="sendTip(this)">What is Ionity and what does AEDI do?</button>
+            <button class="tip-btn" onclick="sendTip(this)">Tips to improve sensing coverage</button>
+            <button class="tip-btn" onclick="sendTip(this)">Explain the RuView architecture</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="input-bar">
+        <textarea id="msg-input" rows="1" placeholder="Ask AEDI anything about sensing, Ionity, or this system..." maxlength="4000"></textarea>
+        <button id="send-btn" onclick="sendMessage()">SEND</button>
+        <button id="clear-btn" onclick="clearChat()">CLEAR</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Config ───────────────────────────────────────────────────────────────────
+const AEDI_BASE = `http://${window.location.hostname}:3002`;
+const SENSING_BASE = `http://${window.location.hostname}:${window.location.port || 3000}`;
+const SESSION_ID = 'aedi-' + Math.random().toString(36).slice(2, 10);
+let sending = false;
+
+// ── Context polling ──────────────────────────────────────────────────────────
+async function pollContext() {
+  try {
+    // AEDI health
+    const ah = await fetch(`${AEDI_BASE}/health`).then(r => r.json()).catch(() => null);
+    if (ah) {
+      el('ctx-status').textContent = ah.status || '?';
+      el('ctx-status').className = 'ctx-val ' + (ah.status === 'ok' ? 'ok' : 'err');
+      el('ctx-model').textContent = ah.model || '?';
+      el('ctx-ollama').textContent = ah.ollama?.online ? 'online' : 'offline';
+      el('ctx-ollama').className = 'ctx-val ' + (ah.ollama?.online ? 'ok' : 'err');
+      el('ctx-sessions').textContent = ah.active_conversations || 0;
+      el('nav-model').textContent = ah.model || '—';
+      el('nav-dot').className = 'dot ' + (ah.ollama?.online ? 'dot-green' : 'dot-red');
+      el('nav-status').textContent = ah.ollama?.online ? 'online' : 'offline';
+    } else {
+      el('ctx-status').textContent = 'offline';
+      el('ctx-status').className = 'ctx-val err';
+      el('nav-dot').className = 'dot dot-red';
+      el('nav-status').textContent = 'offline';
+    }
+    // Sensing context
+    const ctx = await fetch(`${AEDI_BASE}/api/context`).then(r => r.json()).catch(() => null);
+    if (ctx?.raw) {
+      const s = ctx.raw.sensing || {};
+      const h = ctx.raw.health || {};
+      const a = ctx.raw.autorepair || {};
+      el('ctx-source').textContent = s.source || '?';
+      el('ctx-tick').textContent = s.tick ?? '?';
+      el('ctx-nodes').textContent = (s.nodes || []).length;
+      el('ctx-motion').textContent = s.motion || '?';
+      el('ctx-motion').className = 'ctx-val ' + (s.motion === 'present' ? 'warn' : '');
+      el('ctx-health').textContent = h.status || '?';
+      el('ctx-health').className = 'ctx-val ' + (h.status === 'ok' ? 'ok' : 'err');
+      el('ctx-autorepair').textContent = a.healthy ? 'healthy' : a.healthy === false ? 'degraded' : '?';
+      el('ctx-autorepair').className = 'ctx-val ' + (a.healthy ? 'ok' : a.healthy === false ? 'err' : '');
+      el('ctx-memory').textContent = a.rss_mb ? `${a.rss_mb} MB` : '?';
+      el('ctx-uptime').textContent = a.uptime_secs ? `${a.uptime_secs}s` : '?';
+    }
+  } catch(e) {}
+}
+
+// ── Chat ─────────────────────────────────────────────────────────────────────
+async function sendMessage() {
+  const input = el('msg-input');
+  const text = input.value.trim();
+  if (!text || sending) return;
+
+  // Hide welcome
+  const w = el('welcome');
+  if (w) w.remove();
+
+  // Add user message
+  addMsg('user', text);
+  input.value = '';
+  autoResize(input);
+  sending = true;
+  el('send-btn').disabled = true;
+
+  // Show typing
+  const typingEl = addTyping();
+
+  try {
+    // Use streaming endpoint
+    const resp = await fetch(`${AEDI_BASE}/api/chat/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text, session_id: SESSION_ID }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
+      typingEl.remove();
+      addMsg('system', `Error: ${err.error || 'Failed to reach AEDI'}`);
+      return;
+    }
+
+    // Read SSE stream
+    typingEl.remove();
+    const msgEl = addMsg('aedi', '', true);
+    const contentEl = msgEl.querySelector('.msg-content');
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.token) {
+            fullText += data.token;
+            contentEl.innerHTML = renderMarkdown(fullText);
+            scrollToBottom();
+          }
+          if (data.done) {
+            const meta = msgEl.querySelector('.msg-meta');
+            if (meta && data.eval_count) {
+              meta.textContent = `${data.model || ''} · ${data.eval_count} tokens`;
+            }
+          }
+          if (data.error) {
+            contentEl.innerHTML += `<br><span style="color:var(--red)">Error: ${esc(data.error)}</span>`;
+          }
+        } catch(e) {}
+      }
+    }
+    // Final render
+    if (fullText) contentEl.innerHTML = renderMarkdown(fullText);
+  } catch (e) {
+    typingEl?.remove?.();
+    addMsg('system', `Connection error: ${e.message}. Is the AEDI service running on port 3002?`);
+  } finally {
+    sending = false;
+    el('send-btn').disabled = false;
+    input.focus();
+  }
+}
+
+function sendTip(btn) {
+  el('msg-input').value = btn.textContent;
+  sendMessage();
+}
+
+async function clearChat() {
+  fetch(`${AEDI_BASE}/api/clear`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: SESSION_ID }),
+  }).catch(() => {});
+  el('messages').innerHTML = `
+    <div class="welcome" id="welcome">
+      <h2>⬡ AEDI</h2>
+      <p>Conversation cleared. Ask me anything.</p>
+    </div>`;
+}
+
+// ── DOM helpers ──────────────────────────────────────────────────────────────
+function el(id) { return document.getElementById(id); }
+
+function addMsg(role, text, streaming = false) {
+  const container = el('messages');
+  const div = document.createElement('div');
+  div.className = `msg msg-${role}`;
+
+  if (role === 'user') {
+    div.innerHTML = `<span class="msg-label">YOU</span><div class="msg-content">${esc(text)}</div>`;
+  } else if (role === 'aedi') {
+    div.innerHTML = `<span class="msg-label">AEDI</span><div class="msg-content">${streaming ? '' : renderMarkdown(text)}</div><div class="msg-meta"></div>`;
+  } else {
+    div.innerHTML = text;
+  }
+
+  container.appendChild(div);
+  scrollToBottom();
+  return div;
+}
+
+function addTyping() {
+  const container = el('messages');
+  const div = document.createElement('div');
+  div.className = 'msg msg-aedi';
+  div.innerHTML = '<span class="msg-label">AEDI</span><div class="typing"><span></span><span></span><span></span></div>';
+  container.appendChild(div);
+  scrollToBottom();
+  return div;
+}
+
+function scrollToBottom() {
+  const m = el('messages');
+  m.scrollTop = m.scrollHeight;
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function renderMarkdown(text) {
+  // Simple markdown: code blocks, inline code, bold, italic, lists, links
+  let html = esc(text);
+  // Code blocks
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Bold
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  // Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:var(--accent2)">$1</a>');
+  // Line breaks
+  html = html.replace(/\n/g, '<br>');
+  // Bullet lists
+  html = html.replace(/<br>[-•] /g, '<br>• ');
+  return html;
+}
+
+// ── Input handling ───────────────────────────────────────────────────────────
+const input = el('msg-input');
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+input.addEventListener('input', () => autoResize(input));
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+pollContext();
+setInterval(pollContext, 5000);
+</script>
+</body>
+</html>
