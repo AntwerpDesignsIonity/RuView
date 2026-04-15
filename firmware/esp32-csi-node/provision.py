@@ -6,18 +6,22 @@ Writes WiFi credentials and aggregator target to the ESP32's NVS partition
 so users can configure a pre-built firmware binary without recompiling.
 
 Usage:
-    python provision.py --ssid "MyWiFi" --password "secret" --target-ip 192.168.1.20
+    python provision.py --port COM7 --ssid "MyWiFi" --password "secret" --target-ip 192.168.1.20
 
 Requirements:
-    pip install esptool nvs-partition-gen
+    pip install 'esptool>=5.0' nvs-partition-gen
     (or use the nvs_partition_gen.py bundled with ESP-IDF)
+
+WARNING -- FULL-REPLACE SEMANTICS (issue #391):
+    Every invocation REPLACES the entire `csi_cfg` NVS namespace on the device.
+    Any key you don't pass on the CLI is erased. Always include WiFi credentials
+    (--ssid, --password, --target-ip) unless you pass --force-partial.
 """
 
 import argparse
 import csv
 import io
 import os
-import re
 import struct
 import subprocess
 import sys
@@ -80,14 +84,6 @@ def build_nvs_csv(args):
         chan_bytes = bytes(channels)
         writer.writerow(["chan_list", "data", "hex2bin", chan_bytes.hex()])
         writer.writerow(["dwell_ms", "data", "u32", str(args.hop_dwell)])
-    # Node role: 0=txrx (default), 1=tx (transmitter), 2=rx (receiver)
-    if args.node_role is not None:
-        role_map = {"txrx": 0, "tx": 1, "rx": 2}
-        writer.writerow(["node_role", "data", "u8", str(role_map[args.node_role])])
-    # LED hub/edge role (read by ionity/src/main.cpp): 1=hub, 0=edge
-    if args.led_hub is not None:
-        led_hub_val = 1 if args.led_hub == "hub" else 0
-        writer.writerow(["led_hub", "data", "u8", str(led_hub_val)])
     # ADR-066: Swarm bridge configuration
     if args.seed_url is not None:
         writer.writerow(["seed_url", "data", "string", args.seed_url])
@@ -147,118 +143,6 @@ def generate_nvs_binary(csv_content, size):
                 os.unlink(p)
 
 
-def detect_firmware_dir(args):
-    """Locate the firmware release_bins directory."""
-    if args.firmware_dir:
-        return args.firmware_dir
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(script_dir, "release_bins")
-
-
-def flash_firmware(port, baud, fw_dir, flash_variant="8mb", allow_stale=False):
-    """Flash bootloader + partition table + OTA data + app firmware.
-
-    Refuses to flash when release_bins/ is missing or has been quarantined as
-    stale (release_bins.stale-*). On 2026-04-18 the pre-built ESP-IDF binary
-    was found to ignore the NVS `node_id` override, causing every provisioned
-    node to collide with node 1. The PlatformIO firmware in `ionity/` honors
-    NVS correctly and is the recommended flash route. See release_bins/README.
-    """
-    if flash_variant == "4mb":
-        app_bin = os.path.join(fw_dir, "esp32-csi-node-4mb.bin")
-        part_bin = os.path.join(fw_dir, "partition-table-4mb.bin")
-    else:
-        app_bin = os.path.join(fw_dir, "esp32-csi-node.bin")
-        part_bin = os.path.join(fw_dir, "partition-table.bin")
-
-    bootloader_bin = os.path.join(fw_dir, "bootloader.bin")
-    ota_bin = os.path.join(fw_dir, "ota_data_initial.bin")
-
-    # Check all required binaries exist
-    missing = []
-    for path, label in [(bootloader_bin, "bootloader"), (part_bin, "partition-table"),
-                        (app_bin, "application")]:
-        if not os.path.isfile(path):
-            missing.append(f"  {label}: {path}")
-    if missing:
-        # Look for a quarantined stale-bins directory next to the missing one.
-        parent = os.path.dirname(os.path.abspath(fw_dir))
-        quarantined = sorted(
-            d for d in os.listdir(parent)
-            if d.startswith("release_bins.stale-") and os.path.isdir(os.path.join(parent, d))
-        ) if os.path.isdir(parent) else []
-
-        print(f"\nERROR: Firmware binaries missing in {fw_dir}:", file=sys.stderr)
-        for m in missing:
-            print(m, file=sys.stderr)
-        print("\nThe pre-built ESP-IDF firmware is NOT bundled in this repo by default.",
-              file=sys.stderr)
-        if quarantined:
-            print(f"\nA quarantined build was found:  {quarantined[-1]}", file=sys.stderr)
-            print("It was set aside because it ignored the NVS `node_id` override and",
-                  file=sys.stderr)
-            print("caused every provisioned node to report as node 1.", file=sys.stderr)
-        print("\nRecommended (verified working): flash via PlatformIO, then write NVS only:",
-              file=sys.stderr)
-        print("  cd ionity && pio run -e esp32s3_n16r8 -t upload --upload-port <PORT>",
-              file=sys.stderr)
-        print("  python firmware/esp32-csi-node/provision.py --port <PORT> \\", file=sys.stderr)
-        print("      --ssid X --password Y --target-ip Z --node-id N --no-firmware",
-              file=sys.stderr)
-        print("\nAlternative (rebuild ESP-IDF firmware):", file=sys.stderr)
-        print("  cd firmware/esp32-csi-node && idf.py build && idf.py -p <PORT> flash",
-              file=sys.stderr)
-        print("\nOr re-run with --no-firmware to skip the firmware flash entirely.",
-              file=sys.stderr)
-        sys.exit(2)
-
-    # Sanity-warn if the bins look much older than the source tree.
-    if not allow_stale:
-        try:
-            bin_mtime = os.path.getmtime(app_bin)
-            main_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "main")
-            if os.path.isdir(main_dir):
-                src_mtime = max(
-                    os.path.getmtime(os.path.join(root, f))
-                    for root, _, files in os.walk(main_dir)
-                    for f in files if f.endswith((".c", ".h", ".cpp"))
-                )
-                if src_mtime > bin_mtime + 3600:  # 1h grace for clock skew
-                    age_days = (src_mtime - bin_mtime) / 86400.0
-                    print(f"\nERROR: {os.path.basename(app_bin)} is "
-                          f"{age_days:.1f} days older than the source in main/.",
-                          file=sys.stderr)
-                    print("It will likely ignore NVS overrides and break provisioning.",
-                          file=sys.stderr)
-                    print("\nRebuild via PlatformIO (recommended):", file=sys.stderr)
-                    print("  cd ionity && pio run -e esp32s3_n16r8 -t upload --upload-port <PORT>",
-                          file=sys.stderr)
-                    print("Then re-run this command with --no-firmware.", file=sys.stderr)
-                    print("\nTo override and flash anyway, pass --allow-stale-firmware.",
-                          file=sys.stderr)
-                    sys.exit(2)
-        except (OSError, ValueError):
-            pass  # mtime checks are best-effort; never block on filesystem oddities
-
-    flash_args = [
-        sys.executable, "-m", "esptool",
-        "--chip", "esp32s3",
-        "--port", port,
-        "--baud", str(baud),
-        "write_flash",
-        "0x0000", bootloader_bin,
-        "0x8000", part_bin,
-    ]
-    if os.path.isfile(ota_bin):
-        flash_args.extend(["0xf000", ota_bin])  # otadata partition offset
-    flash_args.extend(["0x20000", app_bin])  # ota_0 partition offset
-
-    app_size = os.path.getsize(app_bin)
-    print(f"Flashing firmware ({app_size // 1024} KB, {flash_variant}) to {port}...")
-    subprocess.check_call(flash_args)
-    print("Firmware flash complete!")
-
-
 def flash_nvs(port, baud, nvs_bin):
     """Flash the NVS partition binary to the ESP32."""
     with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as f:
@@ -271,83 +155,22 @@ def flash_nvs(port, baud, nvs_bin):
             "--chip", "esp32s3",
             "--port", port,
             "--baud", str(baud),
-            "--before", "usb-reset",
-            "--connect-attempts", "10",
             "write-flash",
             hex(NVS_PARTITION_OFFSET), bin_path,
         ]
         print(f"Flashing NVS partition ({len(nvs_bin)} bytes) to {port}...")
-        try:
-            subprocess.check_call(cmd)
-        except subprocess.CalledProcessError:
-            print("\n" + "=" * 70, file=sys.stderr)
-            print("NVS flash failed. Most common cause on ESP32-S3 with native USB-CDC:", file=sys.stderr)
-            print("  the board's firmware does not release USB for the reset signal.", file=sys.stderr)
-            print("\nManually enter download mode and retry:", file=sys.stderr)
-            print("  1. Hold BOOT button on the board.", file=sys.stderr)
-            print("  2. Tap RESET (or unplug + replug USB while still holding BOOT).", file=sys.stderr)
-            print("  3. Release BOOT.", file=sys.stderr)
-            print(f"  4. Re-run this command (port should still be {port}).", file=sys.stderr)
-            print("=" * 70 + "\n", file=sys.stderr)
-            raise
+        subprocess.check_call(cmd)
         print("NVS provisioning complete!")
     finally:
         os.unlink(bin_path)
 
 
-def detect_serial_port(preferred_port=None):
-    """Detect the most likely ESP32 serial port when one is not provided."""
-    if preferred_port:
-        return preferred_port
-
-    try:
-        from serial.tools import list_ports
-    except ImportError as exc:
-        raise RuntimeError(
-            "pyserial is required for auto-detect. Install esptool/pyserial or pass --port explicitly."
-        ) from exc
-
-    candidates = []
-    for port in list_ports.comports():
-        text = " ".join(filter(None, [port.device, port.description, port.manufacturer, port.hwid]))
-        score = 0
-
-        if re.search(r"VID:PID=(303A:|303A )|ESP32|Espressif|USB JTAG", text, re.IGNORECASE):
-            score += 100
-        if re.search(r"VID:PID=(10C4:|10C4 )|CP210|Silicon Labs", text, re.IGNORECASE):
-            score += 60
-        if re.search(r"VID:PID=(1A86:|1A86 )|CH340|wch", text, re.IGNORECASE):
-            score += 40
-        if re.search(r"USB Serial|UART", text, re.IGNORECASE):
-            score += 15
-
-        candidates.append({
-            "device": port.device,
-            "label": port.description or port.device,
-            "score": score,
-        })
-
-    if not candidates:
-        raise RuntimeError("No serial ports found. Connect the ESP32-S3 and try again.")
-
-    candidates.sort(key=lambda item: (item["score"], item["device"]), reverse=True)
-    if len(candidates) == 1 or candidates[0]["score"] > candidates[1]["score"]:
-        print(f"Auto-detected ESP32 serial port: {candidates[0]['device']} [{candidates[0]['label']}]")
-        return candidates[0]["device"]
-
-    options = "\n".join(f"  {item['device']} - {item['label']}" for item in candidates)
-    raise RuntimeError(
-        "Unable to choose a single ESP32 serial port automatically. "
-        "Pass --port explicitly. Candidates:\n" + options
-    )
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="Provision ESP32-S3 CSI Node with WiFi and aggregator settings",
-        epilog="Example: python provision.py --ssid MyWiFi --password secret --target-ip 192.168.1.20",
+        epilog="Example: python provision.py --port COM7 --ssid MyWiFi --password secret --target-ip 192.168.1.20",
     )
-    parser.add_argument("--port", help="Serial port (auto-detected when omitted, e.g. COM7, /dev/ttyUSB0)")
+    parser.add_argument("--port", required=True, help="Serial port (e.g. COM7, /dev/ttyUSB0)")
     parser.add_argument("--baud", type=int, default=460800, help="Flash baud rate (default: 460800)")
     parser.add_argument("--ssid", help="WiFi SSID")
     parser.add_argument("--password", help="WiFi password")
@@ -374,14 +197,6 @@ def main():
     # ADR-073: Multi-frequency channel hopping
     parser.add_argument("--hop-channels", type=str, help="Comma-separated channel list for hopping (e.g. '1,6,11')")
     parser.add_argument("--hop-dwell", type=int, default=200, help="Dwell time per channel in ms (default: 200)")
-    # Node role assignment for multistatic mesh
-    parser.add_argument("--node-role", type=str, choices=["tx", "rx", "txrx"],
-                        help="Node role: tx=transmitter (NDP injection), rx=receiver (CSI capture), "
-                             "txrx=both (default bistatic mode)")
-    # LED visual role (stored as NVS key 'led_hub', read by ionity/src/main.cpp)
-    parser.add_argument("--led-hub", type=str, choices=["hub", "edge"],
-                        help="LED role: hub=Deep Violet double-ripple (receiving/aggregator node), "
-                             "edge=Teal single blink (transmitting sensor node)")
     # ADR-066: Swarm bridge
     parser.add_argument("--seed-url", type=str, help="Cognitum Seed base URL (e.g. http://10.1.10.236)")
     parser.add_argument("--seed-token", type=str, help="Seed Bearer token (from pairing)")
@@ -389,12 +204,10 @@ def main():
     parser.add_argument("--swarm-hb", type=int, help="Swarm heartbeat interval in seconds (default 30)")
     parser.add_argument("--swarm-ingest", type=int, help="Swarm vector ingest interval in seconds (default 5)")
     parser.add_argument("--dry-run", action="store_true", help="Generate NVS binary but don't flash")
-    parser.add_argument("--no-firmware", action="store_true",
-                        help="Skip firmware flash, only write NVS config (use when firmware is already flashed)")
-    parser.add_argument("--allow-stale-firmware", action="store_true",
-                        help="Flash bundled firmware even if release_bins/ looks older than source. Use only as a last resort — known to cause node-id collisions.")
-    parser.add_argument("--firmware-dir", type=str, default=None,
-                        help="Directory containing firmware binaries (default: release_bins/ next to this script)")
+    parser.add_argument("--force-partial", action="store_true",
+                        help="Allow partial config without WiFi credentials. "
+                        "WARNING: flashing REPLACES the entire csi_cfg NVS namespace - "
+                        "any key not passed on the CLI will be erased (issue #391).")
 
     args = parser.parse_args()
 
@@ -407,10 +220,37 @@ def main():
         args.vital_int is not None, args.subk_count is not None,
         args.channel is not None, args.filter_mac is not None,
         args.seed_url is not None, args.zone is not None,
-        args.node_role is not None, args.led_hub is not None,
     ])
     if not has_value:
         parser.error("At least one config value must be specified")
+
+    # Bug 2 (#391): Prevent silent wipe of WiFi credentials on partial invocations.
+    # Flashing the generated NVS binary to offset 0x9000 REPLACES the entire
+    # csi_cfg namespace — there is no merge with existing NVS. Require the full
+    # WiFi trio unless the user explicitly opts in with --force-partial.
+    wifi_trio_missing = [
+        name for name, val in [
+            ("--ssid", args.ssid),
+            ("--password", args.password),
+            ("--target-ip", args.target_ip),
+        ] if val is None or val == ""
+    ]
+    if wifi_trio_missing and not args.force_partial:
+        parser.error(
+            f"Missing required WiFi credentials: {', '.join(wifi_trio_missing)}.\n"
+            f"\n"
+            f"  provision.py REPLACES the entire csi_cfg NVS namespace on each run.\n"
+            f"  Any key not passed on the CLI will be erased -- including WiFi creds.\n"
+            f"\n"
+            f"  Either pass all of --ssid, --password, --target-ip,\n"
+            f"  or add --force-partial to acknowledge that other NVS keys will be wiped."
+        )
+    if args.force_partial and wifi_trio_missing:
+        print("WARNING: --force-partial is set. The following NVS keys will be WIPED "
+              "(not present in this invocation):", file=sys.stderr)
+        for k in wifi_trio_missing:
+            print(f"  - {k.lstrip('-')}", file=sys.stderr)
+        print("  Plus any other csi_cfg keys not passed on the CLI.\n", file=sys.stderr)
 
     # Validate TDM: if one is given, both should be
     if (args.tdm_slot is not None) != (args.tdm_total is not None):
@@ -445,12 +285,6 @@ def main():
         print(f"  Target Port:   {args.target_port}")
     if args.node_id is not None:
         print(f"  Node ID:       {args.node_id}")
-    if args.node_role is not None:
-        role_desc = {"tx": "transmitter (NDP injection)", "rx": "receiver (CSI capture)", "txrx": "transceiver (both)"}
-        print(f"  Node Role:     {args.node_role} ({role_desc.get(args.node_role, '?')})")
-    if args.led_hub is not None:
-        led_desc = {"hub": "Deep Violet ripple (aggregator)", "edge": "Teal blink (sensor)"}
-        print(f"  LED Role:      {args.led_hub} ({led_desc[args.led_hub]})")
     if args.tdm_slot is not None:
         print(f"  TDM Slot:      {args.tdm_slot} of {args.tdm_total}")
     if args.edge_tier is not None:
@@ -495,40 +329,16 @@ def main():
               f"{fallback_path} nvs.bin 0x6000", file=sys.stderr)
         sys.exit(1)
 
-    resolved_port = detect_serial_port(args.port)
-
     if args.dry_run:
         out = "nvs_provision.bin"
         with open(out, "wb") as f:
             f.write(nvs_bin)
         print(f"NVS binary saved to {out} ({len(nvs_bin)} bytes)")
-        print(f"Flash manually: python -m esptool --chip esp32s3 --port {resolved_port} "
-              f"write_flash 0x9000 {out}")
+        print(f"Flash manually: python -m esptool --chip esp32s3 --port {args.port} "
+              f"write-flash 0x9000 {out}")
         return
 
-    # Step 1: Flash firmware (unless --no-firmware)
-    if not args.no_firmware:
-        fw_dir = detect_firmware_dir(args)
-        # Auto-detect flash size via esptool
-        flash_variant = "8mb"
-        try:
-            result = subprocess.run(
-                [sys.executable, "-m", "esptool", "--port", resolved_port, "flash_id"],
-                capture_output=True, text=True, timeout=15,
-            )
-            for line in result.stdout.splitlines():
-                if "Detected flash size" in line:
-                    size_str = line.split(":")[-1].strip().lower()
-                    if size_str in ("2mb", "4mb"):
-                        flash_variant = "4mb"
-                    break
-        except Exception:
-            pass  # default to 8mb
-        flash_firmware(resolved_port, args.baud, fw_dir, flash_variant,
-                       allow_stale=args.allow_stale_firmware)
-
-    # Step 2: Flash NVS config
-    flash_nvs(resolved_port, args.baud, nvs_bin)
+    flash_nvs(args.port, args.baud, nvs_bin)
 
 
 if __name__ == "__main__":
