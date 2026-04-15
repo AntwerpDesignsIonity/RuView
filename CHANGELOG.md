@@ -8,56 +8,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- **Room Atlas — uncalibrated nodes no longer pile up at one point** ([ui/room-atlas.html](ui/room-atlas.html), [ui/room-atlas.js](ui/room-atlas.js)) — When the server returns the uncalibrated default position (every node at `[2.0, 0.0, 1.5]`), the atlas now detects the stack and auto-spreads nodes around the room perimeter as a *visual placeholder* (orange dashed ring + `(placeholder)` label in the node list). A new amber banner above the perspective view explains why and offers a one-click **Apply default layout** button that POSTs perimeter coordinates to `/api/v1/nodes/positions`. Uses the new shared feedback library for the busy/success/error UX. Result: the atlas is immediately useful on first boot instead of looking broken.
+- **`provision.py` esptool v5 compat** (#391) — Stale `write_flash` (underscore) syntax in the dry-run manual-flash hint now uses `write-flash` (hyphenated) for esptool >= 5.x. The primary flash command was already correct.
+- **`provision.py` silent NVS wipe** (#391) — The script replaces the entire `csi_cfg` NVS namespace on every run, so partial invocations were silently erasing WiFi credentials and causing `Retrying WiFi connection (10/10)` in the field. Now refuses to run without `--ssid`, `--password`, and `--target-ip` unless `--force-partial` is passed. `--force-partial` prints a warning listing which keys will be wiped.
+- **Firmware: defensive `node_id` capture** (#232, #375, #385, #386, #390) — Users on multi-node deployments reported `node_id` reverting to the Kconfig default (`1`) in UDP frames and in the `csi_collector` init log, despite NVS loading the correct value. The root cause (memory corruption of `g_nvs_config`) has not been definitively isolated, but the UDP frame header is now tamper-proof: `csi_collector_init()` captures `g_nvs_config.node_id` into a module-local `s_node_id` once, and `csi_serialize_frame()` plus all other consumers (`edge_processing.c`, `wasm_runtime.c`, `display_ui.c`, `swarm_bridge_init`) read it via the new `csi_collector_get_node_id()` accessor. A canary logs `WARN` if `g_nvs_config.node_id` diverges from `s_node_id` at end-of-init, helping isolate the upstream corruption path. Validated on attached ESP32-S3 (COM8): NVS `node_id=2` propagates through boot log, capture log, init log, and byte[4] of every UDP frame.
+
+### Docs
+- **CHANGELOG catch-up** (#367) — Added missing entries for v0.5.5, v0.6.0, and v0.7.0 releases.
+
+## [v0.7.0] — 2026-04-06
+
+Model release (no new firmware binary). Firmware remains at v0.6.0-esp32.
 
 ### Added
-- **Per-node remote config (CSI rate / channel / TX power)** ([sensing-server main.rs](rust-port/wifi-densepose-rs/crates/wifi-densepose-sensing-server/src/main.rs), [ui/monitor.html](ui/monitor.html)) — New `POST /api/v1/node-config` / `GET /api/v1/node-config?node_id=N` / `GET /api/v1/node-config/all` endpoints let the operator change a node's CSI broadcast rate (1–200 Hz), radio channel (1–165) and TX power (−4..20 dBm) without reflashing. Writes are validated, persisted to `data/node-config.json`, and exposed in the `/api/v1/nodes` response (`config.revision` monotonically increases so firmware polling can short-circuit). New **Nodes** tab in monitor.html renders one row per node with editable Rate / Channel / TX Power inputs, an Apply button, and a bulk "apply rate to all active" control. Uses the shared toast layer for success/error feedback.
-- **Server-side auto-calibration of node positions** ([sensing-server main.rs](rust-port/wifi-densepose-rs/crates/wifi-densepose-sensing-server/src/main.rs), [ui/room-atlas.html](ui/room-atlas.html), [ui/room-atlas.js](ui/room-atlas.js)) — New `POST /api/v1/calibration/auto` endpoint and a 30-second startup task that derive a deterministic perimeter layout from the set of currently active node IDs (any node seen within the last 10 s). The slot count is `max(active_id) + 1`, so individual nodes keep their corner across reboots even when others come or go. The Room Atlas calibration banner now exposes a one-click **Auto-calibrate** button next to the existing manual fallback. No env flags required; eliminates the manual layout step for the common single-room deployment.
-- **AEDI Desktop scaffold (`desktop/`)** — Renamed from `releases/desktop/RuView.*`; 4 .NET 10 MAUI projects under [`desktop/AEDI.Desktop.sln`](desktop/AEDI.Desktop.sln). Brand assets wired in: [`desktop/AEDI.Desktop/Resources/Images/appicon.svg`](desktop/AEDI.Desktop/Resources/Images/appicon.svg), [`desktop/AEDI.Desktop/Resources/Splash/splash.svg`](desktop/AEDI.Desktop/Resources/Splash/splash.svg). Shared metadata in [`desktop/Directory.Build.props`](desktop/Directory.Build.props) including a `PREVIEW_ONLY` MSBuild constant for android/ios targets. New CI workflow [`.github/workflows/aedi-desktop-ci.yml`](.github/workflows/aedi-desktop-ci.yml) builds Windows + macOS on every PR touching `desktop/`. New `make desktop` and `make desktop-clean` targets in [`Makefile`](Makefile).
-- **Shared UI feedback library `ui/shared/feedback.js`** ([feedback.js](ui/shared/feedback.js)) — Dependency-free `toast.{success,error,warn,info}`, `busy()` (long-running operation indicator with auto-resolve), `stickyError()` (persistent banner with copy-to-clipboard), and `fetchJSON()` (auto-toast on network/HTTP/JSON errors). Auto-loaded by [`ui/shared/nav.js`](ui/shared/nav.js) so every page using shared nav gets it. Self-mounting; no DOM scaffolding required.
-- **`/api/v1/preprocessing/stats` endpoint** ([sensing-server main.rs](rust-port/wifi-densepose-rs/crates/wifi-densepose-sensing-server/src/main.rs)) — Reports the on/off state of five env-flag-gated CSI preprocessing stages (`hampel`, `phase_sanitizer`, `adaptive_denoise`, `csi_ratio`, `subcarrier_selection`). All default-off; verify hash unchanged. Wired into the [`ui/diagnostics.html`](ui/diagnostics.html) probe list and the new automated probe runner [`ui/tests/ui-smoke.html`](ui/tests/ui-smoke.html).
-- **UI smoke test page** ([ui/tests/ui-smoke.html](ui/tests/ui-smoke.html)) — One-click probe runner that hits 17 endpoints + assets and shows pass/fail with latency. Designed for ops-style "is this server healthy?" checks at `http://<host>:3000/ui/tests/ui-smoke.html`.
-- **ADR-083: CSI Preprocessing Accuracy Roadmap** ([docs/adr/ADR-083-csi-accuracy-roadmap.md](docs/adr/ADR-083-csi-accuracy-roadmap.md)) — Documents the staged rollout plan for the five preprocessing modules: D.1 (this PR, scaffolding + endpoint), D.2 (per-stage `NodeState` integration + counters + UI page), D.3 (re-baseline verify hash, promote defaults).
+- **Camera ground-truth training pipeline (ADR-079)** — End-to-end supervised WiFlow pose training using MediaPipe + real ESP32 CSI.
+  - `scripts/collect-ground-truth.py` — MediaPipe PoseLandmarker webcam capture (17 COCO keypoints, 30fps), synchronized with CSI recording over nanosecond timestamps.
+  - `scripts/align-ground-truth.js` — Time-aligns camera keypoints with 20-frame CSI windows by binary search, confidence-weighted averaging.
+  - `scripts/train-wiflow-supervised.js` — 3-phase curriculum training (contrastive → supervised SmoothL1 → bone/temporal refinement) with 4 scale presets (lite/small/medium/full).
+  - `scripts/eval-wiflow.js` — PCK@10/20/50, MPJPE, per-joint breakdown, baseline proxy mode.
+  - `scripts/record-csi-udp.py` — Lightweight ESP32 CSI UDP recorder (no Rust build required).
+- **ruvector optimizations (O6-O10)** — Subcarrier selection (70→35, 50% reduction), attention-weighted subcarriers, Stoer-Wagner min-cut person separation, multi-SPSA gradient estimation, Mac M4 Pro training via Tailscale.
+- **Scalable WiFlow presets** — `lite` (189K params, ~19 min) through `full` (7.7M params, ~8 hrs) to match dataset size.
+- **Pre-trained WiFlow v1 model** — 92.9% PCK@20, 974 KB, 186,946 params. Published to [HuggingFace](https://huggingface.co/ruv/ruview) under `wiflow-v1/`.
 
-### Changed
-- **Rebrand: RuView → AEDI in desktop client + ADRs** —
-  - [`desktop/`](desktop/) (was `releases/desktop/`): all 4 csproj files, all .cs namespaces/usings, the .sln file, and the package metadata are rebranded. `git mv` preserved history. Brand README still credits "rUv (ruvnet) and the original RuView project" upstream.
-  - ADRs renamed: [`ADR-031`](docs/adr/ADR-031-aedi-sensing-first-rf-mode.md), [`ADR-056`](docs/adr/ADR-056-aedi-desktop-capabilities.md). [`ADR-081`](docs/adr/ADR-081-per-node-telemetry-sqlite.md) now references `aedi_logs.sqlite3` / `aedi_telemetry.sqlite3`.
-  - [`.claude-flow/daemon-state.json`](.claude-flow/daemon-state.json) — stale macOS absolute paths replaced with workspace-relative paths.
-  - **One-shot SQLite auto-migration** ([sensing-server main.rs](rust-port/wifi-densepose-rs/crates/wifi-densepose-sensing-server/src/main.rs) — `migrate_legacy_log_db()`): on every startup, if `logs/ruview_logs.sqlite3` (and `-wal`/`-shm` siblings) exist and the new `logs/aedi_logs.sqlite3` does not, the files are renamed in place. Idempotent; logs each migration at INFO.
+### Validated
+- **92.9% PCK@20** pose accuracy from a 5-minute data collection session with one $9 ESP32-S3 and one laptop webcam.
+- Training pipeline validated on real paired data: 345 samples, 19 min training, eval loss 0.082, bone constraint 0.008.
+
+## [v0.6.0-esp32] — 2026-04-03
 
 ### Added
-- **Monitor Hub UI button repairs** ([ui/monitor.html](ui/monitor.html)) — Two Scripts tab endpoints fixed: `model/sona` → `model/sona/profiles` (was 404), `pose/zones` → `pose/zones/summary` (was 404). All 18 scripts now return 200 OK end-to-end. `runScript()` rewritten to show HTTP status, duration in ms, content-type-aware body rendering, and explicit ✓/✗ indicators (no more silent "No response from server" with no detail). Both `runScript` and `pingNode` now explicitly attached to `window` so inline `onclick="runScript(N)"` handlers work even under bundlers that scope top-level declarations.
-- **Ping button** now reports rich state (`status`, `firmware_status`, `rssi`, `last_seen_ms`, `ml_trained_pct`) by looking up the node in the latest `/api/v1/nodes` response, then auto-switches to the Logs tab so the user actually sees the result.
-- **Provision Wizard buttons** (`Flash & Provision`, `Write NVS Only`) now generate the correct two-step PlatformIO + `provision.py --no-firmware` command and **auto-copy to clipboard** (instead of emitting an obsolete `.ionity/ionity.sh provision …` invocation that didn't exist).
-- **Start/Stop Server buttons** now show a clear instruction (`./.ionity/ionity.sh run --yes` / `stop`) when the optional bridge controller on `:3002` isn't running, and auto-switch to the Logs tab so the message is visible.
-- **WebSocket auto-reconnect** ([ui/monitor.html](ui/monitor.html)) — `connectSignalWs()` now schedules a 3 s reconnect on `onclose`, so the live data stream heals itself across server restarts and brief network blips. Status text reflects the retry state.
-- **Vitals tab parsing fix** — `pollVitals()` now reads the actual server payload shape `{ vital_signs: { heart_rate_bpm, breathing_rate_bpm, heartbeat_confidence, … } }` instead of the legacy flat `{ hr, rr, … }` that no longer matches `/api/v1/vital-signs`. HR/RR cards in the Vitals tab populate correctly again.
-- **ESP32 tab column header** changed from "FW Version" to "Firmware" (now reflects the runtime-derived `firmware_status`, not a static version string).
-
-### Added (firmware status / IP / ML calibration round)
-- **Firmware status, node IP, and ML calibration in `/api/v1/nodes`** ([sensing-server main.rs](rust-port/wifi-densepose-rs/crates/wifi-densepose-sensing-server/src/main.rs)) — Each node now reports `ip` (captured from UDP source address on every CSI/vitals packet, no separate registration step needed), `firmware_status` (derived live from runtime signals: `streaming`=CSI+edge_vitals in last 10s, `csi_only`=CSI but no edge_vitals, `stale`=last seen >10s, `offline`=>60s), and four `ml_*` fields surfacing the per-node TinyML aggression baseline: `ml_trained_pct` (0.0–1.0 calibration progress), `ml_anomaly`, `ml_aggression`, `ml_samples`. The aggression module's per-node Welford baseline is naturally **placement-independent** — it learns each node's own RF environment online, so accuracy holds no matter where the ESP32 is mounted.
-- **Monitor Hub UI updated** ([ui/monitor.html](ui/monitor.html)) — Overview "Active Nodes" table and ESP32 tab table now show IP, colour-coded firmware status badge (green=streaming, blue=csi_only, yellow=stale, red=offline), ML training progress %, and live anomaly %. New `badge-yellow` class added to badge palette. Caption explains the placement-independent online baseline.
-- **Live Nodes table on `/ui/nodes.html`** — added IP and Firmware columns (now 9 columns). Both the column headers and the empty-state colspan updated.
-- **`provision.py` hardening** ([firmware/esp32-csi-node/provision.py](firmware/esp32-csi-node/provision.py)) — `flash_firmware()` now refuses to flash if `release_bins/` is empty (clear error pointing to the working PlatformIO route) and refuses if `app.bin` is older than any source file under `main/` by more than 1h (mtime check). New `--allow-stale-firmware` escape hatch for emergencies. Prevents the node-id-collision footgun that wasted hours on node 2.
-- **`firmware/esp32-csi-node/release_bins/README.md`** — Documents why the directory is empty by default, recommends PlatformIO + `--no-firmware` workflow, lists ESP-IDF rebuild steps for advanced users.
-
-### Added (earlier this cycle)
-- **TinyML on-line aggression / anomaly detector** ([crates/wifi-densepose-sensing-server/src/aggression.rs](rust-port/wifi-densepose-rs/crates/wifi-densepose-sensing-server/src/aggression.rs)) — Per-node Welford rolling baseline of `motion_band_power` plus short/long EMA pair. Emits three live numbers per WS broadcast: `anomaly` (z-score → tanh, environment outlier), `aggression` (positive derivative of EMA pair, escalation lead signal), and `predicted` (~30-sample-ahead forecast). Baseline persists to `data/aggression_baseline.json` so the trained 3D environment survives restarts. Atomic save every 60 s. 5 unit tests, all passing.
-- **`GET /api/v1/aggression`** — Returns current aggregate (max anomaly across nodes, max aggression, average `trained_pct`) plus per-node detail. Served by [sensing-server main.rs](rust-port/wifi-densepose-rs/crates/wifi-densepose-sensing-server/src/main.rs).
-- **`aggression` field added to `pose_data` WS payload** — UI clients can now render escalation badges / predict-banners straight off the existing pose stream.
-- **`scripts/diagnose-node.py`** — Reachability + state diagnoser for a registered ESP32 node. Resolves MAC from `nodes.yaml`, looks up its IP via ARP, pings, probes OTA :8032, queries the hub `/api/v1/nodes`, and prints a single VERDICT line with the right remediation command. No mutation. Confirms there is no network re-provisioning path today, so off-network nodes still need a USB reflash.
-- **CSI activity sparkline on Touch-LCD-2** ([ionity/src/lcd_st7789_240x320.h](ionity/src/lcd_st7789_240x320.h)) — 60-sample / ~12 s rolling mini-waterfall replaces the static activity bar. Bottom-anchored coloured bars (green = quiet, yellow = movement, red = high motion / interference) make CSI variance trend visible at a glance without needing the web UI.
+- **Pre-trained CSI sensing weights published** — First official pre-trained models on [HuggingFace](https://huggingface.co/ruv/ruview). `model.safetensors` (48 KB), `model-q4.bin` (8 KB 4-bit), `model-q2.bin` (4 KB), `presence-head.json`, per-node LoRA adapters.
+- **17 sensing applications** — Sleep monitor, apnea detector, stress monitor, gait analyzer, RF tomography, passive radar, material classifier, through-wall detector, device fingerprint, and more. Each as a standalone `scripts/*.js`.
+- **ADRs 069-078** — 10 new architecture decisions covering Cognitum Seed integration, self-supervised pretraining, ruvllm pipeline, WiFlow architecture, channel hopping, SNN, MinCut person separation, CNN spectrograms, novel RF applications, multi-frequency mesh.
+- **Kalman tracker** (PR #341 by @taylorjdawson) — temporal smoothing of pose keypoints.
 
 ### Fixed
-- **`THREE.OrbitControls is not a constructor` in mobile gaussian-splats webview** ([ui/mobile/src/assets/webview/gaussian-splats.html](ui/mobile/src/assets/webview/gaussian-splats.html)) — Pinned three.js from `r165` to `r147` (last release that ships a global-attaching legacy `examples/js/controls/OrbitControls.js`; r150+ removed it). Added a defensive console.error shim that names the root cause if a future bundler swaps in a newer Three.js without ESM. The repo's other 3D pages (`viz.html`, `xyz-segment.html`, `tests/sdk-diagnostics.html`) already use the vendored r147 and were not affected.
-- **Stale Touch-LCD-2 pin-map comment** ([ionity/src/lcd_st7789_240x320.h](ionity/src/lcd_st7789_240x320.h)) — Header doc block listed `DC=41 CS=42 RST=40 BL=15` (from the wrong Waveshare schematic), while the code already used the correct CircuitPython-verified map `DC=42 CS=45 RST=0 BL=1`. Comment now matches code; explicitly notes that `BL=15` would land on the battery-ADC pin and leave the screen dark.
+- Security fix merged via PR #310.
 
-### Notes
-- **Node 2 provisioning RESOLVED**: 98:a3:16:e7:fe:30 now streams as `node_id=2` from 192.168.124.10. Root cause: the pre-built ESP-IDF binary in `firmware/esp32-csi-node/release_bins/` is older than the source tree and ignores the NVS `node_id` override (it always reports `node_id=1` regardless of NVS) — so `provision.py` (default flow) overwrote the working PlatformIO firmware with the stale pre-built bin and the device collided with real node 1. Workflow that worked: (1) `pio run -e esp32s3_n16r8 -t upload` to install the up-to-date Arduino/PlatformIO firmware which honors NVS correctly, (2) `provision.py … --no-firmware` to write only the NVS partition. Hub `/api/v1/nodes` confirms `[1, 2, 3, 4, 5, 6]` all `active`. The stale `release_bins/` blob should be rebuilt or removed; `provision.py` should warn when the on-device firmware is newer than the bundled binary.
-- Build verified: `pio run -e esp32s3_touch_lcd_2` → SUCCESS, RAM 13.6 %, Flash 28.7 % (958 KB, under the 1100 KB CI gate).
-- Sensing-server build verified: `cargo build -p wifi-densepose-sensing-server --no-default-features --bin sensing-server` clean, 21 warnings (20 pre-existing dead-code + nothing new from `aggression`).
-- Unit tests: `cargo test -p wifi-densepose-sensing-server --no-default-features aggression::` → 5 passed, 0 failed.
+### Performance
+- Presence detection: 100% accuracy on 60,630 overnight samples.
+- Inference: 0.008 ms per sample, 164K embeddings/sec.
+- Contrastive self-supervised training: 51.6% improvement over baseline.
+
+## [v0.5.5-esp32] — 2026-04-03
+
+### Added
+- **WiFlow SOTA architecture (ADR-072)** — TCN + axial attention pose decoder, 1.8M params, 881 KB at 4-bit. 17 COCO keypoints from CSI amplitude only (no phase).
+- **Multi-frequency mesh scanning (ADR-073)** — ESP32 nodes hop across channels 1/3/5/6/9/11 at 200ms dwell. Neighbor WiFi networks used as passive radar illuminators. Null subcarriers reduced from 19% to 16%.
+- **Spiking neural network (ADR-074)** — STDP online learning, adapts to new rooms in <30s with no labels, 16-160x less compute than batch training.
+- **MinCut person counting (ADR-075)** — Stoer-Wagner min-cut on subcarrier correlation graph. Fixes #348 (was always reporting 4 people).
+- **CNN spectrogram embeddings (ADR-076)** — Treat 64×20 CSI as an image, produce 128-dim environment fingerprints (0.95+ same-room similarity).
+- **Graph transformer fusion** — Multi-node CSI fusion via GATv2 attention (replaces naive averaging).
+- **Camera-free pose training pipeline** — Trains 17-keypoint model from 10 sensor signals with no camera required.
+
+### Fixed
+- **#348 person counting** — MinCut correctly counts 1-4 people (24/24 validation windows).
 
 ## [v0.5.4-esp32] — 2026-04-02
 
@@ -187,15 +192,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Unified QEMU CLI** (`qemu-cli.sh`) — single entry point for all 11 QEMU test commands
 - CI: `firmware-qemu.yml` workflow with QEMU test matrix, fuzz testing, NVS validation, and swarm test jobs
 - User guide: QEMU testing and swarm configurator section with plain-language walkthrough
-- Native sensing-server startup now exports tracing defaults and supports selectable output via `SENSING_TRACE_FORMAT`
-
-### Changed
-- The Rust sensing server now emits HTTP request traces through `tower_http::trace::TraceLayer` for both HTTP and WebSocket listeners
 
 ### Fixed
 - Firmware now boots in QEMU: WiFi/UDP/OTA/display guards for mock CSI mode
 - 9 bugs in mock_csi.c (LFSR bias, MAC filter init, scenario loop, overflow burst timing)
-- `scripts/start-aedi-s.sh` now uses the current sensing-server CLI flags (`--bind-addr`, `--http-port`, `--udp-port`, `--ui-path`) instead of stale options that prevented startup
 - 23 bugs from ADR-061 deep review (inject_fault.py writes, CI cache, snapshot log corruption, etc.)
 - 16 bugs from ADR-062 deep review (log filename mismatch, SLIRP port collision, heap false positives, etc.)
 - All scripts: `--help` flags, prerequisite checks with install hints, standardized exit codes
