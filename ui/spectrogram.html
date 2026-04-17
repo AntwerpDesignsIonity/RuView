@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AEDI-S — Spectrogram</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg:#050510;--bg2:#0a0a1e;--bg3:#0f1028;--border:#1a2040;--accent:#0088ff;--accent2:#00ccff;--green:#00e676;--red:#ff3d57;--yellow:#ffd740;--text:#c8d8f0;--text-dim:#5577aa;--font:'Courier New','Consolas',monospace}
+    html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:13px;overflow:hidden}
+    #shell{display:flex;flex-direction:column;height:100vh}
+    #main{flex:1;overflow:hidden;padding:14px;display:grid;grid-template-rows:auto 1fr;gap:10px}
+    h1{font-size:18px;color:var(--accent2);letter-spacing:2px}
+    .sub{font-size:11px;color:var(--text-dim)}
+    .controls{display:flex;gap:12px;align-items:center;margin-top:8px;font-size:11px}
+    .controls label{color:var(--text-dim)}
+    select,input{background:var(--bg3);color:var(--text);border:1px solid var(--border);padding:4px 8px;font-family:var(--font);font-size:11px;border-radius:4px}
+    .panels{display:grid;grid-template-columns:1fr 1fr;gap:10px;overflow:hidden}
+    .panel{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;display:flex;flex-direction:column;overflow:hidden}
+    .panel-title{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-dim);margin-bottom:8px}
+    canvas{background:#000;border:1px solid var(--border);border-radius:6px;flex:1;display:block;width:100%}
+    .stats{font-size:10px;color:var(--text-dim);margin-top:6px;display:flex;gap:14px;flex-wrap:wrap}
+    .stats span b{color:var(--accent2)}
+  </style>
+</head>
+<body>
+<div id="shell">
+  <nav id="global-nav"></nav>
+  <div id="main">
+    <div>
+      <h1>CSI Spectrogram</h1>
+      <p class="sub">Live subcarrier amplitude waterfall + latest spectrum per ESP32 node.</p>
+      <div class="controls">
+        <label>Node:</label>
+        <select id="node-sel"><option value="">— all —</option></select>
+        <label>Scale:</label>
+        <select id="scale-sel"><option value="auto">auto</option><option value="fixed">fixed 0..1</option></select>
+        <span class="stats"><span>Frames: <b id="s-frames">0</b></span><span>Rate: <b id="s-rate">0 Hz</b></span><span>Subcarriers: <b id="s-sub">--</b></span></span>
+      </div>
+    </div>
+    <div class="panels">
+      <div class="panel">
+        <div class="panel-title">Waterfall (time ▼ × subcarrier ▶)</div>
+        <canvas id="waterfall"></canvas>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Latest Spectrum</div>
+        <canvas id="spectrum"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+<script type="module">
+import { injectNav, NAV_CSS } from './shared/nav.js';
+const s = document.createElement('style'); s.textContent = NAV_CSS; document.head.appendChild(s);
+injectNav();
+
+const $ = id => document.getElementById(id);
+const waterfall = $('waterfall'), wctx = waterfall.getContext('2d');
+const spectrum = $('spectrum'), sctx = spectrum.getContext('2d');
+function resize() {
+  [waterfall, spectrum].forEach(c => {
+    const r = c.getBoundingClientRect();
+    c.width = Math.max(200, r.width | 0);
+    c.height = Math.max(120, r.height | 0);
+  });
+}
+resize(); window.addEventListener('resize', resize);
+
+const WS_URL = `ws://${location.hostname}:3001/ws/sensing`;
+let ws = null, frames = 0, lastStatT = performance.now();
+const knownNodes = new Set();
+const nodeSel = $('node-sel');
+
+function colormap(v) {
+  // viridis-ish. v in [0,1]
+  v = Math.max(0, Math.min(1, v));
+  const r = Math.floor(68 + (253 - 68) * Math.pow(v, 1.2));
+  const g = Math.floor(1 + (231 - 1) * v);
+  const b = Math.floor(84 + (36 - 84) * v);
+  return `rgb(${r},${g},${b})`;
+}
+
+function connect() {
+  if (ws && ws.readyState <= 1) return;
+  ws = new WebSocket(WS_URL);
+  ws.onmessage = (e) => {
+    try {
+      const d = JSON.parse(e.data);
+      handleFrame(d);
+    } catch {}
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+
+function handleFrame(d) {
+  frames++;
+  const nodes = d.nodes || [];
+  // Merge dropdown options
+  nodes.forEach(n => {
+    if (!knownNodes.has(n.node_id)) {
+      knownNodes.add(n.node_id);
+      const opt = document.createElement('option');
+      opt.value = n.node_id; opt.textContent = `Node ${n.node_id}`;
+      nodeSel.appendChild(opt);
+    }
+  });
+  // Pick amplitude vector
+  const sel = nodeSel.value;
+  let amp = null;
+  if (sel !== '') {
+    const n = nodes.find(x => x.node_id == sel);
+    amp = n && n.amplitude ? n.amplitude : null;
+  } else {
+    // Average across all nodes
+    const withAmp = nodes.filter(n => n.amplitude && n.amplitude.length);
+    if (withAmp.length) {
+      const L = withAmp[0].amplitude.length;
+      amp = new Array(L).fill(0);
+      withAmp.forEach(n => { for (let i = 0; i < L && i < n.amplitude.length; i++) amp[i] += n.amplitude[i]; });
+      for (let i = 0; i < L; i++) amp[i] /= withAmp.length;
+    }
+  }
+  if (!amp || !amp.length) return;
+  $('s-sub').textContent = amp.length;
+  drawSpectrum(amp);
+  scrollWaterfall(amp);
+}
+
+function drawSpectrum(amp) {
+  const w = spectrum.width, h = spectrum.height;
+  sctx.clearRect(0, 0, w, h);
+  let mx = 0, mn = Infinity;
+  for (const v of amp) { if (v > mx) mx = v; if (v < mn) mn = v; }
+  if (mx <= mn) mx = mn + 1e-6;
+  const scale = $('scale-sel').value;
+  const [lo, hi] = scale === 'fixed' ? [0, 1] : [mn, mx];
+  // Grid
+  sctx.strokeStyle = '#1a2040';
+  for (let g = 0; g <= 4; g++) {
+    const y = g * h / 4;
+    sctx.beginPath(); sctx.moveTo(0, y); sctx.lineTo(w, y); sctx.stroke();
+  }
+  // Bars
+  const bw = w / amp.length;
+  for (let i = 0; i < amp.length; i++) {
+    const norm = (amp[i] - lo) / (hi - lo);
+    const barH = Math.max(1, norm * h * 0.95);
+    sctx.fillStyle = colormap(norm);
+    sctx.fillRect(i * bw, h - barH, bw + 0.5, barH);
+  }
+  // Axis labels
+  sctx.fillStyle = '#5577aa'; sctx.font = '9px Courier New';
+  sctx.fillText(`max ${mx.toFixed(3)}  min ${mn.toFixed(3)}`, 4, 11);
+  sctx.fillText(`${amp.length} subcarriers`, w - 120, h - 4);
+}
+
+let waterfallBuffer = null, waterfallIdx = 0;
+function scrollWaterfall(amp) {
+  const w = waterfall.width, h = waterfall.height;
+  if (!waterfallBuffer || waterfallBuffer.width !== w || waterfallBuffer.height !== h) {
+    waterfallBuffer = document.createElement('canvas');
+    waterfallBuffer.width = w; waterfallBuffer.height = h;
+  }
+  const buf = waterfallBuffer.getContext('2d');
+  // Scroll existing content down by 1 pixel
+  buf.drawImage(waterfallBuffer, 0, 1);
+  // Normalize amp to 0-1
+  let mx = 0; for (const v of amp) if (v > mx) mx = v;
+  if (mx <= 0) mx = 1;
+  // Draw new row at top
+  const bw = w / amp.length;
+  for (let i = 0; i < amp.length; i++) {
+    const v = amp[i] / mx;
+    buf.fillStyle = colormap(v);
+    buf.fillRect(i * bw, 0, bw + 0.5, 1);
+  }
+  wctx.drawImage(waterfallBuffer, 0, 0);
+}
+
+setInterval(() => {
+  const dt = performance.now() - lastStatT;
+  $('s-frames').textContent = frames;
+  $('s-rate').textContent = `${(frames / (dt/1000)).toFixed(1)} Hz`;
+  if (dt > 5000) { frames = 0; lastStatT = performance.now(); }
+}, 1000);
+
+connect();
+</script>
+</body>
+</html>

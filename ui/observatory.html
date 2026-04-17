@@ -110,14 +110,40 @@ const canvas = $('scene-canvas');
 const ctx = canvas.getContext('2d');
 const WS_URL = `ws://${location.hostname}:3001/ws/sensing`;
 
-// Room dimensions (virtual meters)
-const ROOM_W = 6, ROOM_D = 8, ROOM_H = 3;
+// Room dimensions (virtual meters) — keep in sync with server /api/v1/room
+let ROOM_W = 8, ROOM_D = 6, ROOM_H = 3;
 // Camera angle for pseudo-3D
 const CAM_ANGLE = 0.5; // radians tilt
 const CAM_HEIGHT = 0.35; // 0-1 how much "above" we look
 
 let data = null;
 let animTime = 0;
+let nodePositions = [];   // [{node_id,x,y,z}, ...] from /api/v1/room
+let nodePktRate = {};     // node_id -> packets/sec (estimated from WS nodes[])
+let nodePrevSeen = {};    // node_id -> last_seen timestamp (client ms)
+
+// Fetch room dims + node positions once, then refresh every 10s.
+async function refreshRoom() {
+  try {
+    const r = await fetch('/api/v1/room');
+    const j = await r.json();
+    if (j.room) { ROOM_W = j.room.width || 8; ROOM_D = j.room.depth || 6; ROOM_H = j.room.height || 3; }
+    // Fall back to default triangular layout when server reports no positions.
+    if (Array.isArray(j.node_positions) && j.node_positions.length) {
+      nodePositions = j.node_positions;
+    } else if (Array.isArray(j.active_nodes) && j.active_nodes.length) {
+      // Default layout: spread active nodes along the back wall.
+      nodePositions = j.active_nodes.map((n, i, arr) => ({
+        node_id: n.node_id,
+        x: ROOM_W * (0.2 + 0.6 * (arr.length > 1 ? i / (arr.length - 1) : 0.5)),
+        y: 2.3,
+        z: 0.25,
+      }));
+    }
+  } catch (e) { /* server down */ }
+}
+refreshRoom();
+setInterval(refreshRoom, 10000);
 
 function resize() {
   canvas.width = canvas.parentElement.clientWidth;
@@ -234,21 +260,58 @@ function drawSignalField(sf, w, h) {
 }
 
 function drawWifiWaves(w, h, t) {
-  // Animated concentric wave from a "router" position
-  const [rx, ry] = project(ROOM_W * 0.8, 2.2, 0.5, w, h);
-  for (let i = 0; i < 4; i++) {
-    const phase = (t * 0.8 + i * 0.25) % 1;
-    const radius = phase * Math.min(w, h) * 0.35;
-    const alpha = (1 - phase) * 0.15;
-    ctx.beginPath();
-    ctx.arc(rx, ry, radius, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(0,204,255,${alpha})`;
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+  // Per-node ESP32 markers with pulsing waves based on activity.
+  const activeById = {};
+  (data && data.nodes || []).forEach(n => { activeById[n.node_id] = n; });
+
+  // Connection lines between active nodes (multistatic mesh)
+  if (nodePositions.length >= 2) {
+    ctx.strokeStyle = 'rgba(0,136,255,0.18)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < nodePositions.length; i++) {
+      for (let j = i + 1; j < nodePositions.length; j++) {
+        const a = nodePositions[i], b = nodePositions[j];
+        const pa = project(a.x, a.y, a.z, w, h);
+        const pb = project(b.x, b.y, b.z, w, h);
+        ctx.beginPath(); ctx.moveTo(...pa); ctx.lineTo(...pb); ctx.stroke();
+      }
+    }
   }
-  // Router icon
-  ctx.beginPath(); ctx.arc(rx, ry, 4, 0, Math.PI * 2);
-  ctx.fillStyle = '#00ccff'; ctx.fill();
+
+  nodePositions.forEach((node, idx) => {
+    const [rx, ry] = project(node.x, node.y, node.z, w, h);
+    const isActive = activeById[node.node_id] !== undefined;
+    const pulseSpeed = isActive ? 1.2 : 0.3;
+    const color = isActive ? '0,230,118' : '100,100,120';
+
+    // Concentric pulse rings
+    for (let i = 0; i < 3; i++) {
+      const phase = (t * pulseSpeed + i * 0.33) % 1;
+      const radius = phase * Math.min(w, h) * 0.15;
+      const alpha = (1 - phase) * (isActive ? 0.35 : 0.1);
+      ctx.beginPath();
+      ctx.arc(rx, ry, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(${color},${alpha})`;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    // Node body
+    ctx.beginPath(); ctx.arc(rx, ry, 5, 0, Math.PI * 2);
+    ctx.fillStyle = isActive ? '#00e676' : '#444466';
+    ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
+
+    // Label with ID + RSSI
+    ctx.fillStyle = isActive ? '#c8d8f0' : '#5577aa';
+    ctx.font = 'bold 10px Courier New';
+    ctx.textAlign = 'center';
+    const rssi = isActive ? `${activeById[node.node_id].rssi_dbm.toFixed(0)}dBm` : 'offline';
+    ctx.fillText(`N${node.node_id}`, rx, ry - 12);
+    ctx.font = '9px Courier New';
+    ctx.fillText(rssi, rx, ry + 18);
+    ctx.textAlign = 'start';
+  });
 }
 
 function drawPersons(d, w, h) {

@@ -11,6 +11,7 @@
 mod adaptive_classifier;
 mod field_bridge;
 mod multistatic_bridge;
+mod pso;
 mod rvf_container;
 mod rvf_pipeline;
 mod tracker_bridge;
@@ -2501,13 +2502,126 @@ fn estimate_persons_from_correlation(frame_history: &VecDeque<Vec<f64>>) -> usiz
     // Normalized cut ratio: low = easy to split = multiple people
     let cut_ratio = cut_value / total_edge_weight;
 
-    if cut_ratio > 0.4 {
-        1 // Tightly coupled — one person
-    } else if cut_ratio > 0.15 {
-        2 // Moderately separable — two people
-    } else {
-        3 // Highly separable — three+ people
+    // Thresholds tunable at runtime for calibration in different environments.
+    // Supports up to 5 persons (capped at AEDIS_MAX_PERSONS, default 5).
+    //   cut_ratio > cr_1 → 1 person
+    //   cr_2 < cut_ratio ≤ cr_1 → 2
+    //   cr_3 < cut_ratio ≤ cr_2 → 3
+    //   cr_4 < cut_ratio ≤ cr_3 → 4
+    //   cut_ratio ≤ cr_4        → 5
+    let cr_1: f64 = std::env::var("AEDIS_CUT_RATIO_1")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(0.50);
+    let cr_2: f64 = std::env::var("AEDIS_CUT_RATIO_2")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(0.22);
+    let cr_3: f64 = std::env::var("AEDIS_CUT_RATIO_3")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(0.12);
+    let cr_4: f64 = std::env::var("AEDIS_CUT_RATIO_4")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(0.06);
+    let max_persons: usize = std::env::var("AEDIS_MAX_PERSONS")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(5).clamp(1, 16);
+
+    let raw = if cut_ratio > cr_1 { 1 }
+        else if cut_ratio > cr_2 { 2 }
+        else if cut_ratio > cr_3 { 3 }
+        else if cut_ratio > cr_4 { 4 }
+        else { 5 };
+    raw.min(max_persons)
+}
+
+/// Estimate person count from channel impulse response (CIR) delay taps.
+///
+/// Each body reflects WiFi at a distinct Tx→body→Rx travel-time. Subcarrier
+/// amplitudes H(f) transformed to time domain h(τ) reveal multipath peaks,
+/// one per scatterer. This is an independent signal from the correlation
+/// mincut — it catches synchronized-but-spatially-separated movers that look
+/// identical in the frequency-correlation graph.
+///
+/// Method (amplitude-only CSI — no phase needed):
+/// 1. Take N=32 most recent frames; compute per-subcarrier mean (static part).
+/// 2. Subtract mean → dynamic component = only what bodies contribute.
+/// 3. Average |dynamic|² across the window → frequency-domain power profile.
+/// 4. Hand-rolled IDFT (N≤64, cheap) → time-domain delay profile |h(τ)|².
+/// 5. Peak-pick on the first half (second half is Hermitian mirror for real
+///    input). Peaks ≥ 35 % of max and spaced ≥ 2 delay bins apart are counted.
+/// 6. Subtract 1 for the direct-path / static-reflection peak that is always
+///    present. Remaining peaks ≈ moving bodies.
+///
+/// Env override:
+///   AEDIS_TOF_THRESHOLD  relative peak threshold (default 0.35)
+///   AEDIS_TOF_MIN_GAP    minimum tap gap between peaks (default 2)
+fn estimate_persons_from_delay_taps(frame_history: &VecDeque<Vec<f64>>) -> usize {
+    let n_frames = frame_history.len();
+    if n_frames < 10 {
+        return 0;
     }
+    let window: Vec<&Vec<f64>> = frame_history.iter().rev().take(32).collect();
+    let n_sub = window.iter().map(|f| f.len()).min().unwrap_or(0).min(64);
+    if n_sub < 8 {
+        return 0;
+    }
+    let k = window.len() as f64;
+
+    // (1) Per-subcarrier mean = static channel component.
+    let mut means = vec![0.0f64; n_sub];
+    for frame in &window {
+        for sc in 0..n_sub {
+            means[sc] += frame[sc] / k;
+        }
+    }
+    // (2,3) Dynamic power spectrum = E[(H - mean)²].
+    let mut dyn_power = vec![0.0f64; n_sub];
+    for frame in &window {
+        for sc in 0..n_sub {
+            let d = frame[sc] - means[sc];
+            dyn_power[sc] += (d * d) / k;
+        }
+    }
+    // Noise gate — if no subcarrier has meaningful dynamic power, no bodies.
+    let max_power = dyn_power.iter().cloned().fold(0.0f64, f64::max);
+    if max_power < 1e-3 {
+        return 0;
+    }
+
+    // (4) Treat dyn_power as a real, symmetric frequency-domain magnitude and
+    // compute its IDFT. For real even input, IDFT is purely real (cosine
+    // transform). Output |h(τ)|² is the Power Delay Profile proxy.
+    // Direct summation — N ≤ 64, so cost is ~N²/2 ≈ 2k ops per call.
+    let n_taps = (n_sub / 2).min(32); // Nyquist → meaningful half only.
+    let mut pdp = vec![0.0f64; n_taps];
+    let inv_n = 1.0 / n_sub as f64;
+    for (tau, slot) in pdp.iter_mut().enumerate().take(n_taps) {
+        let mut acc = 0.0f64;
+        let two_pi_tau_over_n = 2.0 * std::f64::consts::PI * (tau as f64) * inv_n;
+        for (sc, &p) in dyn_power.iter().enumerate().take(n_sub) {
+            acc += p * (two_pi_tau_over_n * sc as f64).cos();
+        }
+        *slot = (acc * inv_n).abs();
+    }
+
+    // (5) Peak-pick.
+    let thresh_rel: f64 = std::env::var("AEDIS_TOF_THRESHOLD")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(0.35);
+    let min_gap: usize = std::env::var("AEDIS_TOF_MIN_GAP")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(2);
+    let pdp_max = pdp.iter().cloned().fold(0.0f64, f64::max);
+    if pdp_max < 1e-9 {
+        return 0;
+    }
+    let gate = pdp_max * thresh_rel;
+    let mut peaks: Vec<usize> = Vec::new();
+    for i in 1..n_taps.saturating_sub(1) {
+        if pdp[i] >= gate && pdp[i] > pdp[i - 1] && pdp[i] >= pdp[i + 1] {
+            if peaks.last().map_or(true, |&p| i - p >= min_gap) {
+                peaks.push(i);
+            }
+        }
+    }
+    // (6) Subtract 1 for the residual static / direct-path peak that always
+    // lingers after mean subtraction due to finite window bias.
+    let movers = peaks.len().saturating_sub(1);
+    let max_persons: usize = std::env::var("AEDIS_MAX_PERSONS")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(5).clamp(1, 16);
+    movers.min(max_persons)
 }
 
 /// Convert smoothed person score to discrete count with hysteresis.
@@ -2516,42 +2630,38 @@ fn estimate_persons_from_correlation(frame_history: &VecDeque<Vec<f64>>) -> usiz
 /// *drop* one.  This prevents flickering when the score hovers near a boundary
 /// (the #1 user-reported issue — see #237, #249, #280, #292).
 fn score_to_person_count(smoothed_score: f64, prev_count: usize) -> usize {
-    // Up-thresholds (must exceed to increase count):
-    //   1→2: 0.80  (raised from 0.65 — single-person movement in multipath
-    //               rooms easily hits 0.65, causing false 2-person detection)
-    //   2→3: 0.92  (raised from 0.85 — 3 persons needs very strong signal)
-    // Down-thresholds (must drop below to decrease count):
-    //   2→1: 0.55  (hysteresis gap of 0.25)
-    //   3→2: 0.78  (hysteresis gap of 0.14)
-    match prev_count {
-        0 | 1 => {
-            if smoothed_score > 0.85 {
-                3
-            } else if smoothed_score > 0.70 {
-                2
-            } else {
-                1
-            }
-        }
-        2 => {
-            if smoothed_score > 0.92 {
-                3
-            } else if smoothed_score < 0.55 {
-                1
-            } else {
-                2 // hold — within hysteresis band
-            }
-        }
-        _ => {
-            // prev_count >= 3
-            if smoothed_score < 0.55 {
-                1
-            } else if smoothed_score < 0.78 {
-                2
-            } else {
-                3 // hold
-            }
-        }
+    // Piecewise mapping of smoothed_score → count with hysteresis for stability.
+    // Supports 1..=5 persons. Override via AEDIS_MAX_PERSONS (default 5).
+    //
+    // Up-thresholds (must exceed to INCREASE count):
+    //   →2: 0.70   →3: 0.82   →4: 0.90   →5: 0.95
+    // Down-thresholds (must drop BELOW to DECREASE count):
+    //   2→1: 0.55   3→2: 0.73   4→3: 0.85   5→4: 0.92
+    let max_persons: usize = std::env::var("AEDIS_MAX_PERSONS")
+        .ok().and_then(|v| v.parse().ok()).unwrap_or(5).clamp(1, 16);
+
+    // Ladder of (up_to_count, up_threshold) pairs.
+    let up = [(2, 0.70), (3, 0.82), (4, 0.90), (5, 0.95)];
+    // Ladder of (from_count, down_threshold) pairs.
+    let down = [(5, 0.92), (4, 0.85), (3, 0.73), (2, 0.55)];
+
+    // First determine target purely from score (ignoring hysteresis).
+    let mut target = 1usize;
+    for (n, thr) in up.iter() {
+        if smoothed_score > *thr { target = *n; }
+    }
+    let target = target.min(max_persons);
+
+    if target > prev_count {
+        // Promote only if all up-thresholds up to target are satisfied
+        // (smoothed_score > up_threshold). Already guaranteed by construction.
+        target
+    } else if target < prev_count {
+        // Demote only if below the down-threshold for current level.
+        let down_thr = down.iter().find(|(n, _)| *n == prev_count).map(|(_, t)| *t).unwrap_or(0.0);
+        if smoothed_score < down_thr { target } else { prev_count }
+    } else {
+        prev_count
     }
 }
 
@@ -3806,6 +3916,105 @@ async fn room_endpoint(State(state): State<SharedState>) -> Json<serde_json::Val
     }))
 }
 
+/// GET /api/v1/localization/person — RSSI-based person localization via PSO.
+///
+/// Reads latest RSSI from each active node, runs a Particle-Swarm minimiser
+/// against a log-distance path-loss model, returns `{position, residual_db,
+/// confidence, nodes_used}`.
+///
+/// Environment tuning:
+///   AEDIS_RSSI_REF         — RSSI at 1 m (default -40 dBm)
+///   AEDIS_PATH_EXPONENT    — path-loss exponent N (default 2.5)
+///   AEDIS_ROOM_WIDTH_M     — search bound X (default 8.0)
+///   AEDIS_ROOM_DEPTH_M     — search bound Y (default 6.0)
+///   AEDIS_ROOM_HEIGHT_M    — search bound Z (default 3.0)
+///   AEDIS_PSO_SWARM        — swarm size (default 32)
+///   AEDIS_PSO_ITERS        — max iterations (default 120)
+///   AEDIS_PSO_SEED         — deterministic seed (default: time)
+async fn localization_person_endpoint(
+    State(state): State<SharedState>,
+) -> Json<serde_json::Value> {
+    use pso::{estimate_position_rssi_pso, PathLoss, PsoConfig, RssiObservation};
+
+    let s = state.read().await;
+    let node_positions = s.multistatic_fuser.node_positions();
+    let now = std::time::Instant::now();
+
+    // Pair each active node (fresh RSSI ≤ 5 s) with its physical position.
+    let mut obs: Vec<RssiObservation> = Vec::new();
+    for (&id, ns) in s.node_states.iter() {
+        let fresh = ns.last_frame_time
+            .map_or(false, |t| now.duration_since(t).as_secs() < 5);
+        if !fresh { continue; }
+        let idx = id as usize;
+        let np = match node_positions.get(idx) {
+            Some(p) => [p[0] as f64, p[1] as f64, p[2] as f64],
+            None => continue, // no known coordinates for this node
+        };
+        let rssi = match ns.rssi_history.back().copied() {
+            Some(r) if r < 0.0 && r > -110.0 => r, // plausible dBm
+            _ => continue,
+        };
+        // Weight: stronger RSSI ⇒ higher confidence.
+        // Map -40 dBm → 1.0, -90 dBm → 0.1.
+        let w = ((rssi + 90.0) / 50.0).clamp(0.1, 1.0);
+        obs.push(RssiObservation { node_pos: np, rssi_dbm: rssi, weight: w });
+    }
+
+    if obs.len() < 2 {
+        return Json(serde_json::json!({
+            "status": "insufficient_nodes",
+            "nodes_used": obs.len(),
+            "required": 2,
+            "method": "pso-rssi",
+        }));
+    }
+
+    let model = PathLoss {
+        rssi_ref_1m: env_f64("AEDIS_RSSI_REF", -40.0),
+        exponent: env_f64("AEDIS_PATH_EXPONENT", 2.5),
+    };
+    let bounds = [
+        (0.0, env_f64("AEDIS_ROOM_WIDTH_M", 8.0)),
+        (0.0, env_f64("AEDIS_ROOM_DEPTH_M", 6.0)),
+        (0.0, env_f64("AEDIS_ROOM_HEIGHT_M", 3.0)),
+    ];
+    let cfg = PsoConfig {
+        swarm_size: env_usize("AEDIS_PSO_SWARM", 32).max(4),
+        max_iters: env_usize("AEDIS_PSO_ITERS", 120).max(10),
+        seed: std::env::var("AEDIS_PSO_SEED").ok().and_then(|s| s.parse().ok()),
+        ..Default::default()
+    };
+
+    // Drop the read-lock before running PSO (potentially 100s of μs of CPU).
+    let obs_owned = obs.clone();
+    drop(s);
+    let r = match estimate_position_rssi_pso(&obs_owned, &bounds, model, &cfg) {
+        Some(r) => r,
+        None => return Json(serde_json::json!({ "status": "failed", "method": "pso-rssi" })),
+    };
+
+    Json(serde_json::json!({
+        "status": "ok",
+        "method": r.method,
+        "position": { "x": r.position[0], "y": r.position[1], "z": r.position[2] },
+        "residual_db": r.residual_db,
+        "confidence": r.confidence,
+        "iters": r.iters,
+        "converged": r.iters < cfg.max_iters,
+        "nodes_used": obs_owned.len(),
+        "path_loss": { "rssi_ref_1m": model.rssi_ref_1m, "exponent": model.exponent },
+        "timestamp": chrono::Utc::now().timestamp_millis(),
+    }))
+}
+
+fn env_f64(key: &str, default: f64) -> f64 {
+    std::env::var(key).ok().and_then(|s| s.parse().ok()).unwrap_or(default)
+}
+fn env_usize(key: &str, default: usize) -> usize {
+    std::env::var(key).ok().and_then(|s| s.parse().ok()).unwrap_or(default)
+}
+
 /// POST /api/v1/nodes/positions — update node positions at runtime.
 async fn update_node_positions(
     State(state): State<SharedState>,
@@ -4205,7 +4414,7 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                         let (fused, fallback_count) = multistatic_bridge::fuse_or_fallback(
                             &s.multistatic_fuser, &s.node_states,
                         );
-                        match fused {
+                        let fused_count = match fused {
                             Some(ref f) => {
                                 let score = multistatic_bridge::compute_person_score_from_amplitudes(&f.fused_amplitude);
                                 s.smoothed_person_score = s.smoothed_person_score * 0.90 + score * 0.10;
@@ -4214,7 +4423,32 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                                 count.max(1)
                             }
                             None => fallback_count.unwrap_or(0).max(1),
-                        }
+                        };
+
+                        // Multistatic boost: combine the amplitude-variance fused count
+                        // with the DynamicMinCut correlation estimate per node.
+                        // Take the max across active nodes — an independent motion
+                        // cluster visible to ANY single node counts as a person.
+                        // (Fixes "always reports 1 person" when the amplitude
+                        //  variance score stays below the 0.70 hysteresis
+                        //  threshold despite clear multi-person motion.)
+                        let corr_max = s.node_states.values()
+                            .filter(|n| n.last_frame_time.map_or(false, |t| now.duration_since(t).as_secs() < 5))
+                            .map(|n| estimate_persons_from_correlation(&n.frame_history))
+                            .max()
+                            .unwrap_or(0);
+                        // Time-of-flight: count distinct multipath delay taps
+                        // per node. Independent signal from correlation graph.
+                        let tof_max = s.node_states.values()
+                            .filter(|n| n.last_frame_time.map_or(false, |t| now.duration_since(t).as_secs() < 5))
+                            .map(|n| estimate_persons_from_delay_taps(&n.frame_history))
+                            .max()
+                            .unwrap_or(0);
+                        // AEDIS_MIN_PERSONS: optional floor (e.g. set to 2 during
+                        // multi-person calibration); defaults to 1.
+                        let min_floor: usize = std::env::var("AEDIS_MIN_PERSONS")
+                            .ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+                        fused_count.max(corr_max).max(tof_max).max(min_floor)
                     } else {
                         s.prev_person_count = 0;
                         0
@@ -5392,6 +5626,7 @@ async fn main() {
         // Room config + node positions for XYZ Segment 3D page
         .route("/api/v1/room", get(room_endpoint))
         .route("/api/v1/nodes/positions", post(update_node_positions))
+        .route("/api/v1/localization/person", get(localization_person_endpoint))
         .route("/api/v1/tomography", get(tomography_endpoint))
         // Vital sign endpoints
         .route("/api/v1/vital-signs", get(vital_signs_endpoint))

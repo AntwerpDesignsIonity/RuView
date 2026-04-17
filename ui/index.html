@@ -25,9 +25,23 @@
     .card { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 16px; transition: border-color 0.2s; }
     .card:hover { border-color: var(--accent); }
     .card-title { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 10px; }
-    .big-val { font-size: 28px; font-weight: bold; color: var(--text); line-height: 1.1; }
+    .big-val { font-size: 28px; font-weight: bold; color: var(--text); line-height: 1.1; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
     .big-val.ok { color: var(--green); } .big-val.warn { color: var(--yellow); } .big-val.err { color: var(--red); }
+    .big-val .avg { font-size: 14px; font-weight: normal; color: var(--accent2); opacity: 0.85; letter-spacing: 0.5px; }
+    .big-val .avg::before { content: 'x̄ '; opacity: 0.5; font-size: 11px; }
+    .big-val .avg:empty { display: none; }
+    .vital-val { font-size: 18px; font-weight: bold; display: inline-flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+    .vital-val .avg { font-size: 11px; font-weight: normal; color: var(--accent2); opacity: 0.8; }
+    .vital-val .avg::before { content: 'x̄ '; opacity: 0.5; font-size: 9px; }
+    .vital-val .avg:empty { display: none; }
     .sub-val { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+    .sub-val .avg { color: var(--accent2); opacity: 0.8; margin-left: 6px; }
+    .sub-val .avg::before { content: 'x̄ '; opacity: 0.5; }
+    .sub-val .avg:empty { display: none; }
+    .avg-ctl { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+    .avg-ctl label { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-dim); }
+    .avg-ctl select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 4px 6px; font-family: var(--font); font-size: 11px; cursor: pointer; }
+    .avg-ctl select:hover { border-color: var(--accent); }
     #field-canvas { width: 100%; height: 160px; display: block; background: #020208; border-radius: 6px; border: 1px solid var(--border); }
     .page-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-top: 20px; }
     .page-link { display: block; padding: 18px 16px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; text-decoration: none; color: var(--text); transition: all 0.2s; }
@@ -75,32 +89,43 @@
     <div class="mode-bar" id="mode-bar">
       <span class="mode-label">Connection</span>
       <div class="mode-toggle">
-        <button class="mode-btn active" id="btn-usb" onclick="switchMode('usb')">⚡ USB Serial</button>
-        <button class="mode-btn" id="btn-wifi" onclick="switchMode('wifi')">📡 WiFi Direct</button>
+        <button class="mode-btn" id="btn-usb" onclick="switchMode('usb')">⚡ USB Serial</button>
+        <button class="mode-btn active" id="btn-wifi" onclick="switchMode('wifi')">📡 WiFi Direct</button>
       </div>
-      <span class="mode-status" id="mode-status"><span class="dot green"></span>USB bridge active</span>
+      <span class="mode-status" id="mode-status"><span class="dot yellow"></span>Detecting source…</span>
+      <div class="avg-ctl">
+        <label for="avg-window">avg window</label>
+        <select id="avg-window" title="Rolling average window">
+          <option value="1">1s</option>
+          <option value="3">3s</option>
+          <option value="5" selected>5s</option>
+          <option value="10">10s</option>
+          <option value="30">30s</option>
+          <option value="60">60s</option>
+        </select>
+      </div>
       <div class="mode-warn" id="mode-warn"></div>
     </div>
 
     <div class="grid">
       <div class="card">
         <div class="card-title">Server Status</div>
-        <div class="big-val" id="v-status">--</div>
+        <div class="big-val"><span id="v-status">--</span></div>
         <div class="sub-val">Source: <span id="v-source">--</span></div>
       </div>
       <div class="card">
         <div class="card-title">Presence</div>
-        <div class="big-val" id="v-presence">--</div>
-        <div class="sub-val">Confidence: <span id="v-conf">--</span></div>
+        <div class="big-val"><span id="v-presence">--</span></div>
+        <div class="sub-val">Confidence: <span id="v-conf">--</span><span class="avg" id="v-conf-avg"></span></div>
       </div>
       <div class="card">
         <div class="card-title">Motion</div>
-        <div class="big-val" id="v-motion">--</div>
-        <div class="sub-val">Score: <span id="v-motion-score">--</span></div>
+        <div class="big-val"><span id="v-motion">--</span></div>
+        <div class="sub-val">Score: <span id="v-motion-score">--</span><span class="avg" id="v-motion-score-avg"></span></div>
       </div>
       <div class="card">
         <div class="card-title">Signal Quality</div>
-        <div class="big-val" id="v-quality">--</div>
+        <div class="big-val"><span id="v-quality">--</span><span class="avg" id="v-quality-avg"></span></div>
         <div class="sub-val">Verdict: <span id="v-verdict">--</span></div>
       </div>
     </div>
@@ -109,28 +134,28 @@
       <div class="card">
         <div class="card-title">Vital Signs</div>
         <div class="vital-grid">
-          <div class="vital-item"><span class="vital-label">Heart Rate</span><span class="vital-val" id="v-hr" style="color:var(--red)">-- BPM</span></div>
-          <div class="vital-item"><span class="vital-label">Breathing</span><span class="vital-val" id="v-br" style="color:var(--green)">-- RPM</span></div>
-          <div class="vital-item"><span class="vital-label">HR Confidence</span><span class="vital-val" id="v-hr-conf" style="color:var(--text-dim)">--%</span></div>
-          <div class="vital-item"><span class="vital-label">BR Confidence</span><span class="vital-val" id="v-br-conf" style="color:var(--text-dim)">--%</span></div>
+          <div class="vital-item"><span class="vital-label">Heart Rate</span><span class="vital-val" style="color:var(--red)"><span id="v-hr">-- BPM</span><span class="avg" id="v-hr-avg"></span></span></div>
+          <div class="vital-item"><span class="vital-label">Breathing</span><span class="vital-val" style="color:var(--green)"><span id="v-br">-- RPM</span><span class="avg" id="v-br-avg"></span></span></div>
+          <div class="vital-item"><span class="vital-label">HR Confidence</span><span class="vital-val" style="color:var(--text-dim)"><span id="v-hr-conf">--%</span><span class="avg" id="v-hr-conf-avg"></span></span></div>
+          <div class="vital-item"><span class="vital-label">BR Confidence</span><span class="vital-val" style="color:var(--text-dim)"><span id="v-br-conf">--%</span><span class="avg" id="v-br-conf-avg"></span></span></div>
         </div>
       </div>
       <div class="card">
         <div class="card-title">Signal Features</div>
         <div class="vital-grid">
-          <div class="vital-item"><span class="vital-label">RSSI</span><span class="vital-val" id="v-rssi" style="color:var(--accent2)">-- dBm</span></div>
-          <div class="vital-item"><span class="vital-label">Variance</span><span class="vital-val" id="v-variance">--</span></div>
-          <div class="vital-item"><span class="vital-label">Spectral Power</span><span class="vital-val" id="v-spectral">--</span></div>
-          <div class="vital-item"><span class="vital-label">Dominant Freq</span><span class="vital-val" id="v-freq">-- Hz</span></div>
+          <div class="vital-item"><span class="vital-label">RSSI</span><span class="vital-val" style="color:var(--accent2)"><span id="v-rssi">-- dBm</span><span class="avg" id="v-rssi-avg"></span></span></div>
+          <div class="vital-item"><span class="vital-label">Variance</span><span class="vital-val"><span id="v-variance">--</span><span class="avg" id="v-variance-avg"></span></span></div>
+          <div class="vital-item"><span class="vital-label">Spectral Power</span><span class="vital-val"><span id="v-spectral">--</span><span class="avg" id="v-spectral-avg"></span></span></div>
+          <div class="vital-item"><span class="vital-label">Dominant Freq</span><span class="vital-val"><span id="v-freq">-- Hz</span><span class="avg" id="v-freq-avg"></span></span></div>
         </div>
       </div>
     </div>
 
     <div class="card" style="margin-bottom:20px">
-      <div class="card-title">Active Nodes</div>
+      <div class="card-title">Active Nodes (live from WebSocket)</div>
       <table class="node-table">
-        <thead><tr><th>ID</th><th>RSSI</th><th>Subcarriers</th><th>Position</th></tr></thead>
-        <tbody id="node-tbody"><tr><td colspan="4" style="color:var(--text-dim)">Waiting for data…</td></tr></tbody>
+        <thead><tr><th>ID</th><th>Status</th><th>RSSI</th><th>Subcarriers</th><th>Rate</th><th>Last Seen</th><th>Position</th></tr></thead>
+        <tbody id="node-tbody"><tr><td colspan="7" style="color:var(--text-dim)">Waiting for data…</td></tr></tbody>
       </table>
     </div>
 
@@ -143,6 +168,9 @@
       <a href="monitor.html" class="page-link"><span class="icon">◎</span><span class="label">Monitor Hub</span><span class="desc">Signal analysis, waterfall, vitals trends, system logs</span></a>
       <a href="observatory.html" class="page-link"><span class="icon">◈</span><span class="label">Observatory</span><span class="desc">3D room visualization with pose wireframes</span></a>
       <a href="pose-fusion.html" class="page-link"><span class="icon">⬡</span><span class="label">Pose Fusion</span><span class="desc">Live WiFi CSI skeleton rendering + confidence</span></a>
+      <a href="spectrogram.html" class="page-link"><span class="icon">⁞</span><span class="label">Spectrogram</span><span class="desc">Live CSI subcarrier heatmap &amp; waterfall</span></a>
+      <a href="diagnostics.html" class="page-link"><span class="icon">✦</span><span class="label">Diagnostics</span><span class="desc">Health, endpoints, network &amp; system status</span></a>
+      <a href="provisioning.html" class="page-link"><span class="icon">⚙</span><span class="label">Provisioning</span><span class="desc">Flash firmware &amp; configure ESP32 nodes</span></a>
       <a href="aedi.html" class="page-link"><span class="icon">⬢</span><span class="label">AEDI Assistant</span><span class="desc">AI assistant for system monitoring and control</span></a>
     </div>
   </div>
@@ -154,80 +182,56 @@ const s = document.createElement('style'); s.textContent = NAV_CSS; document.hea
 injectNav();
 
 const WS_URL = `ws://${location.hostname}:3001/ws/sensing`;
-const BRIDGE_API = `http://${location.hostname}:3002`;
 let ws = null;
 const $ = id => document.getElementById(id);
 const banner = $('conn-banner');
 
-// ── Connection Mode Toggle ───────────────────────────────────────────────────
-let currentMode = 'usb';
+// ── Connection Mode ──────────────────────────────────────────────────────────
+let currentMode = 'wifi';
 
-async function fetchBridgeStatus() {
-  try {
-    const res = await fetch(`${BRIDGE_API}/api/bridge/status`);
-    if (!res.ok) return null;
-    return await res.json();
-  } catch { return null; }
-}
+let _lastModeSig = '';
+function updateModeFromSource(source) {
+  // Guard: only mutate DOM when the source string actually changes — prevents flicker.
+  const sig = source || '';
+  if (sig === _lastModeSig) return;
+  _lastModeSig = sig;
 
-function updateModeUI(mode, message, warnText) {
-  currentMode = mode;
-  const btnUsb = $('btn-usb'), btnWifi = $('btn-wifi');
   const statusEl = $('mode-status'), warnEl = $('mode-warn');
+  const btnUsb = $('btn-usb'), btnWifi = $('btn-wifi');
 
-  btnUsb.classList.toggle('active', mode === 'usb');
-  btnWifi.classList.toggle('active', mode === 'wifi');
-
-  if (mode === 'usb') {
-    statusEl.innerHTML = '<span class="dot green"></span>USB bridge active — serial data forwarding';
-  } else {
-    statusEl.innerHTML = '<span class="dot yellow"></span>WiFi direct — ESP32 → UDP → server';
-  }
-
-  if (warnText) {
+  if (source === 'esp32') {
+    currentMode = 'wifi';
+    btnUsb.classList.remove('active'); btnWifi.classList.add('active');
+    statusEl.innerHTML = '<span class="dot green"></span>ESP32 WiFi CSI — live hardware data';
+    warnEl.style.display = 'none';
+  } else if (source && source.startsWith('wifi:')) {
+    currentMode = 'wifi';
+    btnUsb.classList.remove('active'); btnWifi.classList.add('active');
+    const ssid = source.split(':').slice(1).join(':');
+    statusEl.innerHTML = `<span class="dot yellow"></span>WiFi passive scan (${ssid}) — no ESP32 CSI`;
     warnEl.style.display = 'block';
-    warnEl.textContent = warnText;
+    warnEl.textContent = 'ESP32 nodes not sending UDP data. Check WiFi network and AP isolation settings.';
+  } else if (source === 'serial' || source === 'usb') {
+    currentMode = 'usb';
+    btnWifi.classList.remove('active'); btnUsb.classList.add('active');
+    statusEl.innerHTML = '<span class="dot green"></span>USB serial bridge active';
+    warnEl.style.display = 'none';
+  } else if (source === 'simulated' || source === 'simulate') {
+    statusEl.innerHTML = '<span class="dot red"></span>Server simulated data — no hardware';
+    warnEl.style.display = 'none';
   } else {
+    statusEl.innerHTML = `<span class="dot yellow"></span>Source: ${source || 'unknown'}`;
     warnEl.style.display = 'none';
   }
 }
 
-window.switchMode = async function(mode) {
+window.switchMode = function(mode) {
+  // Mode is now auto-detected from server data source.
+  // Toggle just updates the visual; actual data source is determined by server config.
   const statusEl = $('mode-status');
-  statusEl.innerHTML = '<span class="dot yellow"></span>Switching…';
-
-  try {
-    const res = await fetch(`${BRIDGE_API}/api/bridge/mode`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode }),
-    });
-
-    if (!res.ok) {
-      updateModeUI(currentMode, null, `Switch failed: HTTP ${res.status}`);
-      return;
-    }
-
-    const data = await res.json();
-    const warn = data.ap_isolation_detected
-      ? '⚠ AP isolation detected — ESP32 nodes cannot reach the hub via WiFi. Disable AP/Client isolation in your router admin panel (usually under Wireless → Advanced → AP Isolation).'
-      : null;
-
-    updateModeUI(data.mode, data.message, warn);
-  } catch (e) {
-    updateModeUI(currentMode, null, `Bridge controller not reachable (port 3002). Start it: python scripts/bridge-controller.py`);
-  }
+  statusEl.innerHTML = '<span class="dot yellow"></span>Mode is auto-detected from server data source';
+  setTimeout(() => { if (ws && ws.readyState === 1) statusEl.innerHTML = '<span class="dot green"></span>Source auto-detected from server'; }, 2000);
 };
-
-// Poll bridge status every 10s
-async function pollBridgeStatus() {
-  const data = await fetchBridgeStatus();
-  if (data) {
-    updateModeUI(data.mode, null, null);
-  }
-}
-pollBridgeStatus();
-setInterval(pollBridgeStatus, 10000);
 
 function connect() {
   if (ws && ws.readyState <= 1) return;
@@ -238,37 +242,184 @@ function connect() {
   ws.onerror = () => ws.close();
 }
 
+// ── Rolling averages ────────────────────────────────────────────────────────
+// Tracks timestamped samples per key so the average reflects the user-chosen
+// window precisely, regardless of incoming rate. Pruned on every push.
+const _avgStore = Object.create(null);          // key -> [{t, v}, …]
+let _avgWindowMs = 5000;                         // default 5 s
+const _avgSel = document.getElementById('avg-window');
+if (_avgSel) {
+  _avgSel.addEventListener('change', () => {
+    const sec = parseFloat(_avgSel.value) || 5;
+    _avgWindowMs = sec * 1000;
+    // prune each buffer to new window so next render uses correct data.
+    const cutoff = performance.now() - _avgWindowMs;
+    for (const k of Object.keys(_avgStore)) {
+      const buf = _avgStore[k];
+      while (buf.length && buf[0].t < cutoff) buf.shift();
+    }
+  });
+}
+
+function pushAvg(key, val, t) {
+  if (typeof val !== 'number' || !isFinite(val)) return;
+  const buf = _avgStore[key] || (_avgStore[key] = []);
+  buf.push({ t, v: val });
+  const cutoff = t - _avgWindowMs;
+  while (buf.length && buf[0].t < cutoff) buf.shift();
+}
+function avgOf(key) {
+  const buf = _avgStore[key];
+  if (!buf || !buf.length) return null;
+  let s = 0;
+  for (const p of buf) s += p.v;
+  return s / buf.length;
+}
+function renderAvg(key, suffix, digits) {
+  const el = document.getElementById(key + '-avg');
+  if (!el) return;
+  const a = avgOf(key);
+  el.textContent = (a == null) ? '' : a.toFixed(digits) + suffix;
+}
+function renderAvgExp(key) {
+  const el = document.getElementById(key + '-avg');
+  if (!el) return;
+  const a = avgOf(key);
+  el.textContent = (a == null) ? '' : a.toExponential(1);
+}
+function setBig(id, text, cls) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = text;
+  const parent = el.closest('.big-val');
+  if (parent) parent.className = 'big-val' + (cls ? ' ' + cls : '');
+}
+function setBigClass(id, cls) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const parent = el.closest('.big-val');
+  if (parent) parent.className = 'big-val' + (cls ? ' ' + cls : '');
+}
+
 function update(d) {
-  $('v-status').textContent = 'ONLINE'; $('v-status').className = 'big-val ok';
+  const now = performance.now();
+  setBig('v-status', 'ONLINE', 'ok');
   $('v-source').textContent = d.source || '--';
+  updateModeFromSource(d.source);
   const cls = d.classification || {};
-  $('v-presence').textContent = cls.presence ? 'DETECTED' : 'ABSENT';
-  $('v-presence').className = 'big-val ' + (cls.presence ? 'ok' : '');
-  $('v-conf').textContent = ((cls.confidence || 0) * 100).toFixed(0) + '%';
+  setBig('v-presence', cls.presence ? 'DETECTED' : 'ABSENT', cls.presence ? 'ok' : '');
+  const conf = (cls.confidence || 0) * 100;
+  pushAvg('v-conf', conf, now);
+  $('v-conf').textContent = conf.toFixed(0) + '%';
+  renderAvg('v-conf', '%', 0);
   const em = d.enhanced_motion || {};
-  $('v-motion').textContent = (em.level || cls.motion_level || '--').toUpperCase();
-  $('v-motion').className = 'big-val ' + (em.score > 0.3 ? 'warn' : '');
-  $('v-motion-score').textContent = (em.score != null ? em.score.toFixed(2) : '--');
-  $('v-quality').textContent = ((d.signal_quality_score || 0) * 100).toFixed(0) + '%';
+  setBig('v-motion', (em.level || cls.motion_level || '--').toUpperCase(), em.score > 0.3 ? 'warn' : '');
+  const mScore = (em.score != null ? em.score : null);
+  if (mScore != null) { pushAvg('v-motion-score', mScore, now); }
+  $('v-motion-score').textContent = (mScore != null ? mScore.toFixed(2) : '--');
+  renderAvg('v-motion-score', '', 2);
+  const q = (d.signal_quality_score || 0) * 100;
+  pushAvg('v-quality', q, now);
+  $('v-quality').textContent = q.toFixed(0) + '%';
+  renderAvg('v-quality', '%', 0);
   const verd = d.quality_verdict || '--';
   $('v-verdict').textContent = verd;
-  $('v-quality').className = 'big-val ' + (verd === 'Permit' ? 'ok' : verd === 'Deny' ? 'err' : 'warn');
+  setBigClass('v-quality', verd === 'Permit' ? 'ok' : verd === 'Deny' ? 'err' : 'warn');
   const vs = d.vital_signs || {};
+  if (vs.heart_rate_bpm) pushAvg('v-hr', vs.heart_rate_bpm, now);
   $('v-hr').textContent = vs.heart_rate_bpm ? vs.heart_rate_bpm.toFixed(0) + ' BPM' : '-- BPM';
+  renderAvg('v-hr', ' BPM', 0);
+  if (vs.breathing_rate_bpm) pushAvg('v-br', vs.breathing_rate_bpm, now);
   $('v-br').textContent = vs.breathing_rate_bpm ? vs.breathing_rate_bpm.toFixed(1) + ' RPM' : '-- RPM';
+  renderAvg('v-br', ' RPM', 1);
+  if (vs.heartbeat_confidence != null) pushAvg('v-hr-conf', vs.heartbeat_confidence * 100, now);
   $('v-hr-conf').textContent = vs.heartbeat_confidence ? (vs.heartbeat_confidence * 100).toFixed(0) + '%' : '--%';
+  renderAvg('v-hr-conf', '%', 0);
+  if (vs.breathing_confidence != null) pushAvg('v-br-conf', vs.breathing_confidence * 100, now);
   $('v-br-conf').textContent = vs.breathing_confidence ? (vs.breathing_confidence * 100).toFixed(0) + '%' : '--%';
+  renderAvg('v-br-conf', '%', 0);
   const f = d.features || {};
+  if (f.mean_rssi != null) pushAvg('v-rssi', f.mean_rssi, now);
   $('v-rssi').textContent = f.mean_rssi != null ? f.mean_rssi.toFixed(0) + ' dBm' : '-- dBm';
+  renderAvg('v-rssi', ' dBm', 0);
+  if (f.variance != null) pushAvg('v-variance', f.variance, now);
   $('v-variance').textContent = f.variance != null ? f.variance.toFixed(4) : '--';
+  renderAvg('v-variance', '', 4);
+  if (f.spectral_power != null) pushAvg('v-spectral', f.spectral_power, now);
   $('v-spectral').textContent = f.spectral_power != null ? f.spectral_power.toExponential(1) : '--';
+  renderAvgExp('v-spectral');
+  if (f.dominant_freq_hz != null) pushAvg('v-freq', f.dominant_freq_hz, now);
   $('v-freq').textContent = f.dominant_freq_hz != null ? f.dominant_freq_hz.toFixed(2) + ' Hz' : '-- Hz';
+  renderAvg('v-freq', ' Hz', 2);
   const nodes = d.nodes || [];
-  const tbody = $('node-tbody');
-  tbody.innerHTML = nodes.length === 0
-    ? '<tr><td colspan="4" style="color:var(--text-dim)">No nodes</td></tr>'
-    : nodes.map(n => `<tr><td>${n.node_id}</td><td>${(n.rssi_dbm ?? -99).toFixed(0)} dBm</td><td>${n.subcarrier_count ?? (n.amplitude ? n.amplitude.length : '--')}</td><td>[${n.position ? n.position.map(p=>p.toFixed(1)).join(', ') : '--'}]</td></tr>`).join('');
+  // Track packet rate per node using tick deltas.
+  const now = performance.now();
+  nodes.forEach(n => {
+    const id = n.node_id;
+    if (!nodeRate[id]) nodeRate[id] = { lastTime: now, count: 0, rate: 0, sinceTick: now };
+    const st = nodeRate[id];
+    st.count++;
+    const dt = now - st.sinceTick;
+    if (dt > 1000) { st.rate = (st.count * 1000 / dt); st.count = 0; st.sinceTick = now; }
+    st.lastTime = now;
+  });
+  // Mark stale nodes
+  Object.keys(nodeRate).forEach(id => {
+    if (!nodes.find(n => n.node_id == id) && (now - nodeRate[id].lastTime) > 3000) {
+      nodeRate[id].rate = 0;
+    }
+  });
+  // Render node table (throttled separately to 3 Hz to prevent flicker).
+  scheduleNodeRender(nodes);
   if (d.signal_field) drawField(d.signal_field);
+}
+
+const nodeRate = {};
+
+// ── Throttled node-table renderer (prevents flicker at 10-30 Hz WS rate) ───
+let _nodeRenderPending = false;
+let _lastNodeSig = '';
+let _lastNodes = [];
+function scheduleNodeRender(nodes) {
+  _lastNodes = nodes;
+  if (_nodeRenderPending) return;
+  _nodeRenderPending = true;
+  setTimeout(() => {
+    _nodeRenderPending = false;
+    renderNodeTable(_lastNodes);
+  }, 333); // ~3 Hz
+}
+function renderNodeTable(nodes) {
+  const tbody = $('node-tbody');
+  const now = performance.now();
+  const activeNodeIds = new Set(nodes.map(n => n.node_id));
+  const allIds = new Set([...activeNodeIds, ...Object.keys(nodeRate).map(Number)]);
+  if (allIds.size === 0) {
+    if (_lastNodeSig !== 'empty') {
+      tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text-dim)">No nodes</td></tr>';
+      _lastNodeSig = 'empty';
+    }
+    return;
+  }
+  const rows = [...allIds].sort().map(id => {
+    const n = nodes.find(x => x.node_id == id);
+    const st = nodeRate[id] || { rate: 0, lastTime: now };
+    const age = now - st.lastTime;
+    const isStale = age > 2000;
+    const status = n ? (isStale ? '<span style="color:var(--yellow)">stale</span>' : '<span style="color:var(--green)">active</span>') : '<span style="color:var(--red)">offline</span>';
+    const rssi = n ? `${(n.rssi_dbm ?? -99).toFixed(0)} dBm` : '--';
+    const subc = n ? (n.subcarrier_count ?? (n.amplitude ? n.amplitude.length : '--')) : '--';
+    const rate = st.rate > 0 ? `${st.rate.toFixed(1)} Hz` : '--';
+    const seen = age < 10000 ? `${(age/1000).toFixed(1)}s` : 'stale';
+    const pos = n && n.position ? `[${n.position.map(p=>p.toFixed(1)).join(', ')}]` : '--';
+    return `<tr><td>${id}</td><td>${status}</td><td>${rssi}</td><td>${subc}</td><td>${rate}</td><td>${seen}</td><td>${pos}</td></tr>`;
+  });
+  const html = rows.join('');
+  // Diff-check signature to avoid reflow when content is identical.
+  const sig = rows.length + ':' + rows.map(r => r.length).join(',');
+  if (sig === _lastNodeSig) return;
+  _lastNodeSig = sig;
+  tbody.innerHTML = html;
 }
 
 const fc = $('field-canvas'), fCtx = fc.getContext('2d');

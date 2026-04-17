@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AEDI-S — Diagnostics</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg:#050510;--bg2:#0a0a1e;--bg3:#0f1028;--border:#1a2040;--accent:#0088ff;--accent2:#00ccff;--green:#00e676;--red:#ff3d57;--yellow:#ffd740;--text:#c8d8f0;--text-dim:#5577aa;--font:'Courier New','Consolas',monospace}
+    html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:13px}
+    #shell{display:flex;flex-direction:column;height:100vh}
+    #main{flex:1;overflow-y:auto;padding:20px}
+    h1{font-size:20px;color:var(--accent2);letter-spacing:2px;margin-bottom:4px}
+    .sub{font-size:11px;color:var(--text-dim);margin-bottom:20px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;margin-bottom:20px}
+    .card{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:16px}
+    .card-title{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-dim);margin-bottom:10px}
+    table{width:100%;border-collapse:collapse;font-size:11px}
+    th,td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--border)}
+    th{color:var(--text-dim);font-size:10px;letter-spacing:1px}
+    .ok{color:var(--green)} .warn{color:var(--yellow)} .err{color:var(--red)}
+    .big{font-size:20px;font-weight:bold}
+    .btn{background:var(--accent);color:#fff;border:none;padding:8px 16px;font-family:var(--font);font-size:12px;border-radius:4px;cursor:pointer;margin-right:6px}
+    .btn:hover{background:var(--accent2);color:#000}
+    pre{background:var(--bg);border:1px solid var(--border);padding:10px;border-radius:6px;font-size:11px;overflow:auto;max-height:240px;color:var(--text-dim)}
+    .k{color:var(--text-dim);width:140px;display:inline-block}
+    .v{color:var(--text)}
+  </style>
+</head>
+<body>
+<div id="shell">
+  <nav id="global-nav"></nav>
+  <div id="main">
+    <h1>Diagnostics</h1>
+    <p class="sub">Live system health, endpoint probes, network state.</p>
+
+    <div class="grid">
+      <div class="card">
+        <div class="card-title">Server Health</div>
+        <div class="big ok" id="d-status">--</div>
+        <div><span class="k">Source:</span><span class="v" id="d-source">--</span></div>
+        <div><span class="k">Tick:</span><span class="v" id="d-tick">--</span></div>
+        <div><span class="k">WS clients:</span><span class="v" id="d-clients">--</span></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Room</div>
+        <div><span class="k">Dimensions:</span><span class="v" id="d-room">--</span></div>
+        <div><span class="k">Calibrated:</span><span class="v" id="d-cal">--</span></div>
+        <div><span class="k">Active nodes:</span><span class="v" id="d-active">--</span></div>
+      </div>
+      <div class="card">
+        <div class="card-title">WebSocket</div>
+        <div><span class="k">URL:</span><span class="v" id="d-ws-url">--</span></div>
+        <div><span class="k">State:</span><span class="v" id="d-ws-state">--</span></div>
+        <div><span class="k">Frames:</span><span class="v" id="d-ws-frames">0</span></div>
+        <div><span class="k">Rate:</span><span class="v" id="d-ws-rate">0 Hz</span></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">ESP32 Nodes</div>
+      <table><thead><tr><th>ID</th><th>Status</th><th>RSSI</th><th>Last Seen</th><th>Motion</th><th>Persons</th></tr></thead>
+      <tbody id="d-nodes"><tr><td colspan="6" class="warn">Loading…</td></tr></tbody></table>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">Endpoint Probes</div>
+      <table><thead><tr><th>Endpoint</th><th>Status</th><th>Latency</th></tr></thead>
+      <tbody id="d-endpoints"></tbody></table>
+      <button class="btn" onclick="probeAll()" style="margin-top:12px">↻ Re-probe</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Raw latest sensing frame</div>
+      <pre id="d-raw">(waiting…)</pre>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { injectNav, NAV_CSS } from './shared/nav.js';
+const s = document.createElement('style'); s.textContent = NAV_CSS; document.head.appendChild(s);
+injectNav();
+
+const $ = id => document.getElementById(id);
+
+// Endpoint probes
+const ENDPOINTS = [
+  '/health', '/api/v1/info', '/api/v1/sensing/latest', '/api/v1/nodes',
+  '/api/v1/room', '/api/v1/vital-signs', '/api/v1/pose/current', '/api/v1/tomography',
+];
+
+async function probe(path) {
+  const t0 = performance.now();
+  try {
+    const r = await fetch(path, { cache: 'no-store' });
+    const dt = (performance.now() - t0).toFixed(0);
+    return { path, status: r.status, ok: r.ok, latency: dt };
+  } catch (e) {
+    return { path, status: 'ERR', ok: false, latency: '--', err: e.message };
+  }
+}
+
+async function probeAll() {
+  const tbody = $('d-endpoints');
+  tbody.innerHTML = ENDPOINTS.map(p => `<tr><td>${p}</td><td>…</td><td>…</td></tr>`).join('');
+  const results = await Promise.all(ENDPOINTS.map(probe));
+  tbody.innerHTML = results.map(r => {
+    const cls = r.ok ? 'ok' : 'err';
+    return `<tr><td>${r.path}</td><td class="${cls}">${r.status}</td><td>${r.latency} ms</td></tr>`;
+  }).join('');
+}
+window.probeAll = probeAll;
+probeAll();
+setInterval(probeAll, 15000);
+
+// Health + room poll
+async function pollServer() {
+  try {
+    const [h, room, nodes] = await Promise.all([
+      fetch('/health').then(r => r.json()),
+      fetch('/api/v1/room').then(r => r.json()),
+      fetch('/api/v1/nodes').then(r => r.json()),
+    ]);
+    $('d-status').textContent = (h.status || '--').toUpperCase();
+    $('d-status').className = 'big ' + (h.status === 'ok' ? 'ok' : 'err');
+    $('d-source').textContent = h.source || '--';
+    $('d-tick').textContent = h.tick || 0;
+    $('d-clients').textContent = h.clients ?? '--';
+
+    if (room.room) $('d-room').textContent = `${room.room.width}×${room.room.depth}×${room.room.height} m`;
+    $('d-cal').innerHTML = room.calibrated ? '<span class="ok">yes</span>' : '<span class="warn">no</span>';
+    $('d-active').textContent = (room.active_nodes || []).length;
+
+    const tb = $('d-nodes');
+    if (!nodes.nodes || nodes.nodes.length === 0) {
+      tb.innerHTML = '<tr><td colspan="6" class="warn">No nodes</td></tr>';
+    } else {
+      tb.innerHTML = nodes.nodes.map(n => {
+        const statusCls = n.status === 'active' ? 'ok' : 'err';
+        return `<tr><td>${n.node_id}</td><td class="${statusCls}">${n.status}</td><td>${(n.rssi_dbm ?? -99).toFixed(0)} dBm</td><td>${n.last_seen_ms} ms</td><td>${n.motion_level}</td><td>${n.person_count}</td></tr>`;
+      }).join('');
+    }
+  } catch (e) { /* offline */ }
+}
+pollServer();
+setInterval(pollServer, 2000);
+
+// WebSocket stats
+const WS_URL = `ws://${location.hostname}:3001/ws/sensing`;
+$('d-ws-url').textContent = WS_URL;
+let ws = null, wsFrames = 0, wsLastReset = performance.now();
+function connectWs() {
+  if (ws && ws.readyState <= 1) return;
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => { $('d-ws-state').innerHTML = '<span class="ok">OPEN</span>'; };
+  ws.onmessage = (e) => {
+    wsFrames++;
+    $('d-ws-frames').textContent = wsFrames;
+    try {
+      const d = JSON.parse(e.data);
+      // Truncate amplitude arrays in raw view
+      const view = JSON.parse(e.data);
+      if (view.nodes) view.nodes.forEach(n => { if (n.amplitude && n.amplitude.length > 4) n.amplitude = [...n.amplitude.slice(0, 4), `...${n.amplitude.length} total`]; });
+      if (view.signal_field && view.signal_field.values) view.signal_field.values = `Array(${view.signal_field.values.length})`;
+      if (view.persons) view.persons = view.persons.map(p => ({ id: p.id, confidence: p.confidence, keypoint_count: p.keypoints?.length }));
+      $('d-raw').textContent = JSON.stringify(view, null, 2);
+    } catch {}
+  };
+  ws.onclose = () => { $('d-ws-state').innerHTML = '<span class="err">CLOSED</span>'; setTimeout(connectWs, 2000); };
+  ws.onerror = () => { ws.close(); };
+}
+connectWs();
+setInterval(() => {
+  const dt = performance.now() - wsLastReset;
+  $('d-ws-rate').textContent = `${(wsFrames / (dt/1000)).toFixed(1)} Hz (${wsFrames} total)`;
+}, 1000);
+</script>
+</body>
+</html>

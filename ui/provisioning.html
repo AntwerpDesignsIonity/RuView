@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AEDI-S — Provisioning</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg:#050510;--bg2:#0a0a1e;--bg3:#0f1028;--border:#1a2040;--accent:#0088ff;--accent2:#00ccff;--green:#00e676;--red:#ff3d57;--yellow:#ffd740;--text:#c8d8f0;--text-dim:#5577aa;--font:'Courier New','Consolas',monospace}
+    html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:13px}
+    #shell{display:flex;flex-direction:column;height:100vh}
+    #main{flex:1;overflow-y:auto;padding:20px;max-width:960px;margin:0 auto;width:100%}
+    h1{font-size:20px;color:var(--accent2);letter-spacing:2px;margin-bottom:4px}
+    h2{font-size:14px;color:var(--accent2);letter-spacing:1.5px;margin:18px 0 8px;font-weight:normal;text-transform:uppercase}
+    .sub{font-size:11px;color:var(--text-dim);margin-bottom:20px}
+    .card{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:14px}
+    label{display:block;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--text-dim);margin:10px 0 4px}
+    input,select{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);padding:8px 10px;font-family:var(--font);font-size:13px;border-radius:4px}
+    input:focus,select:focus{border-color:var(--accent2);outline:none}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    pre{background:#000;border:1px solid var(--border);padding:12px;border-radius:6px;font-size:11px;color:var(--green);overflow:auto;white-space:pre-wrap;word-break:break-all;margin-top:8px}
+    .btn{background:var(--accent);color:#fff;border:none;padding:8px 16px;font-family:var(--font);font-size:12px;border-radius:4px;cursor:pointer;margin-right:6px;margin-top:6px}
+    .btn:hover{background:var(--accent2);color:#000}
+    .btn.copy{background:var(--bg2);border:1px solid var(--border);color:var(--text-dim)}
+    .btn.copy:hover{color:var(--text);border-color:var(--accent2)}
+    .note{font-size:11px;color:var(--text-dim);line-height:1.5;margin-top:6px}
+    .warn{background:rgba(255,215,64,0.06);border:1px solid rgba(255,215,64,0.2);padding:10px 12px;border-radius:6px;font-size:11px;color:var(--yellow);margin-bottom:14px}
+    .ok{color:var(--green)} .err{color:var(--red)}
+    table{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px}
+    th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border)}
+    th{color:var(--text-dim);font-size:10px;letter-spacing:1px}
+  </style>
+</head>
+<body>
+<div id="shell">
+  <nav id="global-nav"></nav>
+  <div id="main">
+    <h1>ESP32 Provisioning</h1>
+    <p class="sub">Flash firmware and write WiFi credentials to all connected ESP32-S3 boards.</p>
+
+    <div class="warn">
+      <b>Security:</b> Flashing requires USB access and will overwrite firmware. Run the generated command in a terminal on the hub (this Pi). The WiFi password is only used in the command you copy — it is never sent to the server.
+    </div>
+
+    <div class="card">
+      <h2>1. WiFi &amp; Hub Configuration</h2>
+      <div class="row">
+        <div><label>WiFi SSID</label><input id="ssid" placeholder="MyWiFi"></div>
+        <div><label>WiFi Password</label><input id="pass" type="password" placeholder="secret"></div>
+      </div>
+      <div class="row">
+        <div><label>Hub IP (this Pi)</label><input id="hub-ip" placeholder="auto-detect"></div>
+        <div><label>UDP Port</label><input id="port" value="5005"></div>
+      </div>
+      <p class="note">Hub IP auto-detected from <code>/health</code>. Change only if this Pi will use a different IP (e.g. static reservation on your router).</p>
+    </div>
+
+    <div class="card">
+      <h2>2. Command to run on the hub</h2>
+      <p class="note">Copy this command, open a terminal, and run it. It builds the firmware, then flashes + provisions every ESP32-S3 plugged into the hub.</p>
+      <pre id="cmd-all">—</pre>
+      <button class="btn copy" onclick="copyCmd('cmd-all')">📋 Copy</button>
+      <button class="btn" onclick="downloadScript()">⬇ Download script</button>
+    </div>
+
+    <div class="card">
+      <h2>3. Provision a single board (optional)</h2>
+      <p class="note">If you only want to re-write credentials on one board without re-flashing firmware, use this:</p>
+      <pre id="cmd-one">—</pre>
+      <button class="btn copy" onclick="copyCmd('cmd-one')">📋 Copy</button>
+    </div>
+
+    <div class="card">
+      <h2>4. Currently connected boards</h2>
+      <p class="note">Board inventory is auto-detected by the <code>.ionity/ionity.sh scan</code> command. This UI polls <code>/api/v1/nodes</code> to show boards that are already sending CSI.</p>
+      <table>
+        <thead><tr><th>Node ID</th><th>Status</th><th>RSSI</th><th>Last Seen</th></tr></thead>
+        <tbody id="node-tbody"><tr><td colspan="4" class="note">Loading…</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>5. Router DHCP reservation (recommended)</h2>
+      <p class="note">For CSI to keep working after reboots, pin the hub's IP on the router. Enter the router admin UI and add a static reservation.</p>
+      <table>
+        <tr><th>Pi MAC (wlan0)</th><td id="r-mac">—</td></tr>
+        <tr><th>Pi IP (current)</th><td id="r-ip">—</td></tr>
+        <tr><th>Gateway</th><td id="r-gw">—</td></tr>
+        <tr><th>SSID</th><td id="r-ssid">—</td></tr>
+      </table>
+      <p class="note" style="margin-top:12px">Steps in most routers:<br>
+        <b>1.</b> Open <b><span id="r-gw-url">—</span></b> in a browser.<br>
+        <b>2.</b> Find "DHCP reservations" / "Address Reservation" / "Static DHCP".<br>
+        <b>3.</b> Add an entry: MAC <span id="r-mac2">—</span> → IP <span id="r-ip2">—</span>.<br>
+        <b>4.</b> Save &amp; reboot the Pi; re-run provisioning if IP changed.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { injectNav, NAV_CSS } from './shared/nav.js';
+const s = document.createElement('style'); s.textContent = NAV_CSS; document.head.appendChild(s);
+injectNav();
+
+const $ = id => document.getElementById(id);
+
+function shellQuote(s) {
+  if (!s) return "''";
+  // POSIX safe single-quote wrap; escape existing single quotes
+  return "'" + String(s).replace(/'/g, "'\\''") + "'";
+}
+
+function update() {
+  const ssid = $('ssid').value.trim();
+  const pass = $('pass').value;
+  const hub = $('hub-ip').value.trim() || '<HUB_IP>';
+  const port = $('port').value.trim() || '5005';
+  const cmdAll = `cd ~/Creations/.2026/.Naked/RuView && \\\n  source .venv/bin/activate && \\\n  ./scripts/flash-all-nodes.sh ${shellQuote(ssid || '<SSID>')} ${shellQuote(pass || '<PASSWORD>')} ${shellQuote(hub)}`;
+  $('cmd-all').textContent = cmdAll;
+
+  const cmdOne = `cd ~/Creations/.2026/.Naked/RuView && \\\n  source .venv/bin/activate && \\\n  python firmware/esp32-csi-node/provision.py \\\n    --port /dev/ttyACM0 --no-firmware \\\n    --ssid ${shellQuote(ssid || '<SSID>')} \\\n    --password ${shellQuote(pass || '<PASSWORD>')} \\\n    --target-ip ${shellQuote(hub)} --target-port ${port} \\\n    --node-id 1 --led-hub hub`;
+  $('cmd-one').textContent = cmdOne;
+}
+
+['ssid','pass','hub-ip','port'].forEach(id => $(id).addEventListener('input', update));
+
+window.copyCmd = (id) => {
+  navigator.clipboard.writeText($(id).textContent).then(() => {
+    const btn = event.target;
+    const txt = btn.textContent;
+    btn.textContent = '✓ Copied';
+    setTimeout(() => btn.textContent = txt, 1200);
+  });
+};
+
+window.downloadScript = () => {
+  const blob = new Blob([$('cmd-all').textContent + '\n'], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'provision.sh';
+  a.click();
+};
+
+async function autofill() {
+  try {
+    const [h, n] = await Promise.all([
+      fetch('/health').then(r => r.json()),
+      fetch('/api/v1/nodes').then(r => r.json()).catch(() => ({ nodes: [] })),
+    ]);
+    // Source 'wifi:IoT_Network_2.4G' → SSID
+    if (typeof h.source === 'string' && h.source.startsWith('wifi:')) {
+      $('ssid').value = h.source.split(':').slice(1).join(':');
+      $('r-ssid').textContent = $('ssid').value;
+    }
+    // Hub IP: best-effort from location.hostname unless 'localhost'
+    const host = location.hostname;
+    if (host && host !== 'localhost' && host !== '127.0.0.1') {
+      $('hub-ip').value = host;
+      $('r-ip').textContent = host; $('r-ip2').textContent = host;
+    }
+    // Node table
+    const tb = $('node-tbody');
+    if ((n.nodes || []).length === 0) {
+      tb.innerHTML = '<tr><td colspan="4" class="note">No nodes currently sending CSI.</td></tr>';
+    } else {
+      tb.innerHTML = n.nodes.map(x =>
+        `<tr><td>${x.node_id}</td><td class="${x.status === 'active' ? 'ok' : 'err'}">${x.status}</td><td>${(x.rssi_dbm ?? -99).toFixed(0)} dBm</td><td>${x.last_seen_ms} ms</td></tr>`
+      ).join('');
+    }
+    update();
+  } catch (e) { /* offline */ }
+}
+autofill();
+setInterval(autofill, 5000);
+update();
+</script>
+</body>
+</html>

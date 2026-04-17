@@ -6,13 +6,15 @@
 export function injectNav(containerId = 'global-nav') {
   const page = location.pathname.split('/').pop() || 'index.html';
   const links = [
-    { href: 'index.html',       label: 'Dashboard',  icon: '◉' },
-    { href: 'monitor.html',     label: 'Monitor',    icon: '◎' },
-    { href: 'observatory.html', label: 'Observatory', icon: '◈' },
-    { href: 'pose-fusion.html', label: 'Pose Fusion', icon: '⬡' },
-    { href: 'xyz-segment.html', label: 'XYZ Segment', icon: '◆' },
-    { href: 'nodes.html',       label: 'Nodes',      icon: '⬡' },
-    { href: 'aedi.html',        label: 'AEDI',       icon: '⬢' },
+    { href: 'index.html',         label: 'Dashboard',    icon: '◉' },
+    { href: 'monitor.html',       label: 'Monitor',      icon: '◎' },
+    { href: 'observatory.html',   label: 'Observatory',  icon: '◈' },
+    { href: 'pose-fusion.html',   label: 'Pose Fusion',  icon: '⬡' },
+    { href: 'spectrogram.html',   label: 'Spectrogram',  icon: '⁞' },
+    { href: 'nodes.html',         label: 'Nodes',        icon: '⬡' },
+    { href: 'diagnostics.html',   label: 'Diagnostics',  icon: '✦' },
+    { href: 'provisioning.html',  label: 'Provisioning', icon: '⚙' },
+    { href: 'aedi.html',          label: 'AEDI',         icon: '⬢' },
   ];
 
   const nav = document.getElementById(containerId);

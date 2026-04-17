@@ -1,0 +1,208 @@
+# AEDI-S Production Boost Swarm
+# ------------------------------------------------------------------
+# Hierarchical-mesh topology, 8 specialists, raft consensus.
+# Dispatch with:
+#   npx @claude-flow/cli@latest swarm run .claude-flow/aedi-production-boost.yaml
+# Or equivalently, hand each `task` block to a Claude Code sub-agent.
+#
+# Ground-truth cross-reference (from repo scan 2026-04-17):
+#   - main.rs NodeInfo:           L245-L252
+#   - amplitude ingress (no DSP): L4376-L4378
+#   - VitalSignDetector:          crates/…/vital_signs.rs L207-L305
+#   - Hampel available:           wifi_densepose_signal::hampel (unused)
+#   - subcarrier_selection:       wifi_densepose_signal::subcarrier_selection (unused)
+#   - RSSI localization:          NOT PRESENT (NodeInfo.position hardcoded L4093)
+#   - PCA/SVD:                    NOT PRESENT in signal crate
+#   - ToF delay taps:              main.rs L2552-L2628 (added 2026-04-16)
+#   - Windows/PowerShell support: NOT PRESENT (all launchers bash-only)
+
+meta:
+  name: aedi-production-boost
+  version: 1
+  topology: hierarchical-mesh
+  consensus: raft
+  max_agents: 8
+  memory_namespace: aedi-prod
+  workspace: /home/antwerp/Creations/.2026/.Naked/RuView
+
+shared_constraints:
+  - "Never create files outside documented directories"
+  - "Prefer editing existing files; no speculative refactors"
+  - "Run cargo test --workspace --no-default-features after any Rust edit"
+  - "Every public function must carry a doc comment"
+  - "No hardcoded secrets; validate all inputs at boundaries"
+  - "Keep files under 500 lines where possible"
+
+agents:
+
+  # ─────────────────────────────────────────────────────────────
+  # Tier 1: Signal accuracy (the product's core value)
+  # ─────────────────────────────────────────────────────────────
+
+  - id: agent-hampel
+    role: performance-engineer
+    priority: P0
+    task: |
+      Wire the existing wifi_densepose_signal::hampel::hampel_filter_2d
+      into the ESP32 ingress path in main.rs right after amplitude
+      extraction (around L4376). Pre-filter the 56-subcarrier vector
+      with window=5, threshold=3.0 before it is pushed into
+      frame_history. Feature-gate behind env AEDIS_HAMPEL=1 (default on).
+      Expose a /api/v1/denoise/status endpoint showing filter stats.
+    success_criteria:
+      - cargo test --workspace --no-default-features == 0 failed
+      - Live /api/v1/sensing/latest shows variance reduced ≥20% vs raw
+    files:
+      - rust-port/wifi-densepose-rs/crates/wifi-densepose-sensing-server/src/main.rs
+
+  - id: agent-pca-localize
+    role: researcher
+    priority: P0
+    task: |
+      Implement RSSI-based trilateration in main.rs.
+      1. Add NodeState.rssi_smooth = EMA(rssi_dbm, alpha=0.15).
+      2. Convert rssi → distance via log-distance path-loss:
+           d = 10 ^ ((RSSI0 - RSSI) / (10 * N))
+         where RSSI0=-40 dBm @ 1m (env AEDIS_RSSI_REF),
+               N=2.5 indoor (env AEDIS_PATH_EXPONENT).
+      3. Solve least-squares trilateration when ≥3 nodes active.
+         Return [x,y,z] in room coords. Default to scene center
+         when fewer than 3 nodes or residual > 2.0 m.
+      4. Expose new field NodeInfo.estimated_target_pos: Option<[f64;3]>.
+      5. Add endpoint GET /api/v1/localization/person
+         returning {position, confidence, residual_m, method}.
+    success_criteria:
+      - Estimated pos residual < 1.5 m when 3 nodes RSSI > -75 dBm
+      - Gracefully returns confidence=0 when only 1 node active
+
+  - id: agent-hr-quality
+    role: reviewer
+    priority: P1
+    task: |
+      Improve heart-rate pipeline in vital_signs.rs:
+      1. Before FFT, apply Hampel(window=5, k=3.0) to the feature
+         stream (currently phase variance).
+      2. Multi-feature fusion: compute HR from (a) phase variance,
+         (b) first principal component of mean-subtracted amps
+         across 56 subcarriers, (c) top-variance subcarrier.
+         Return the candidate with highest spectral SNR.
+      3. Add hr_snr_db field to VitalSigns struct.
+      4. Gate HR output: if snr_db < 3.0 OR confidence < 0.25,
+         set heart_rate_bpm=None.
+    success_criteria:
+      - Existing vital_signs tests still pass
+      - HR confidence reported is monotonic in SNR
+
+  # ─────────────────────────────────────────────────────────────
+  # Tier 2: Cross-platform distribution
+  # ─────────────────────────────────────────────────────────────
+
+  - id: agent-launcher-py
+    role: coder
+    priority: P0
+    task: |
+      Create launch.py at repo root — stdlib-only, Python ≥ 3.9,
+      Linux+macOS+Windows. Subcommands:
+        start [--source esp32|wifi|simulate] [--bind 0.0.0.0]
+        stop
+        status
+        logs [--tail N]
+        build
+        doctor
+        provision
+      It must:
+      - Discover sensing-server binary (.exe on Windows)
+      - Spawn as detached subprocess, write logs/sensing-server.pid
+      - Use socket bind test instead of pgrep (portable)
+      - Pretty-print health JSON from /health
+      - Exit code 0 on success, 1 on failure, 2 on unhealthy
+      - Have NO third-party deps
+    success_criteria:
+      - python3 launch.py doctor runs clean on Linux
+      - File passes `python3 -m py_compile launch.py` on 3.9+
+      - Documented in README under "Quick Start"
+
+  - id: agent-launcher-ps
+    role: coder
+    priority: P2
+    task: |
+      Create scripts/launch.ps1 — PowerShell 7+ shim that delegates
+      to `python launch.py $args`. Also add scripts/launch.bat for
+      cmd.exe users. Both should be 10 lines or less.
+
+  # ─────────────────────────────────────────────────────────────
+  # Tier 3: Reliability & security
+  # ─────────────────────────────────────────────────────────────
+
+  - id: agent-security
+    role: security-auditor
+    priority: P1
+    task: |
+      Three fixes in scripts/bridge-controller.py:
+      1. Bind to 127.0.0.1 by default (currently 0.0.0.0:3002 — any
+         LAN host can restart the server). Allow override via env
+         AEDIS_CTRL_BIND.
+      2. Add HMAC-signed request tokens: POST requests must carry
+         X-AEDI-Token header = HMAC-SHA256(body, shared_secret).
+         Secret read from AEDIS_CTRL_SECRET env; if unset, reject
+         all POST requests with 401.
+      3. Rate-limit /api/server/restart to 1/minute.
+    success_criteria:
+      - Existing bridge-controller smoke test still passes
+      - Unauthenticated POST returns 401
+      - README documents the new auth envelope
+
+  - id: agent-readme
+    role: reviewer
+    priority: P1
+    task: |
+      Refactor README.md "Quick Start" (L940) to surface:
+        - `python launch.py start` as the primary one-liner
+        - Three-OS install table (Linux apt / macOS brew / Win choco)
+        - Environment variables block (AEDIS_HAMPEL, AEDIS_RSSI_REF,
+          AEDIS_PATH_EXPONENT, AEDIS_CTRL_SECRET, AEDIS_MAX_PERSONS,
+          AEDIS_CUT_RATIO_1..4, AEDIS_TOF_THRESHOLD)
+        - Accuracy-tuning guide referencing the three estimator
+          fusion (amplitude + correlation + ToF)
+        - "Production Hardening" section (security headers, HTTPS
+          guidance, systemd unit template)
+      Keep existing sections; only replace the Quick Start block.
+
+  - id: agent-verifier
+    role: tester
+    priority: P0
+    runs_after: [agent-hampel, agent-pca-localize, agent-hr-quality, agent-launcher-py, agent-security]
+    task: |
+      Full-system verification:
+      1. cargo test --workspace --no-default-features → 0 failed
+      2. python3 v1/data/proof/verify.py → VERDICT: PASS
+      3. python3 launch.py start && sleep 5 && python3 launch.py status
+         should show ONLINE with 3 nodes if ESP32s are up
+      4. curl http://<HUB_IP>:3000/health from another machine must
+         succeed (proves 0.0.0.0 bind)
+      5. Send unsigned POST to :3002/api/server/restart → expect 401
+      6. Generate witness bundle: bash scripts/generate-witness-bundle.sh
+
+coordination:
+  shared_memory:
+    - key: build_status
+      writer: agent-verifier
+      readers: all
+    - key: accuracy_baseline
+      writer: agent-hampel
+      readers: [agent-hr-quality, agent-pca-localize, agent-verifier]
+  handoffs:
+    - from: agent-hampel
+      to: agent-hr-quality
+      artifact: "denoised_amplitude_feature_hook_point"
+    - from: agent-pca-localize
+      to: agent-verifier
+      artifact: "localization_endpoint_curl_example"
+    - from: agent-launcher-py
+      to: agent-readme
+      artifact: "launch_py_subcommand_table"
+
+failure_policy:
+  - on_test_regression: rollback and open issue
+  - on_merge_conflict: queue for human review
+  - max_retries_per_agent: 2

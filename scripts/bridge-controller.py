@@ -92,11 +92,15 @@ def _start_server(source="esp32"):
     env = os.environ.copy()
     http_port = env.get("HTTP_PORT", "3000")
     ws_port = env.get("WS_PORT", "3001")
+    # Default bind: 0.0.0.0 so ESP32 nodes and LAN clients can reach it.
+    # Override via SENSING_BIND_ADDR=127.0.0.1 for localhost-only dev.
+    bind_addr = env.get("SENSING_BIND_ADDR", "0.0.0.0")
     ui_path = str(REPO_DIR / "ui")
 
     cmd = [
         str(SERVER_BINARY),
         "--source", source,
+        "--bind-addr", bind_addr,
         "--http-port", http_port,
         "--ws-port", ws_port,
         "--udp-port", "5005",

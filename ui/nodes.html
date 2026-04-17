@@ -244,14 +244,39 @@
       ws.onmessage = (evt) => {
         try {
           const d = JSON.parse(evt.data);
-          if (d.nodes || d.node_id !== undefined) {
-            const ts = new Date().toLocaleTimeString();
-            const line = `[${ts}] node=${d.node_id ?? '?'} rssi=${d.rssi_dbm ?? d.rssi ?? '?'} motion=${d.motion_level ?? d.motion ?? '?'}`;
-            logLines.push(line);
-            if (logLines.length > 200) logLines.shift();
-            serialLog.textContent = logLines.join('\n');
-            serialLog.scrollTop = serialLog.scrollHeight;
+          const ts = new Date().toLocaleTimeString();
+
+          // Server frames carry nodes as an array; flat legacy frames have
+          // top-level node fields. Handle both and surface vitals/features.
+          const rows = Array.isArray(d.nodes) && d.nodes.length
+            ? d.nodes
+            : (d.node_id !== undefined ? [d] : []);
+
+          if (rows.length === 0) {
+            // Still useful: show source + tick heartbeat so the pane isn't blank.
+            if (d.tick !== undefined) {
+              logLines.push(`[${ts}] tick=${d.tick} source=${d.source ?? '?'} no-node-frames`);
+            } else {
+              return;
+            }
+          } else {
+            for (const n of rows) {
+              const id   = n.node_id    ?? '?';
+              const rssi = (n.rssi_dbm  ?? n.rssi) ?? '—';
+              const mot  = n.motion_level ?? n.motion ?? '—';
+              const sub  = n.subcarrier_count
+                           ?? (Array.isArray(n.amplitude) ? n.amplitude.length : '—');
+              const ppl  = n.person_count ?? '—';
+              const seen = n.last_seen_ms != null ? `${n.last_seen_ms}ms` : '—';
+              logLines.push(
+                `[${ts}] node=${id} rssi=${rssi}dBm motion=${mot} sub=${sub} persons=${ppl} seen=${seen}`
+              );
+            }
           }
+
+          if (logLines.length > 200) logLines.splice(0, logLines.length - 200);
+          serialLog.textContent = logLines.join('\n');
+          serialLog.scrollTop = serialLog.scrollHeight;
         } catch { /* ignore non-JSON */ }
       };
       ws.onclose = () => setTimeout(connectWS, 3000);
