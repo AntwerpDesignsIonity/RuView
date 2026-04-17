@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AEDI-S — ESP32 Nodes</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #050510;
+      --bg2:      #0a0a1e;
+      --bg3:      #0f1028;
+      --border:   #1a2040;
+      --accent:   #0088ff;
+      --accent2:  #00ccff;
+      --green:    #00e676;
+      --red:      #ff3d57;
+      --yellow:   #ffd740;
+      --orange:   #ff7043;
+      --dim:      #334466;
+      --text:     #c8d8f0;
+      --text-dim: #5577aa;
+      --font:     'Courier New', 'Consolas', monospace;
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; }
+
+    #global-nav {
+      display: flex; align-items: center; gap: 0;
+      background: #070718; border-bottom: 1px solid var(--border);
+      height: 42px; padding: 0 12px; flex-shrink: 0;
+      overflow-x: auto; overflow-y: hidden;
+    }
+
+    .page-wrap {
+      max-width: 1200px; margin: 0 auto; padding: 20px;
+      overflow-y: auto; height: calc(100vh - 42px);
+    }
+
+    h1 { font-size: 18px; color: var(--accent2); margin-bottom: 16px; }
+    h2 { font-size: 14px; color: var(--accent); margin: 24px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+
+    .summary-bar {
+      display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap;
+    }
+    .stat-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+      padding: 12px 18px; min-width: 120px; text-align: center;
+    }
+    .stat-card .val { font-size: 24px; font-weight: bold; color: var(--accent2); }
+    .stat-card .lbl { font-size: 10px; color: var(--text-dim); margin-top: 4px; }
+
+    table {
+      width: 100%; border-collapse: collapse; margin-bottom: 16px;
+      background: var(--bg2); border-radius: 6px; overflow: hidden;
+    }
+    th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { background: var(--bg3); color: var(--accent); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+    td { font-size: 12px; }
+    tr:hover td { background: #0d1228; }
+
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 10px;
+      font-size: 10px; font-weight: bold; text-transform: uppercase;
+    }
+    .badge-active  { background: #00e67622; color: var(--green); border: 1px solid var(--green); }
+    .badge-stale   { background: #ffd74022; color: var(--yellow); border: 1px solid var(--yellow); }
+    .badge-offline { background: #ff3d5722; color: var(--red); border: 1px solid var(--red); }
+
+    .rssi-bar {
+      display: inline-block; width: 60px; height: 8px; background: var(--bg);
+      border-radius: 4px; overflow: hidden; vertical-align: middle;
+    }
+    .rssi-bar .fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+
+    .bridge-panel {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+      padding: 16px; margin-bottom: 16px;
+    }
+    .bridge-port {
+      display: flex; align-items: center; gap: 12px; padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .bridge-port:last-child { border-bottom: none; }
+    .bridge-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+    #serial-log {
+      background: #000; color: #0f0; font-size: 11px; padding: 10px;
+      border-radius: 6px; height: 200px; overflow-y: auto;
+      border: 1px solid var(--border); white-space: pre-wrap; word-break: break-all;
+    }
+
+    .empty-msg { color: var(--text-dim); text-align: center; padding: 40px; font-size: 14px; }
+
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .loading { animation: pulse 1.5s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+  <nav id="global-nav"></nav>
+  <div class="page-wrap">
+    <h1>⬡ ESP32 Node Management</h1>
+
+    <div class="summary-bar">
+      <div class="stat-card"><div class="val" id="total-nodes">--</div><div class="lbl">Total Nodes</div></div>
+      <div class="stat-card"><div class="val" id="active-nodes">--</div><div class="lbl">Active</div></div>
+      <div class="stat-card"><div class="val" id="avg-rssi">--</div><div class="lbl">Avg RSSI</div></div>
+      <div class="stat-card"><div class="val" id="bridge-status">--</div><div class="lbl">Bridge</div></div>
+    </div>
+
+    <h2>Live Nodes</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Status</th>
+          <th>RSSI</th>
+          <th>Signal</th>
+          <th>Motion</th>
+          <th>Persons</th>
+          <th>Last Seen</th>
+        </tr>
+      </thead>
+      <tbody id="nodes-tbody">
+        <tr><td colspan="7" class="empty-msg loading">Connecting...</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Serial Bridge</h2>
+    <div class="bridge-panel">
+      <div id="bridge-ports"><span class="empty-msg">Checking bridge status...</span></div>
+    </div>
+
+    <h2>Serial Log</h2>
+    <div id="serial-log">Waiting for data...</div>
+  </div>
+
+  <script type="module">
+    import { injectNav, NAV_CSS } from './shared/nav.js';
+    const s = document.createElement('style'); s.textContent = NAV_CSS; document.head.appendChild(s);
+    injectNav();
+
+    const $  = id => document.getElementById(id);
+    const tbody = $('nodes-tbody');
+    const bridgePorts = $('bridge-ports');
+    const serialLog = $('serial-log');
+    let logLines = [];
+
+    function rssiPercent(rssi) { return Math.max(0, Math.min(100, (rssi + 100) * 2)); }
+    function rssiColor(rssi) {
+      if (rssi > -50) return 'var(--green)';
+      if (rssi > -70) return 'var(--yellow)';
+      return 'var(--red)';
+    }
+
+    function statusBadge(node) {
+      if (node.last_seen_ms > 10000) return '<span class="badge badge-offline">offline</span>';
+      if (node.last_seen_ms > 3000)  return '<span class="badge badge-stale">stale</span>';
+      return '<span class="badge badge-active">active</span>';
+    }
+
+    function lastSeenText(ms) {
+      if (ms < 1000) return `${ms}ms`;
+      if (ms < 60000) return `${(ms/1000).toFixed(1)}s`;
+      return `${(ms/60000).toFixed(0)}m`;
+    }
+
+    async function pollNodes() {
+      try {
+        const r = await fetch('/api/v1/nodes');
+        const data = await r.json();
+        const nodes = data.nodes || [];
+
+        $('total-nodes').textContent = nodes.length;
+        const active = nodes.filter(n => n.last_seen_ms < 5000);
+        $('active-nodes').textContent = active.length;
+
+        if (nodes.length > 0) {
+          const avg = nodes.reduce((s, n) => s + (n.rssi_dbm || 0), 0) / nodes.length;
+          $('avg-rssi').textContent = `${avg.toFixed(0)} dBm`;
+        } else {
+          $('avg-rssi').textContent = '--';
+        }
+
+        if (nodes.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" class="empty-msg">No ESP32 nodes detected. Start the serial bridge.</td></tr>';
+          return;
+        }
+
+        nodes.sort((a, b) => a.node_id - b.node_id);
+        tbody.innerHTML = nodes.map(n => {
+          const pct = rssiPercent(n.rssi_dbm);
+          const col = rssiColor(n.rssi_dbm);
+          return `<tr>
+            <td><strong>${n.node_id}</strong></td>
+            <td>${statusBadge(n)}</td>
+            <td>${(n.rssi_dbm || 0).toFixed(0)} dBm</td>
+            <td><div class="rssi-bar"><div class="fill" style="width:${pct}%;background:${col}"></div></div></td>
+            <td>${n.motion_level || '--'}</td>
+            <td>${n.person_count ?? '--'}</td>
+            <td>${lastSeenText(n.last_seen_ms)}</td>
+          </tr>`;
+        }).join('');
+
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="7" class="empty-msg">Connection error: ${e.message}</td></tr>`;
+      }
+    }
+
+    async function pollBridge() {
+      try {
+        const r = await fetch('/api/v1/bridge-status');
+        if (r.ok) {
+          const data = await r.json();
+          $('bridge-status').textContent = data.status || 'unknown';
+          if (data.ports && data.ports.length > 0) {
+            bridgePorts.innerHTML = data.ports.map(p => {
+              const dotColor = p.state === 'active' ? 'var(--green)' :
+                               p.state === 'silent' ? 'var(--yellow)' : 'var(--red)';
+              return `<div class="bridge-port">
+                <div class="bridge-dot" style="background:${dotColor}"></div>
+                <span style="min-width:120px">${p.port}</span>
+                <span style="color:var(--text-dim)">rx:${p.rx} fwd:${p.fwd} err:${p.err}</span>
+                <span style="color:var(--text-dim)">${p.state}</span>
+              </div>`;
+            }).join('');
+          }
+        } else {
+          $('bridge-status').textContent = 'N/A';
+          bridgePorts.innerHTML = '<span class="empty-msg">Bridge status endpoint not available. Bridge runs as standalone script.</span>';
+        }
+      } catch {
+        $('bridge-status').textContent = 'N/A';
+        bridgePorts.innerHTML = '<span class="empty-msg">Bridge status endpoint not available. Run: <code>python scripts/csi-serial-bridge.py</code></span>';
+      }
+    }
+
+    // WebSocket for live serial log
+    function connectWS() {
+      const wsPort = 3001;
+      const ws = new WebSocket(`ws://${location.hostname}:${wsPort}/ws/sensing`);
+      ws.onmessage = (evt) => {
+        try {
+          const d = JSON.parse(evt.data);
+          if (d.nodes || d.node_id !== undefined) {
+            const ts = new Date().toLocaleTimeString();
+            const line = `[${ts}] node=${d.node_id ?? '?'} rssi=${d.rssi_dbm ?? d.rssi ?? '?'} motion=${d.motion_level ?? d.motion ?? '?'}`;
+            logLines.push(line);
+            if (logLines.length > 200) logLines.shift();
+            serialLog.textContent = logLines.join('\n');
+            serialLog.scrollTop = serialLog.scrollHeight;
+          }
+        } catch { /* ignore non-JSON */ }
+      };
+      ws.onclose = () => setTimeout(connectWS, 3000);
+      ws.onerror = () => ws.close();
+    }
+
+    // Start polling
+    pollNodes();
+    pollBridge();
+    setInterval(pollNodes, 2000);
+    setInterval(pollBridge, 10000);
+    connectWS();
+  </script>
+</body>
+</html>

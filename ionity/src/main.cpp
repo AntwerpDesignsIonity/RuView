@@ -170,7 +170,7 @@ uint32_t          g_udp_sent       = 0;  // frames sent over UDP
 uint32_t          g_ser_sent       = 0;  // frames sent over serial bridge
 uint32_t          g_udp_fail       = 0;  // send failures
 bool              g_csi_running    = false;
-bool              g_serial_bridge  = false;  // WiFi UDP only (no serial bridge)
+bool              g_serial_bridge  = true;   // SLIP serial bridge (AP-isolation bypass)
 
 // WiFi credentials kept globally so reconnect can re-use them
 static char g_ssid[33] = {};
@@ -329,11 +329,27 @@ static void csiSenderTask(void *pv)
 }
 
 // ---------------------------------------------------------------------------
+// Promiscuous mode callback — required for CSI to capture packets on
+// most Arduino ESP32 builds.  The callback itself is empty; we only
+// need promiscuous mode active so the WiFi driver delivers CSI data.
+// ---------------------------------------------------------------------------
+static void promiscuousCallback(void *buf, wifi_promiscuous_pkt_type_t type)
+{
+    (void)buf;
+    (void)type;
+}
+
+// ---------------------------------------------------------------------------
 // Enable WiFi CSI collection (called after WiFi STA connects)
 // ---------------------------------------------------------------------------
 static void startCSI()
 {
     if (g_csi_running) return;
+
+    // Enable promiscuous mode FIRST — many Arduino ESP32 builds require it
+    // for the CSI callback to fire.  Without it, frames=0 permanently.
+    esp_wifi_set_promiscuous_rx_cb(promiscuousCallback);
+    esp_wifi_set_promiscuous(true);
 
     wifi_csi_config_t cfg = {};
     cfg.lltf_en           = true;
@@ -399,12 +415,15 @@ void setup() {
     Serial.begin(460800);
     delay(100);
 
-    // FastLED init — drive BOTH GPIO48 and GPIO38 so firmware works on all
-    // ESP32-S3 board variants without needing to determine pin at compile time.
-    // Only one will have a real LED; the other is harmless.
+    // FastLED init — drive GPIO48, GPIO38, AND GPIO47 so firmware works on
+    // ALL ESP32-S3 board variants (DevKitC=48, GOOUUU N16R8=38, SuperMini=47)
+    // without needing to determine the correct pin at compile time.
+    // Only one will have a real LED; the others are harmless no-ops.
     FastLED.addLeds<LED_TYPE, 48, COLOR_ORDER>(leds, NUM_LEDS)
            .setCorrection(TypicalLEDStrip);
     FastLED.addLeds<LED_TYPE, 38, COLOR_ORDER>(leds, NUM_LEDS)
+           .setCorrection(TypicalLEDStrip);
+    FastLED.addLeds<LED_TYPE, 47, COLOR_ORDER>(leds, NUM_LEDS)
            .setCorrection(TypicalLEDStrip);
     FastLED.setBrightness(BRIGHTNESS);
     leds[0] = CRGB::Black;

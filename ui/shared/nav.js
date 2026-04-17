@@ -11,6 +11,7 @@ export function injectNav(containerId = 'global-nav') {
     { href: 'observatory.html', label: 'Observatory', icon: '◈' },
     { href: 'pose-fusion.html', label: 'Pose Fusion', icon: '⬡' },
     { href: 'xyz-segment.html', label: 'XYZ Segment', icon: '◆' },
+    { href: 'nodes.html',       label: 'Nodes',      icon: '⬡' },
     { href: 'aedi.html',        label: 'AEDI',       icon: '⬢' },
   ];
 

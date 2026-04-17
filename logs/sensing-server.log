@@ -871,3 +871,286 @@ nohup: ignoring input
   [2m2026-04-17T06:11:23.042690Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mAutorepair selfcheck #570: healthy=true, tick=171000, RSS=9.7MB, uptime=17100s, recoveries=0[0m
     [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:4667 [2;3mon[0m tokio-runtime-worker ThreadId(4)
 
+  [2m2026-04-17T06:16:23.044303Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mAutorepair selfcheck #580: healthy=true, tick=174000, RSS=9.6MB, uptime=17400s, recoveries=0[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:4667 [2;3mon[0m tokio-runtime-worker ThreadId(3)
+
+  [2m2026-04-17T06:19:05.363609Z[0m [34mDEBUG[0m [1;34mtower_http::trace::on_request[0m[34m: [34mstarted processing request[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_request.rs:80 [2;3mon[0m tokio-runtime-worker ThreadId(2)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /health, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:19:05.363685Z[0m [32m INFO[0m [1;32mtower_http::trace::on_response[0m[32m: [32mfinished processing request, [1;32mlatency[0m[32m: 0 ms, [1;32mstatus[0m[32m: 200[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_response.rs:114 [2;3mon[0m tokio-runtime-worker ThreadId(2)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /health, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:19:05.416507Z[0m [34mDEBUG[0m [1;34mtower_http::trace::on_request[0m[34m: [34mstarted processing request[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_request.rs:80 [2;3mon[0m tokio-runtime-worker ThreadId(4)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/nodes, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:19:05.416552Z[0m [32m INFO[0m [1;32mtower_http::trace::on_response[0m[32m: [32mfinished processing request, [1;32mlatency[0m[32m: 0 ms, [1;32mstatus[0m[32m: 404[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_response.rs:114 [2;3mon[0m tokio-runtime-worker ThreadId(4)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/nodes, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:19:11.545511Z[0m [34mDEBUG[0m [1;34mtower_http::trace::on_request[0m[34m: [34mstarted processing request[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_request.rs:80 [2;3mon[0m tokio-runtime-worker ThreadId(4)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/nodes, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:19:11.545566Z[0m [32m INFO[0m [1;32mtower_http::trace::on_response[0m[32m: [32mfinished processing request, [1;32mlatency[0m[32m: 0 ms, [1;32mstatus[0m[32m: 404[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_response.rs:114 [2;3mon[0m tokio-runtime-worker ThreadId(4)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/nodes, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:19:11.562585Z[0m [34mDEBUG[0m [1;34mtower_http::trace::on_request[0m[34m: [34mstarted processing request[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_request.rs:80 [2;3mon[0m tokio-runtime-worker ThreadId(2)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/status, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:19:11.562639Z[0m [32m INFO[0m [1;32mtower_http::trace::on_response[0m[32m: [32mfinished processing request, [1;32mlatency[0m[32m: 0 ms, [1;32mstatus[0m[32m: 404[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_response.rs:114 [2;3mon[0m tokio-runtime-worker ThreadId(2)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/status, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:19:11.577477Z[0m [34mDEBUG[0m [1;34mtower_http::trace::on_request[0m[34m: [34mstarted processing request[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_request.rs:80 [2;3mon[0m tokio-runtime-worker ThreadId(4)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /nodes, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:19:11.577532Z[0m [32m INFO[0m [1;32mtower_http::trace::on_response[0m[32m: [32mfinished processing request, [1;32mlatency[0m[32m: 0 ms, [1;32mstatus[0m[32m: 404[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_response.rs:114 [2;3mon[0m tokio-runtime-worker ThreadId(4)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /nodes, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:19:11.591348Z[0m [34mDEBUG[0m [1;34mtower_http::trace::on_request[0m[34m: [34mstarted processing request[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_request.rs:80 [2;3mon[0m tokio-runtime-worker ThreadId(2)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /status, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:19:11.591535Z[0m [32m INFO[0m [1;32mtower_http::trace::on_response[0m[32m: [32mfinished processing request, [1;32mlatency[0m[32m: 0 ms, [1;32mstatus[0m[32m: 404[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_response.rs:114 [2;3mon[0m tokio-runtime-worker ThreadId(2)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /status, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:19:11.604159Z[0m [34mDEBUG[0m [1;34mtower_http::trace::on_request[0m[34m: [34mstarted processing request[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_request.rs:80 [2;3mon[0m tokio-runtime-worker ThreadId(4)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/esp32, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:19:11.604220Z[0m [32m INFO[0m [1;32mtower_http::trace::on_response[0m[32m: [32mfinished processing request, [1;32mlatency[0m[32m: 0 ms, [1;32mstatus[0m[32m: 404[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_response.rs:114 [2;3mon[0m tokio-runtime-worker ThreadId(4)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/esp32, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:19:11.617634Z[0m [34mDEBUG[0m [1;34mtower_http::trace::on_request[0m[34m: [34mstarted processing request[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_request.rs:80 [2;3mon[0m tokio-runtime-worker ThreadId(4)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/devices, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:19:11.617674Z[0m [32m INFO[0m [1;32mtower_http::trace::on_response[0m[32m: [32mfinished processing request, [1;32mlatency[0m[32m: 0 ms, [1;32mstatus[0m[32m: 404[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_response.rs:114 [2;3mon[0m tokio-runtime-worker ThreadId(4)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/devices, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:19:24.065741Z[0m [34mDEBUG[0m [1;34mtower_http::trace::on_request[0m[34m: [34mstarted processing request[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_request.rs:80 [2;3mon[0m tokio-runtime-worker ThreadId(3)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/v1/nodes, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:19:24.065803Z[0m [32m INFO[0m [1;32mtower_http::trace::on_response[0m[32m: [32mfinished processing request, [1;32mlatency[0m[32m: 0 ms, [1;32mstatus[0m[32m: 200[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_response.rs:114 [2;3mon[0m tokio-runtime-worker ThreadId(3)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/v1/nodes, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:20:35.152120Z[0m [34mDEBUG[0m [1;34mtower_http::trace::on_request[0m[34m: [34mstarted processing request[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_request.rs:80 [2;3mon[0m tokio-runtime-worker ThreadId(4)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /health, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:20:35.152201Z[0m [32m INFO[0m [1;32mtower_http::trace::on_response[0m[32m: [32mfinished processing request, [1;32mlatency[0m[32m: 0 ms, [1;32mstatus[0m[32m: 200[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_response.rs:114 [2;3mon[0m tokio-runtime-worker ThreadId(4)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /health, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:20:35.216916Z[0m [34mDEBUG[0m [1;34mtower_http::trace::on_request[0m[34m: [34mstarted processing request[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_request.rs:80 [2;3mon[0m tokio-runtime-worker ThreadId(3)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/v1/nodes, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:20:35.216975Z[0m [32m INFO[0m [1;32mtower_http::trace::on_response[0m[32m: [32mfinished processing request, [1;32mlatency[0m[32m: 0 ms, [1;32mstatus[0m[32m: 200[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_response.rs:114 [2;3mon[0m tokio-runtime-worker ThreadId(3)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/v1/nodes, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:21:23.043549Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mAutorepair selfcheck #590: healthy=true, tick=177000, RSS=9.6MB, uptime=17700s, recoveries=0[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:4667 [2;3mon[0m tokio-runtime-worker ThreadId(3)
+
+  [2m2026-04-17T06:25:39.522111Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mTracing initialised, [1;32mtrace_format[0m[32m: "pretty"[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:4699 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:25:39.522329Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mWiFi-DensePose Sensing Server (Rust + Axum + RuVector)[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5130 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:25:39.522349Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32m  HTTP:      http://localhost:3000[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5131 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:25:39.522355Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32m  WebSocket: ws://localhost:3001/ws/sensing[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5132 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:25:39.522359Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32m  UDP:       0.0.0.0:5005 (ESP32 CSI)[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5133 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:25:39.522366Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32m  UI path:   /home/antwerp/Creations/.2026/.Naked/RuView/ui[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5134 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:25:39.522372Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32m  Source:    auto[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5135 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:25:39.522377Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mAuto-detecting data source...[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5140 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:25:41.525088Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32m  Linux WiFi detected (iw dev)[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5148 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:25:41.525119Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mData source: wifi[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5158 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:25:41.525124Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mVital sign detector sample rate: 10.0 Hz[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5163 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:25:41.525207Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mDiscovered 1 model files, 0 recording files[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5239 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:25:41.525276Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mUDP listening on 0.0.0.0:5005 for ESP32 CSI frames[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:3881 [2;3mon[0m tokio-runtime-worker ThreadId(5)
+
+  [2m2026-04-17T06:25:41.526405Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mLinux WiFi sensing: interface=wlan0 — scanning all visible BSSIDs[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5330 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:25:41.526448Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mLinux multi-BSSID WiFi sensing active (iface=wlan0, tick=100ms, max_bssids=64)[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:1502 [2;3mon[0m tokio-runtime-worker ThreadId(4)
+
+  [2m2026-04-17T06:25:41.526455Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32m  Scanning all visible APs — own + neighbours — as passive RF beacons[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:1505 [2;3mon[0m tokio-runtime-worker ThreadId(4)
+
+  [2m2026-04-17T06:25:41.526547Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mWebSocket server listening on 0.0.0.0:3001[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5366 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:25:41.526735Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mHTTP server listening on 0.0.0.0:3000[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5453 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:25:41.526741Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mOpen http://localhost:3000/ui/index.html in your browser[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5454 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:25:51.284043Z[0m [34mDEBUG[0m [1;34mtower_http::trace::on_request[0m[34m: [34mstarted processing request[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_request.rs:80 [2;3mon[0m tokio-runtime-worker ThreadId(4)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /health, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:25:51.284105Z[0m [32m INFO[0m [1;32mtower_http::trace::on_response[0m[32m: [32mfinished processing request, [1;32mlatency[0m[32m: 0 ms, [1;32mstatus[0m[32m: 200[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_response.rs:114 [2;3mon[0m tokio-runtime-worker ThreadId(4)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /health, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:25:51.346280Z[0m [34mDEBUG[0m [1;34mtower_http::trace::on_request[0m[34m: [34mstarted processing request[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_request.rs:80 [2;3mon[0m tokio-runtime-worker ThreadId(3)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/v1/nodes, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:25:51.346338Z[0m [32m INFO[0m [1;32mtower_http::trace::on_response[0m[32m: [32mfinished processing request, [1;32mlatency[0m[32m: 0 ms, [1;32mstatus[0m[32m: 200[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_response.rs:114 [2;3mon[0m tokio-runtime-worker ThreadId(3)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/v1/nodes, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:26:07.501298Z[0m [34mDEBUG[0m [1;34mtower_http::trace::on_request[0m[34m: [34mstarted processing request[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_request.rs:80 [2;3mon[0m tokio-runtime-worker ThreadId(3)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/v1/nodes, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:26:07.501376Z[0m [32m INFO[0m [1;32mtower_http::trace::on_response[0m[32m: [32mfinished processing request, [1;32mlatency[0m[32m: 0 ms, [1;32mstatus[0m[32m: 200[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_response.rs:114 [2;3mon[0m tokio-runtime-worker ThreadId(3)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/v1/nodes, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:31:20.656609Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mTracing initialised, [1;32mtrace_format[0m[32m: "pretty"[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:4699 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:31:20.656839Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mWiFi-DensePose Sensing Server (Rust + Axum + RuVector)[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5130 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:31:20.656852Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32m  HTTP:      http://localhost:3000[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5131 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:31:20.656857Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32m  WebSocket: ws://localhost:3001/ws/sensing[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5132 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:31:20.656868Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32m  UDP:       0.0.0.0:5005 (ESP32 CSI)[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5133 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:31:20.656872Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32m  UI path:   /home/antwerp/Creations/.2026/.Naked/RuView/ui[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5134 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:31:20.656876Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32m  Source:    auto[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5135 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:31:20.656879Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mAuto-detecting data source...[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5140 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:31:22.658915Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32m  Linux WiFi detected (iw dev)[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5148 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:31:22.658947Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mData source: wifi[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5158 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:31:22.658952Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mVital sign detector sample rate: 10.0 Hz[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5163 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:31:22.659032Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mDiscovered 1 model files, 0 recording files[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5239 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:31:22.659094Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mUDP listening on 0.0.0.0:5005 for ESP32 CSI frames[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:3881 [2;3mon[0m tokio-runtime-worker ThreadId(4)
+
+  [2m2026-04-17T06:31:22.660912Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mLinux WiFi sensing: interface=wlan0 — scanning all visible BSSIDs[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5330 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:31:22.660965Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mLinux multi-BSSID WiFi sensing active (iface=wlan0, tick=100ms, max_bssids=64)[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:1502 [2;3mon[0m tokio-runtime-worker ThreadId(4)
+
+  [2m2026-04-17T06:31:22.660972Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32m  Scanning all visible APs — own + neighbours — as passive RF beacons[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:1505 [2;3mon[0m tokio-runtime-worker ThreadId(4)
+
+  [2m2026-04-17T06:31:22.661067Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mWebSocket server listening on 0.0.0.0:3001[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5366 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:31:22.661281Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mHTTP server listening on 0.0.0.0:3000[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5453 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:31:22.661299Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mOpen http://localhost:3000/ui/index.html in your browser[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:5454 [2;3mon[0m main ThreadId(1)
+
+  [2m2026-04-17T06:32:22.805071Z[0m [34mDEBUG[0m [1;34mtower_http::trace::on_request[0m[34m: [34mstarted processing request[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_request.rs:80 [2;3mon[0m tokio-runtime-worker ThreadId(5)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /health, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:32:22.805140Z[0m [32m INFO[0m [1;32mtower_http::trace::on_response[0m[32m: [32mfinished processing request, [1;32mlatency[0m[32m: 0 ms, [1;32mstatus[0m[32m: 200[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_response.rs:114 [2;3mon[0m tokio-runtime-worker ThreadId(5)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /health, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:32:53.934530Z[0m [34mDEBUG[0m [1;34mtower_http::trace::on_request[0m[34m: [34mstarted processing request[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_request.rs:80 [2;3mon[0m tokio-runtime-worker ThreadId(3)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/v1/nodes, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:32:53.934619Z[0m [32m INFO[0m [1;32mtower_http::trace::on_response[0m[32m: [32mfinished processing request, [1;32mlatency[0m[32m: 0 ms, [1;32mstatus[0m[32m: 200[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_response.rs:114 [2;3mon[0m tokio-runtime-worker ThreadId(3)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/v1/nodes, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:34:36.561068Z[0m [34mDEBUG[0m [1;34mtower_http::trace::on_request[0m[34m: [34mstarted processing request[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_request.rs:80 [2;3mon[0m tokio-runtime-worker ThreadId(5)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /health, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:34:36.561169Z[0m [32m INFO[0m [1;32mtower_http::trace::on_response[0m[32m: [32mfinished processing request, [1;32mlatency[0m[32m: 0 ms, [1;32mstatus[0m[32m: 200[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_response.rs:114 [2;3mon[0m tokio-runtime-worker ThreadId(5)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /health, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:34:36.589537Z[0m [34mDEBUG[0m [1;34mtower_http::trace::on_request[0m[34m: [34mstarted processing request[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_request.rs:80 [2;3mon[0m tokio-runtime-worker ThreadId(2)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/v1/nodes, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:34:36.589644Z[0m [32m INFO[0m [1;32mtower_http::trace::on_response[0m[32m: [32mfinished processing request, [1;32mlatency[0m[32m: 0 ms, [1;32mstatus[0m[32m: 200[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_response.rs:114 [2;3mon[0m tokio-runtime-worker ThreadId(2)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /api/v1/nodes, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:34:36.642757Z[0m [34mDEBUG[0m [1;34mtower_http::trace::on_request[0m[34m: [34mstarted processing request[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_request.rs:80 [2;3mon[0m tokio-runtime-worker ThreadId(5)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /ui/nodes.html, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:34:36.642907Z[0m [32m INFO[0m [1;32mtower_http::trace::on_response[0m[32m: [32mfinished processing request, [1;32mlatency[0m[32m: 0 ms, [1;32mstatus[0m[32m: 200[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_response.rs:114 [2;3mon[0m tokio-runtime-worker ThreadId(2)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /ui/nodes.html, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:34:41.100942Z[0m [34mDEBUG[0m [1;34mtower_http::trace::on_request[0m[34m: [34mstarted processing request[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_request.rs:80 [2;3mon[0m tokio-runtime-worker ThreadId(2)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /ui/nodes.html, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:34:41.101243Z[0m [32m INFO[0m [1;32mtower_http::trace::on_response[0m[32m: [32mfinished processing request, [1;32mlatency[0m[32m: 0 ms, [1;32mstatus[0m[32m: 200[0m
+    [2;3mat[0m /home/antwerp/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.5.2/src/trace/on_response.rs:114 [2;3mon[0m tokio-runtime-worker ThreadId(5)
+    [2;3min[0m tower_http::trace::make_span::[1mrequest[0m [2;3mwith[0m [1mmethod[0m: GET, [1muri[0m: /ui/nodes.html, [1mversion[0m: HTTP/1.1
+
+  [2m2026-04-17T06:36:22.661733Z[0m [32m INFO[0m [1;32msensing_server[0m[32m: [32mAutorepair selfcheck #10: healthy=true, tick=5044, RSS=7.2MB, uptime=300s, recoveries=0[0m
+    [2;3mat[0m crates/wifi-densepose-sensing-server/src/main.rs:4667 [2;3mon[0m tokio-runtime-worker ThreadId(2)
+

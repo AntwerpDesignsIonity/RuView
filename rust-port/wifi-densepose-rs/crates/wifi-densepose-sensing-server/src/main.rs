@@ -5315,10 +5315,12 @@ async fn main() {
         },
     }));
 
+    // Always spawn UDP receiver so ESP32 nodes can connect regardless of source mode
+    tokio::spawn(udp_receiver_task(state.clone(), args.udp_port));
+
     // Start background tasks based on source
     match source {
         "esp32" => {
-            tokio::spawn(udp_receiver_task(state.clone(), args.udp_port));
             tokio::spawn(broadcast_tick_task(state.clone(), args.tick_ms));
         }
         "wifi" => {

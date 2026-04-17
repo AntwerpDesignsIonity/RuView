@@ -96,107 +96,107 @@ warning: unused imports: `KeypointState`, `PoseTrack`, and `self`
    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
 
 warning: unused import: `wifi_densepose_wifiscan::parse_iw_scan_output`
-  --> crates/wifi-densepose-sensing-server/src/main.rs:63:5
+  --> crates/wifi-densepose-sensing-server/src/main.rs:65:5
    |
-63 | use wifi_densepose_wifiscan::parse_iw_scan_output;
+65 | use wifi_densepose_wifiscan::parse_iw_scan_output;
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: value assigned to `recovery_count` is never read
-    --> crates/wifi-densepose-sensing-server/src/main.rs:4504:17
+    --> crates/wifi-densepose-sensing-server/src/main.rs:4613:21
      |
-4504 |                 recovery_count += 1;
-     |                 ^^^^^^^^^^^^^^^^^^^
+4613 |                     recovery_count += 1;
+     |                     ^^^^^^^^^^^^^^^^^^^
      |
      = help: maybe it is overwritten before being read?
      = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
 
 warning: fields `prev_keypoints`, `motion_energy_history`, and `coherence_score` are never read
-   --> crates/wifi-densepose-sensing-server/src/main.rs:332:5
+   --> crates/wifi-densepose-sensing-server/src/main.rs:334:5
     |
-307 | struct NodeState {
+309 | struct NodeState {
     |        --------- fields in this struct
 ...
-332 |     prev_keypoints: Option<Vec<[f64; 3]>>,
+334 |     prev_keypoints: Option<Vec<[f64; 3]>>,
     |     ^^^^^^^^^^^^^^
-333 |     /// Rolling buffer of motion_energy...
-334 |     motion_energy_history: VecDeque<f64>,
+335 |     /// Rolling buffer of motion_energy...
+336 |     motion_energy_history: VecDeque<f64>,
     |     ^^^^^^^^^^^^^^^^^^^^^
-335 |     /// Coherence score [0.0, 1.0]: low...
-336 |     coherence_score: f64,
+337 |     /// Coherence score [0.0, 1.0]: low...
+338 |     coherence_score: f64,
     |     ^^^^^^^^^^^^^^^
     |
     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
 
 warning: constant `TEMPORAL_EMA_ALPHA_DEFAULT` is never used
-   --> crates/wifi-densepose-sensing-server/src/main.rs:342:7
+   --> crates/wifi-densepose-sensing-server/src/main.rs:344:7
     |
-342 | const TEMPORAL_EMA_ALPHA_DEFAULT: f64 = 0.15;
+344 | const TEMPORAL_EMA_ALPHA_DEFAULT: f64 = 0.15;
     |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: constant `TEMPORAL_EMA_ALPHA_LOW_COHERENCE` is never used
-   --> crates/wifi-densepose-sensing-server/src/main.rs:344:7
+   --> crates/wifi-densepose-sensing-server/src/main.rs:346:7
     |
-344 | const TEMPORAL_EMA_ALPHA_LOW_COHERENCE: f64 = 0.05;
+346 | const TEMPORAL_EMA_ALPHA_LOW_COHERENCE: f64 = 0.05;
     |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: constant `COHERENCE_LOW_THRESHOLD` is never used
-   --> crates/wifi-densepose-sensing-server/src/main.rs:346:7
+   --> crates/wifi-densepose-sensing-server/src/main.rs:348:7
     |
-346 | const COHERENCE_LOW_THRESHOLD: f64 = 0.3;
+348 | const COHERENCE_LOW_THRESHOLD: f64 = 0.3;
     |       ^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: constant `MAX_BONE_CHANGE_RATIO` is never used
-   --> crates/wifi-densepose-sensing-server/src/main.rs:348:7
+   --> crates/wifi-densepose-sensing-server/src/main.rs:350:7
     |
-348 | const MAX_BONE_CHANGE_RATIO: f64 = 0.20;
+350 | const MAX_BONE_CHANGE_RATIO: f64 = 0.20;
     |       ^^^^^^^^^^^^^^^^^^^^^
 
 warning: methods `update_coherence` and `ema_alpha` are never used
-   --> crates/wifi-densepose-sensing-server/src/main.rs:386:8
+   --> crates/wifi-densepose-sensing-server/src/main.rs:388:8
     |
-352 | impl NodeState {
+354 | impl NodeState {
     | -------------- methods in this implementation
 ...
-386 |     fn update_coherence(&mut self, motion_energy: f64) {
+388 |     fn update_coherence(&mut self, motion_energy: f64) {
     |        ^^^^^^^^^^^^^^^^
 ...
-408 |     fn ema_alpha(&self) -> f64 {
+410 |     fn ema_alpha(&self) -> f64 {
     |        ^^^^^^^^^
 
 warning: function `windows_wifi_task` is never used
-    --> crates/wifi-densepose-sensing-server/src/main.rs:1675:10
+    --> crates/wifi-densepose-sensing-server/src/main.rs:1679:10
      |
-1675 | async fn windows_wifi_task(state: SharedState, tick_ms: u64) {
+1679 | async fn windows_wifi_task(state: SharedState, tick_ms: u64) {
      |          ^^^^^^^^^^^^^^^^^
 
 warning: function `windows_wifi_fallback_tick` is never used
-    --> crates/wifi-densepose-sensing-server/src/main.rs:1899:10
+    --> crates/wifi-densepose-sensing-server/src/main.rs:1903:10
      |
-1899 | async fn windows_wifi_fallback_tick(state: &SharedState, seq: u32) {
+1903 | async fn windows_wifi_fallback_tick(state: &SharedState, seq: u32) {
      |          ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: constant `POSE_BONE_PAIRS` is never used
-    --> crates/wifi-densepose-sensing-server/src/main.rs:2733:7
+    --> crates/wifi-densepose-sensing-server/src/main.rs:2756:7
      |
-2733 | const POSE_BONE_PAIRS: &[(usize, usize)] = &[
+2756 | const POSE_BONE_PAIRS: &[(usize, usize)] = &[
      |       ^^^^^^^^^^^^^^^
 
 warning: function `apply_temporal_smoothing` is never used
-    --> crates/wifi-densepose-sensing-server/src/main.rs:2744:4
+    --> crates/wifi-densepose-sensing-server/src/main.rs:2767:4
      |
-2744 | fn apply_temporal_smoothing(persons: &mut [PersonDetection], ns: &mut ...
+2767 | fn apply_temporal_smoothing(persons: &mut [PersonDetection], ns: &mut ...
      |    ^^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: function `clamp_bone_lengths_f64` is never used
-    --> crates/wifi-densepose-sensing-server/src/main.rs:2784:4
+    --> crates/wifi-densepose-sensing-server/src/main.rs:2807:4
      |
-2784 | fn clamp_bone_lengths_f64(pose: &mut Vec<[f64; 3]>, prev: &[[f64; 3]]) {
+2807 | fn clamp_bone_lengths_f64(pose: &mut Vec<[f64; 3]>, prev: &[[f64; 3]]) {
      |    ^^^^^^^^^^^^^^^^^^^^^^
 
 warning: function `dist_f64` is never used
-    --> crates/wifi-densepose-sensing-server/src/main.rs:2811:4
+    --> crates/wifi-densepose-sensing-server/src/main.rs:2834:4
      |
-2811 | fn dist_f64(a: &[f64; 3], b: &[f64; 3]) -> f64 {
+2834 | fn dist_f64(a: &[f64; 3], b: &[f64; 3]) -> f64 {
      |    ^^^^^^^^
 
 warning: constant `SEG_LORA` is never used
@@ -357,4 +357,4 @@ warning: method `reset` is never used
     |            ^^^^^
 
 warning: `wifi-densepose-sensing-server` (bin "sensing-server") generated 30 warnings (run `cargo fix --bin "sensing-server" -p wifi-densepose-sensing-server` to apply 2 suggestions)
-    Finished `release` profile [optimized] target(s) in 1m 30s
+    Finished `release` profile [optimized] target(s) in 1m 31s
