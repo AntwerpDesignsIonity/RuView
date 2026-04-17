@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Ionity.AediMaui.MainPage"
+             BackgroundColor="{StaticResource Bg}"
+             Padding="16">
+    <ScrollView>
+        <VerticalStackLayout Spacing="12">
+
+            <!-- Header -->
+            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                <Label Grid.Row="0" Grid.Column="0"
+                       Text="AEDI-S" FontSize="28" FontAttributes="Bold"
+                       TextColor="{StaticResource Fg}" />
+                <Label Grid.Row="0" Grid.Column="1"
+                       x:Name="StatusBadge" Text="OFFLINE" FontSize="12"
+                       TextColor="{StaticResource Err}" VerticalOptions="Center" />
+                <Label Grid.Row="1" Grid.Column="0"
+                       Text="WiFi CSI human sensing — live client"
+                       FontSize="13" TextColor="#9AA6BF" />
+            </Grid>
+
+            <!-- Hub connection -->
+            <Frame BackgroundColor="{StaticResource BgAlt}" BorderColor="#1F2B48"
+                   CornerRadius="12" Padding="12" HasShadow="False">
+                <VerticalStackLayout Spacing="8">
+                    <Label Text="Hub" FontSize="12" TextColor="#9AA6BF" />
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                        <Entry Grid.Column="0" x:Name="HubEntry"
+                               Placeholder="ws://192.168.124.7:3001/ws/sensing"
+                               TextColor="{StaticResource Fg}"
+                               PlaceholderColor="#6B7A99" />
+                        <Button Grid.Column="1" x:Name="ConnectBtn"
+                                Text="Connect" Clicked="OnConnectClicked"
+                                BackgroundColor="{StaticResource Accent}"
+                                TextColor="#0B1220" />
+                    </Grid>
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Primary readouts -->
+            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="8">
+                <Frame Grid.Row="0" Grid.Column="0" BackgroundColor="{StaticResource BgAlt}" BorderColor="#1F2B48" CornerRadius="12" Padding="12" HasShadow="False">
+                    <VerticalStackLayout>
+                        <Label Text="Presence" FontSize="12" TextColor="#9AA6BF" />
+                        <Label x:Name="PresenceLbl" Text="—" FontSize="22" FontAttributes="Bold" TextColor="{StaticResource Fg}" />
+                    </VerticalStackLayout>
+                </Frame>
+                <Frame Grid.Row="0" Grid.Column="1" BackgroundColor="{StaticResource BgAlt}" BorderColor="#1F2B48" CornerRadius="12" Padding="12" HasShadow="False">
+                    <VerticalStackLayout>
+                        <Label Text="Motion" FontSize="12" TextColor="#9AA6BF" />
+                        <Label x:Name="MotionLbl" Text="—" FontSize="22" FontAttributes="Bold" TextColor="{StaticResource Fg}" />
+                    </VerticalStackLayout>
+                </Frame>
+                <Frame Grid.Row="1" Grid.Column="0" BackgroundColor="{StaticResource BgAlt}" BorderColor="#1F2B48" CornerRadius="12" Padding="12" HasShadow="False">
+                    <VerticalStackLayout>
+                        <Label Text="Persons (estimate)" FontSize="12" TextColor="#9AA6BF" />
+                        <Label x:Name="PersonsLbl" Text="0" FontSize="28" FontAttributes="Bold" TextColor="{StaticResource Accent}" />
+                    </VerticalStackLayout>
+                </Frame>
+                <Frame Grid.Row="1" Grid.Column="1" BackgroundColor="{StaticResource BgAlt}" BorderColor="#1F2B48" CornerRadius="12" Padding="12" HasShadow="False">
+                    <VerticalStackLayout>
+                        <Label Text="Active nodes" FontSize="12" TextColor="#9AA6BF" />
+                        <Label x:Name="NodesLbl" Text="0" FontSize="28" FontAttributes="Bold" TextColor="{StaticResource Fg}" />
+                    </VerticalStackLayout>
+                </Frame>
+                <Frame Grid.Row="2" Grid.Column="0" BackgroundColor="{StaticResource BgAlt}" BorderColor="#1F2B48" CornerRadius="12" Padding="12" HasShadow="False">
+                    <VerticalStackLayout>
+                        <Label Text="Heart rate (bpm)" FontSize="12" TextColor="#9AA6BF" />
+                        <Label x:Name="HrLbl" Text="—" FontSize="22" FontAttributes="Bold" TextColor="{StaticResource Fg}" />
+                    </VerticalStackLayout>
+                </Frame>
+                <Frame Grid.Row="2" Grid.Column="1" BackgroundColor="{StaticResource BgAlt}" BorderColor="#1F2B48" CornerRadius="12" Padding="12" HasShadow="False">
+                    <VerticalStackLayout>
+                        <Label Text="Breathing (rpm)" FontSize="12" TextColor="#9AA6BF" />
+                        <Label x:Name="BrLbl" Text="—" FontSize="22" FontAttributes="Bold" TextColor="{StaticResource Fg}" />
+                    </VerticalStackLayout>
+                </Frame>
+            </Grid>
+
+            <!-- PSO localization -->
+            <Frame BackgroundColor="{StaticResource BgAlt}" BorderColor="#1F2B48"
+                   CornerRadius="12" Padding="12" HasShadow="False">
+                <VerticalStackLayout Spacing="6">
+                    <Label Text="PSO localization" FontSize="12" TextColor="#9AA6BF" />
+                    <Label x:Name="LocationLbl" Text="—" FontSize="16" TextColor="{StaticResource Fg}" />
+                    <Label x:Name="LocationMetaLbl" Text="" FontSize="11" TextColor="#6B7A99" />
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Raw tick + log -->
+            <Label x:Name="TickLbl" Text="tick=0" FontSize="11" TextColor="#6B7A99" />
+            <Editor x:Name="LogBox" IsReadOnly="True" HeightRequest="120"
+                    BackgroundColor="{StaticResource BgAlt}" TextColor="#9AA6BF" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

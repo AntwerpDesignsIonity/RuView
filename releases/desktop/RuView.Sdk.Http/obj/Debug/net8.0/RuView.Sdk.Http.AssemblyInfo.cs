@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyDescriptionAttribute("HTTP client SDK for the RuView sensing server REST API.")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("0.1.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0+d6ffca465b247471b110d51eec847413465d284f")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0+4e01c0b256eb6aa693df2be37257b0749e32b267")]
 [assembly: System.Reflection.AssemblyProductAttribute("RuView.Sdk.Http")]
 [assembly: System.Reflection.AssemblyTitleAttribute("RuView.Sdk.Http")]
 [assembly: System.Reflection.AssemblyVersionAttribute("0.1.0.0")]

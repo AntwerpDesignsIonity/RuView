@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("RuView.Desktop")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d6ffca465b247471b110d51eec847413465d284f")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4e01c0b256eb6aa693df2be37257b0749e32b267")]
 [assembly: System.Reflection.AssemblyProductAttribute("RuView.Desktop")]
 [assembly: System.Reflection.AssemblyTitleAttribute("RuView.Desktop")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

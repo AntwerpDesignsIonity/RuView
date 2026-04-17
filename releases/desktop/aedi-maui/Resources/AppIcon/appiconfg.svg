@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="456" height="456" viewBox="0 0 456 456">
+  <g transform="translate(228 228)" fill="none" stroke="#4FD1C5" stroke-width="14" stroke-linecap="round">
+    <path d="M -160 0 A 160 160 0 0 1 160 0" opacity="0.25"/>
+    <path d="M -110 0 A 110 110 0 0 1 110 0" opacity="0.5"/>
+    <path d="M -60 0 A 60 60 0 0 1 60 0" opacity="0.85"/>
+    <circle r="10" fill="#4FD1C5" stroke="none"/>
+  </g>
+</svg>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<Application xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:local="clr-namespace:Ionity.AediMaui"
+             x:Class="Ionity.AediMaui.App">
+    <Application.Resources>
+        <ResourceDictionary>
+            <Color x:Key="Bg">#0B1220</Color>
+            <Color x:Key="BgAlt">#111A2E</Color>
+            <Color x:Key="Fg">#E6EDF7</Color>
+            <Color x:Key="Accent">#4FD1C5</Color>
+            <Color x:Key="Warn">#FFB020</Color>
+            <Color x:Key="Err">#FF5C7A</Color>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
