@@ -16,8 +16,11 @@ Usage:
 
 Auto-detects /dev/ttyACM* and /dev/ttyUSB* ports at startup.
 Reconnects automatically on disconnect.
+Fault log written to logs/fault.log (JSON-lines).
 """
 
+import json
+import os
 import socket
 import serial
 import serial.tools.list_ports
@@ -39,7 +42,13 @@ SOF_0 = 0xAB
 SOF_1 = 0xCD
 BAUD  = 460800
 
-stats = {}  # port -> {"rx": int, "fwd": int}
+# How long a port can be silent before it is flagged as faulted (seconds)
+NODE_SILENCE_THRESHOLD = 30
+
+stats = {}         # port -> {"rx": int, "fwd": int, "err": int}
+last_frame = {}    # port -> float (epoch of most recent forwarded frame)
+port_state = {}    # port -> "active" | "silent" | "disconnected"
+_fault_log_path = None  # set in main()
 
 
 def find_esp32_ports():
@@ -52,15 +61,37 @@ def find_esp32_ports():
     return found
 
 
+def _write_fault(event: str, port: str, detail: str = ""):
+    """Append a JSON-line fault record to the fault log."""
+    if not _fault_log_path:
+        return
+    record = {
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "event": event,
+        "port": port,
+        "detail": detail,
+        "stats": stats.get(port, {}),
+    }
+    try:
+        with open(_fault_log_path, "a") as fh:
+            fh.write(json.dumps(record) + "\n")
+    except OSError:
+        pass
+
+
 def bridge_port(port: str, udp_sock: socket.socket, dest: tuple):
     """Read SLIP-framed ADR-018 frames from serial and forward as UDP."""
     stats[port] = {"rx": 0, "fwd": 0, "err": 0}
+    last_frame[port] = time.time()
+    port_state[port] = "active"
     buf = bytearray()
 
     while True:
         try:
             s = serial.Serial(port, BAUD, timeout=1)
             log.info(f"[{port}] Connected at {BAUD} baud")
+            port_state[port] = "active"
+            _write_fault("port_connected", port)
 
             while True:
                 chunk = s.read(512)
@@ -115,20 +146,45 @@ def bridge_port(port: str, udp_sock: socket.socket, dest: tuple):
                     # Forward as UDP to sensing-server
                     udp_sock.sendto(frame, dest)
                     stats[port]["fwd"] += 1
+                    last_frame[port] = time.time()
+                    if port_state[port] != "active":
+                        log.info(f"[{port}] Node recovered — frames flowing again")
+                        _write_fault("node_recovered", port)
+                        port_state[port] = "active"
 
         except serial.SerialException as e:
-            log.warning(f"[{port}] Serial error: {e} — reconnecting in 2s")
+            if port_state[port] != "disconnected":
+                log.warning(f"[{port}] Serial error: {e} — reconnecting in 2s")
+                _write_fault("port_disconnected", port, str(e))
+                port_state[port] = "disconnected"
             time.sleep(2)
         except Exception as e:
             log.error(f"[{port}] Unexpected: {e}")
+            _write_fault("port_error", port, str(e))
             time.sleep(2)
 
 
 def stats_loop():
     while True:
         time.sleep(10)
-        for port, s in sorted(stats.items()):
-            log.info(f"[{port}] rx={s['rx']} fwd={s['fwd']} err={s['err']}")
+        now = time.time()
+        for port in sorted(stats.keys()):
+            s = stats[port]
+            silent_secs = now - last_frame.get(port, now)
+            state = port_state.get(port, "unknown")
+            log.info(f"[{port}] state={state} rx={s['rx']} fwd={s['fwd']} err={s['err']} "
+                     f"silent={silent_secs:.0f}s")
+
+            # Flag silence faults
+            if (state == "active" and silent_secs > NODE_SILENCE_THRESHOLD):
+                log.warning(f"[{port}] Node silent for {silent_secs:.0f}s — possible fault")
+                _write_fault("node_silent", port,
+                             f"No frames for {silent_secs:.0f}s")
+                port_state[port] = "silent"
+            elif state == "silent" and silent_secs <= NODE_SILENCE_THRESHOLD:
+                log.info(f"[{port}] Node resumed after silence")
+                _write_fault("node_resumed", port)
+                port_state[port] = "active"
 
 
 def main():
@@ -137,7 +193,22 @@ def main():
     parser.add_argument("--udp-port", type=int, default=5005)
     parser.add_argument("--ports", nargs="*",
                         help="Serial ports (auto-detect if omitted)")
+    parser.add_argument("--fault-log", default="",
+                        help="Path to JSON-lines fault log (default: logs/fault.log next to script)")
     args = parser.parse_args()
+
+    global _fault_log_path
+    if args.fault_log:
+        _fault_log_path = args.fault_log
+    else:
+        # Default: logs/fault.log relative to repo root (two levels up from scripts/)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        repo_root = os.path.dirname(script_dir)
+        logs_dir = os.path.join(repo_root, "logs")
+        os.makedirs(logs_dir, exist_ok=True)
+        _fault_log_path = os.path.join(logs_dir, "fault.log")
+
+    log.info(f"Fault log: {_fault_log_path}")
 
     dest = (args.udp_host, args.udp_port)
 
@@ -147,9 +218,11 @@ def main():
     ports = args.ports if args.ports else find_esp32_ports()
     if not ports:
         log.error("No serial ports found. Plug in ESP32 boards or use --ports.")
+        _write_fault("startup_no_ports", "", "No /dev/ttyACM* or /dev/ttyUSB* found")
         sys.exit(1)
 
     log.info(f"Bridging ports: {ports}")
+    _write_fault("bridge_start", "", f"ports={ports} dest={dest[0]}:{dest[1]}")
 
     threads = []
     for port in ports:
@@ -166,6 +239,7 @@ def main():
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
+        _write_fault("bridge_stop", "", "KeyboardInterrupt")
         log.info("Stopped.")
 
 

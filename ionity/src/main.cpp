@@ -170,6 +170,15 @@ uint32_t          g_udp_fail       = 0;  // send failures
 bool              g_csi_running    = false;
 bool              g_serial_bridge  = true;  // always send via serial (AP-isolation bypass)
 
+// WiFi credentials kept globally so reconnect can re-use them
+static char g_ssid[33] = {};
+static char g_pass[65] = {};
+
+// Auto-reconnect state
+static unsigned long g_lastReconnectAttempt = 0;
+static uint32_t      g_reconnectBackoffMs   = 5000;   // starts at 5 s, doubles up to 60 s
+static uint8_t       g_reconnectAttempts    = 0;
+
 // Rolling RSSI buffer (last 8 per-frame values)
 static int8_t  g_rssi_buf[8]    = {};
 static uint8_t g_rssi_idx       = 0;
@@ -378,12 +387,12 @@ void setup() {
     g_node_id    = prefs.getUChar("node_id",   DEFAULT_NODE_ID);
     g_target_port= prefs.getUShort("target_port", DEFAULT_TARGET_PORT);
 
-    char ssid[33]  = HARDCODED_SSID;
-    char pass[65]  = HARDCODED_PASSWORD;
+    strncpy(g_ssid, HARDCODED_SSID, sizeof(g_ssid) - 1);
+    strncpy(g_pass, HARDCODED_PASSWORD, sizeof(g_pass) - 1);
     char tip[32]   = DEFAULT_TARGET_IP;
-    prefs.getString("ssid",      ssid, sizeof(ssid));
-    prefs.getString("password",  pass, sizeof(pass));
-    prefs.getString("target_ip", tip,  sizeof(tip));
+    prefs.getString("ssid",      g_ssid, sizeof(g_ssid));
+    prefs.getString("password",  g_pass, sizeof(g_pass));
+    prefs.getString("target_ip", tip,    sizeof(tip));
     prefs.end();
 
     strncpy(g_target_ip, tip, sizeof(g_target_ip) - 1);
@@ -393,9 +402,10 @@ void setup() {
 
     // WiFi STA mode
     WiFi.mode(WIFI_STA);
-    if (strlen(ssid) > 0) {
-        WiFi.begin(ssid, pass);
-        Serial.printf("[CSI] Connecting to SSID: %s\n", ssid);
+    WiFi.setAutoReconnect(false); // we manage reconnect manually for full control
+    if (strlen(g_ssid) > 0) {
+        WiFi.begin(g_ssid, g_pass);
+        Serial.printf("[CSI] Connecting to SSID: %s\n", g_ssid);
     } else {
         Serial.println("[CSI] No SSID — skipping WiFi. Provision with provision.py.");
     }
@@ -482,17 +492,51 @@ void manageSystemLogic(unsigned long now) {
             }
         } else {
             currentRSSI = 0;
+
+            // Tear down CSI + UDP socket so they restart cleanly after reconnect
+            if (g_csi_running) {
+                Serial.println("[WiFi] Connection lost — tearing down CSI.");
+                esp_wifi_set_csi(false);
+                esp_wifi_set_csi_rx_cb(nullptr, nullptr);
+                if (g_udp_sock >= 0) {
+                    close(g_udp_sock);
+                    g_udp_sock = -1;
+                }
+                g_csi_running = false;
+            }
+
             if (currentState == IDLE_SCANNING  ||
                 currentState == HUMAN_DETECTED  ||
                 currentState == AI_PROCESSING) {
                 Serial.println("[LED] WiFi lost — showing INTERFERENCE.");
                 setSystemState(INTERFERENCE);
             }
+
+            // Auto-reconnect with exponential backoff (5 s → 10 → 20 → 40 → 60 s max)
+            if (strlen(g_ssid) > 0 &&
+                (now - g_lastReconnectAttempt) >= g_reconnectBackoffMs) {
+                g_lastReconnectAttempt = now;
+                g_reconnectAttempts++;
+                g_reconnectBackoffMs = min((uint32_t)(g_reconnectBackoffMs * 2), (uint32_t)60000);
+                Serial.printf("[WiFi] Reconnect attempt #%u (backoff=%lus) to SSID: %s\n",
+                              g_reconnectAttempts,
+                              (unsigned long)(g_reconnectBackoffMs / 1000),
+                              g_ssid);
+                WiFi.disconnect(false);
+                WiFi.begin(g_ssid, g_pass);
+                setSystemState(CALIBRATING);
+            }
         }
     }
 
-    // Start CSI once WiFi connects (only run once)
+    // Start CSI once WiFi connects (or reconnects); reset backoff on success
     if (!g_csi_running && WiFi.status() == WL_CONNECTED) {
+        if (g_reconnectAttempts > 0) {
+            Serial.printf("[WiFi] Reconnected after %u attempt(s) — resetting backoff.\n",
+                          g_reconnectAttempts);
+            g_reconnectAttempts  = 0;
+            g_reconnectBackoffMs = 5000;
+        }
         startCSI();
     }
 

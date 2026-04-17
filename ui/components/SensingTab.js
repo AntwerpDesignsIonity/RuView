@@ -225,10 +225,11 @@ export class SensingTab {
       // Map the service's dataSource to banner text and CSS modifier class.
       const dataSource = sensingService.dataSource;
       const bannerConfig = {
-        'live':              { text: 'LIVE \u2014 ESP32 HARDWARE',           cls: 'sensing-source-live' },
-        'server-simulated':  { text: 'SIMULATED \u2014 NO HARDWARE',        cls: 'sensing-source-server-sim' },
-        'reconnecting':      { text: 'RECONNECTING...',                    cls: 'sensing-source-reconnecting' },
-        'simulated':         { text: 'OFFLINE \u2014 CLIENT SIMULATION',    cls: 'sensing-source-simulated' },
+        'live':              { text: 'LIVE \u2014 ESP32 HARDWARE',              cls: 'sensing-source-live' },
+        'hardware-offline':  { text: 'ESP32 WAITING \u2014 NO DATA YET',       cls: 'sensing-source-reconnecting' },
+        'server-simulated':  { text: 'SIMULATED \u2014 NO HARDWARE',           cls: 'sensing-source-server-sim' },
+        'reconnecting':      { text: 'RECONNECTING...',                       cls: 'sensing-source-reconnecting' },
+        'simulated':         { text: 'OFFLINE \u2014 CLIENT SIMULATION',       cls: 'sensing-source-simulated' },
       };
       const cfg = bannerConfig[dataSource] || bannerConfig.reconnecting;
       banner.textContent = cfg.text;
@@ -251,11 +252,11 @@ export class SensingTab {
     this._setText('sensingRssi', `${(f.mean_rssi || -80).toFixed(1)} dBm`);
     this._setText('sensingSource', data.source || '');
 
-    // Bars (scale to 0-100%)
-    this._setBar('barVariance', f.variance, 10, 'valVariance', f.variance);
-    this._setBar('barMotion', f.motion_band_power, 0.5, 'valMotion', f.motion_band_power);
-    this._setBar('barBreath', f.breathing_band_power, 0.3, 'valBreath', f.breathing_band_power);
-    this._setBar('barSpectral', f.spectral_power, 2.0, 'valSpectral', f.spectral_power);
+    // Bars (scale to 0-100%) — maxima tuned to real ESP32 CSI values
+    this._setBar('barVariance', f.variance, 50, 'valVariance', f.variance);
+    this._setBar('barMotion', f.motion_band_power, 100, 'valMotion', f.motion_band_power);
+    this._setBar('barBreath', f.breathing_band_power, 100, 'valBreath', f.breathing_band_power);
+    this._setBar('barSpectral', f.spectral_power, 200, 'valSpectral', f.spectral_power);
 
     // Classification
     const label = this.container.querySelector('#classLabel');
@@ -328,7 +329,7 @@ export class SensingTab {
   _updateNodePanels(data) {
     const container = this.container.querySelector('#nodeStatusContainer');
     if (!container) return;
-    const nodeFeatures = data.node_features || [];
+    const nodeFeatures = data.nodes || [];
     if (nodeFeatures.length === 0) {
       container.textContent = '';
       const msg = document.createElement('div');
@@ -341,7 +342,7 @@ export class SensingTab {
     container.textContent = '';
     for (const nf of nodeFeatures) {
       const color = NODE_COLORS[nf.node_id % NODE_COLORS.length];
-      const statusColor = nf.stale ? '#888' : '#0f0';
+      const statusColor = '#0f0';
 
       const row = document.createElement('div');
       row.style.cssText = `display:flex;align-items:center;gap:8px;padding:6px 8px;margin-bottom:4px;background:rgba(255,255,255,0.03);border-radius:6px;border-left:3px solid ${color};`;
@@ -353,18 +354,20 @@ export class SensingTab {
       nameEl.textContent = 'Node ' + nf.node_id;
       const statusEl = document.createElement('div');
       statusEl.style.cssText = `font-size:9px;color:${statusColor};`;
-      statusEl.textContent = nf.stale ? 'STALE' : 'ACTIVE';
+      statusEl.textContent = 'ACTIVE';
       idCol.appendChild(nameEl);
       idCol.appendChild(statusEl);
 
       const metricsCol = document.createElement('div');
       metricsCol.style.cssText = 'flex:1;font-size:10px;color:#aaa;';
-      metricsCol.textContent = (nf.rssi_dbm || -80).toFixed(0) + ' dBm · var ' + (nf.features?.variance || 0).toFixed(1);
+      metricsCol.textContent = (nf.rssi_dbm || -80).toFixed(0) + ' dBm · sc ' + (nf.subcarrier_count || 0);
 
       const classCol = document.createElement('div');
       classCol.style.cssText = 'font-size:10px;font-weight:600;color:#ccc;';
-      const motion = (nf.classification?.motion_level || 'absent').toUpperCase();
-      const conf = ((nf.classification?.confidence || 0) * 100).toFixed(0);
+      const f_cls = data.features || {};
+      const c_cls = data.classification || {};
+      const motion = (c_cls.motion_level || 'absent').toUpperCase();
+      const conf = ((c_cls.confidence || 0) * 100).toFixed(0);
       classCol.textContent = motion + ' ' + conf + '%';
 
       row.appendChild(idCol);
