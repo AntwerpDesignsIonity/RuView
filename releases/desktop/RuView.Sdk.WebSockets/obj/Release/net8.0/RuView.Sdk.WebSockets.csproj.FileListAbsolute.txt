@@ -1,0 +1,16 @@
+/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.WebSockets/bin/Release/net8.0/RuView.Sdk.WebSockets.deps.json
+/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.WebSockets/bin/Release/net8.0/RuView.Sdk.WebSockets.dll
+/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.WebSockets/bin/Release/net8.0/RuView.Sdk.WebSockets.pdb
+/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.WebSockets/bin/Release/net8.0/RuView.Sdk.Models.dll
+/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.WebSockets/bin/Release/net8.0/RuView.Sdk.Models.pdb
+/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.WebSockets/obj/Release/net8.0/RuView.Sdk.WebSockets.csproj.AssemblyReference.cache
+/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.WebSockets/obj/Release/net8.0/RuView.Sdk.WebSockets.GeneratedMSBuildEditorConfig.editorconfig
+/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.WebSockets/obj/Release/net8.0/RuView.Sdk.WebSockets.AssemblyInfoInputs.cache
+/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.WebSockets/obj/Release/net8.0/RuView.Sdk.WebSockets.AssemblyInfo.cs
+/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.WebSockets/obj/Release/net8.0/RuView.Sdk.WebSockets.csproj.CoreCompileInputs.cache
+/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.WebSockets/obj/Release/net8.0/RuView.Sdk.WebSockets.sourcelink.json
+/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.WebSockets/obj/Release/net8.0/RuView.S.D3A0592A.Up2Date
+/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.WebSockets/obj/Release/net8.0/RuView.Sdk.WebSockets.dll
+/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.WebSockets/obj/Release/net8.0/refint/RuView.Sdk.WebSockets.dll
+/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.WebSockets/obj/Release/net8.0/RuView.Sdk.WebSockets.pdb
+/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.WebSockets/obj/Release/net8.0/ref/RuView.Sdk.WebSockets.dll

@@ -42,10 +42,10 @@ SCHEMA_VERSION = 1
 # Default paths
 # ---------------------------------------------------------------------------
 _DEFAULT_DB_DIR = Path(__file__).resolve().parents[3] / "data" / "db"
-_DEFAULT_DB_PATH = _DEFAULT_DB_DIR / "ruview_sensing.sqlite3"
+_DEFAULT_DB_PATH = _DEFAULT_DB_DIR / "aedi-s_sensing.sqlite3"
 
 _LOGS_DB_DIR = Path(__file__).resolve().parents[3] / "logs"
-_LOGS_DB_PATH = _LOGS_DB_DIR / "ruview_logs.sqlite3"
+_LOGS_DB_PATH = _LOGS_DB_DIR / "aedi-s_logs.sqlite3"
 
 
 def _machine_id() -> str:
@@ -272,7 +272,7 @@ class SensingDB:
 
     Usage::
 
-        db = SensingDB()          # auto-creates data/db/ruview_sensing.sqlite3
+        db = SensingDB()          # auto-creates data/db/aedi-s_sensing.sqlite3
         db.start_session("esp32")
         db.insert_reading({...})  # from ws_server _build_message()
         db.end_session()

@@ -8,7 +8,7 @@
 # ║   ██║╚██████╔╝██║ ╚████║██║   ██║      ██║                                  ║
 # ║   ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝      ╚═╝                                  ║
 # ║                                                                              ║
-# ║   Ionity RuView — Unified Stack Launcher                                     ║
+# ║   Ionity AEDI-S — Unified Stack Launcher                                     ║
 # ║   Ionity Global (Pty) Ltd, South Africa                                      ║
 # ║   ai@ionity.today  |  www.ionity.today  |  +27 646 999 877                   ║
 # ║   Version: 1.1.0  |  April 2026                                              ║
@@ -69,7 +69,17 @@ fi
 # ── Defaults ──────────────────────────────────────────────────────────────────
 IONITY_MODE="${IONITY_MODE:-auto}"
 IONITY_SOURCE="${IONITY_SOURCE:-auto}"
-HUB_IP="${HUB_IP:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
+DETECTED_HUB_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+HUB_IP="${HUB_IP:-${DETECTED_HUB_IP}}"
+HUB_IP_CORRECTED_FROM=""
+if [[ -n "${HUB_IP}" ]] && command -v ip >/dev/null 2>&1; then
+  if ! ip -4 addr show scope global 2>/dev/null | grep -q "inet ${HUB_IP}/"; then
+    if [[ -n "${DETECTED_HUB_IP}" ]]; then
+      HUB_IP_CORRECTED_FROM="${HUB_IP}"
+      HUB_IP="${DETECTED_HUB_IP}"
+    fi
+  fi
+fi
 HUB_PORT="${HUB_PORT:-5005}"
 HTTP_PORT="${HTTP_PORT:-3000}"
 WS_PORT="${WS_PORT:-3001}"
@@ -116,9 +126,12 @@ print_header() {
   ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝      ╚═╝
 LOGO
   echo -e "${RESET}"
-  echo -e "  ${BOLD}Ionity RuView — Unified Stack Launcher${RESET}"
+  echo -e "  ${BOLD}Ionity AEDI-S — Unified Stack Launcher${RESET}"
   echo -e "  ${DIM}Ionity Global (Pty) Ltd  |  ai@ionity.today  |  www.ionity.today${RESET}"
   echo -e "  ${DIM}Hub: ${HUB_IP}  |  HTTP: ${HTTP_PORT}  |  WS: ${WS_PORT}  |  UDP: ${HUB_PORT}${RESET}"
+  if [[ -n "${HUB_IP_CORRECTED_FROM}" ]]; then
+    echo -e "  ${YELLOW}${BOLD}⚠${RESET}  ${DIM}Corrected stale HUB_IP ${HUB_IP_CORRECTED_FROM} -> ${HUB_IP}${RESET}"
+  fi
   echo ""
 }
 
@@ -131,9 +144,9 @@ cmd_run() {
   # Parse run sub-flags
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --skip-provision) export IONITY_SKIP_PROVISION=1; shift ;;
+      --skip-provision) export IONITY_SKIP_PROVISION_PROMPT=1; shift ;;
       --open-gui)       export IONITY_OPEN_GUI=1; shift ;;
-      --yes|-y)         export IONITY_SKIP_PROVISION=1; export IONITY_OPEN_GUI=1; shift ;;
+      --yes|-y)         export IONITY_SKIP_PROVISION_PROMPT=1; export IONITY_OPEN_GUI=1; shift ;;
       *) shift ;;
     esac
   done
@@ -149,7 +162,7 @@ cmd_run() {
 
   section "4/4  Ready"
   echo ""
-  ok "Ionity RuView is running"
+  ok "Ionity AEDI-S is running"
   echo ""
   echo -e "  ${BOLD}Web UI${RESET}      →  ${CYAN}http://${HUB_IP}:${HTTP_PORT}/ui/index.html${RESET}"
   echo -e "  ${BOLD}Health${RESET}      →  ${CYAN}http://${HUB_IP}:${HTTP_PORT}/health${RESET}"

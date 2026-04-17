@@ -302,11 +302,27 @@ export class DashboardHUD {
         <div class="hud-row" style="margin-top: 4px;">
           <span class="hud-label">WiFi DensePose</span>
         </div>
+        <div class="hud-row" style="margin-top: 6px;">
+          <span class="hud-label">SDK</span>
+          <span class="hud-value" id="hud-sdk-tier" style="font-size: 10px; color: #5599cc;">—</span>
+        </div>
+        <div class="hud-row">
+          <span class="hud-label">Compute</span>
+          <span class="hud-value" id="hud-compute" style="font-size: 10px; color: #5599cc;">—</span>
+        </div>
+        <div class="hud-row">
+          <span class="hud-label">Breath</span>
+          <span class="hud-value" id="hud-breathing" style="font-size: 10px; color: #44aa88;">0.00</span>
+        </div>
+        <div class="hud-row">
+          <span class="hud-label">Motion</span>
+          <span class="hud-value" id="hud-motion" style="font-size: 10px; color: #aa8844;">0.00</span>
+        </div>
       </div>
 
       <!-- Controls hint -->
       <div class="hud-controls-hint">
-        Drag to orbit | Scroll to zoom | Right-click to pan
+        Drag to orbit | Scroll to zoom | Right-click to pan | T: diagnostics
       </div>
     `;
 
@@ -326,7 +342,11 @@ export class DashboardHUD {
       personCount: this.hudElement.querySelector('#hud-person-count'),
       confidence: this.hudElement.querySelector('#hud-confidence'),
       confidenceFill: this.hudElement.querySelector('#hud-confidence-fill'),
-      modeBadge: this.hudElement.querySelector('#hud-mode-badge')
+      modeBadge: this.hudElement.querySelector('#hud-mode-badge'),
+      sdkTier: this.hudElement.querySelector('#hud-sdk-tier'),
+      compute: this.hudElement.querySelector('#hud-compute'),
+      breathing: this.hudElement.querySelector('#hud-breathing'),
+      motion: this.hudElement.querySelector('#hud-motion'),
     };
   }
 
@@ -419,6 +439,20 @@ export class DashboardHUD {
     const modeLower = (state.sensingMode || 'Mock').toLowerCase();
     this._els.modeBadge.textContent = state.sensingMode.toUpperCase();
     this._els.modeBadge.className = `hud-mode-badge ${modeLower}`;
+
+    // SDK metrics
+    if (state.sdkTier) {
+      this._els.sdkTier.textContent = state.sdkTier.toUpperCase();
+    }
+    if (state.computeBackend) {
+      this._els.compute.textContent = state.computeBackend;
+    }
+    if (typeof state.breathingBand === 'number') {
+      this._els.breathing.textContent = state.breathingBand.toFixed(3);
+    }
+    if (typeof state.motionBand === 'number') {
+      this._els.motion.textContent = state.motionBand.toFixed(3);
+    }
   }
 
   dispose() {

@@ -1,4 +1,3 @@
-   Compiling wifi-densepose-signal v0.3.0 (/home/antwerp/Creations/.2026/.Naked/RuView/rust-port/wifi-densepose-rs/crates/wifi-densepose-signal)
 warning: unused variable: `n_links`
    --> crates/wifi-densepose-signal/src/ruvsense/field_model.rs:456:13
     |
@@ -54,7 +53,7 @@ warning: field `num_channels` is never read
    |
    = note: `PhaseAligner` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
 
-   Compiling wifi-densepose-sensing-server v0.3.0 (/home/antwerp/Creations/.2026/.Naked/RuView/rust-port/wifi-densepose-rs/crates/wifi-densepose-sensing-server)
+warning: `wifi-densepose-signal` (lib) generated 5 warnings (run `cargo fix --lib -p wifi-densepose-signal` to apply 1 suggestion)
 warning: associated function `new` is never used
    --> crates/wifi-densepose-sensing-server/src/rvf_container.rs:128:8
     |
@@ -87,7 +86,7 @@ warning: field `d_proj` is never read
     = note: `PoseEncoder` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
 
 warning: `wifi-densepose-sensing-server` (lib) generated 3 warnings
-warning: `wifi-densepose-signal` (lib) generated 5 warnings (run `cargo fix --lib -p wifi-densepose-signal` to apply 1 suggestion)
+   Compiling wifi-densepose-sensing-server v0.3.0 (/home/antwerp/Creations/.2026/.Naked/RuView/rust-port/wifi-densepose-rs/crates/wifi-densepose-sensing-server)
 warning: unused imports: `KeypointState`, `PoseTrack`, and `self`
   --> crates/wifi-densepose-sensing-server/src/tracker_bridge.rs:10:5
    |
@@ -103,9 +102,9 @@ warning: unused import: `wifi_densepose_wifiscan::parse_iw_scan_output`
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 warning: value assigned to `recovery_count` is never read
-    --> crates/wifi-densepose-sensing-server/src/main.rs:4420:17
+    --> crates/wifi-densepose-sensing-server/src/main.rs:4504:17
      |
-4420 |                 recovery_count += 1;
+4504 |                 recovery_count += 1;
      |                 ^^^^^^^^^^^^^^^^^^^
      |
      = help: maybe it is overwritten before being read?
@@ -358,4 +357,4 @@ warning: method `reset` is never used
     |            ^^^^^
 
 warning: `wifi-densepose-sensing-server` (bin "sensing-server") generated 30 warnings (run `cargo fix --bin "sensing-server" -p wifi-densepose-sensing-server` to apply 2 suggestions)
-    Finished `release` profile [optimized] target(s) in 1m 56s
+    Finished `release` profile [optimized] target(s) in 1m 30s

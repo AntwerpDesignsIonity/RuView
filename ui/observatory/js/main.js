@@ -1,5 +1,5 @@
 /**
- * RuView Observatory — Main Scene Orchestrator
+ * AEDI-S Observatory — Main Scene Orchestrator
  *
  * Room-based WiFi sensing visualization with:
  * - Pool of 4 human wireframe figures (multi-person scenarios)
@@ -42,13 +42,13 @@ class Observatory {
 
     // Load saved settings
     try {
-      const ver = localStorage.getItem('ruview-settings-version');
+      const ver = localStorage.getItem('aedi-s-settings-version');
       if (ver === SETTINGS_VERSION) {
-        const saved = localStorage.getItem('ruview-observatory-settings');
+        const saved = localStorage.getItem('aedi-s-observatory-settings');
         if (saved) Object.assign(this.settings, JSON.parse(saved));
       } else {
-        localStorage.removeItem('ruview-observatory-settings');
-        localStorage.setItem('ruview-settings-version', SETTINGS_VERSION);
+        localStorage.removeItem('aedi-s-observatory-settings');
+        localStorage.setItem('aedi-s-settings-version', SETTINGS_VERSION);
       }
     } catch {}
 
@@ -440,7 +440,6 @@ class Observatory {
     const host = window.location.hostname || 'localhost';
     const candidates = [
       window.location.origin,                   // same origin (e.g. :3000)
-      `http://${host}:8765`,                     // default WS port
       `http://${host}:3000`,                     // default HTTP port
     ];
     // Deduplicate

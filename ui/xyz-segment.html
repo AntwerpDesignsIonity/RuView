@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AEDI-S — XYZ Segment</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #050510; --bg2: #0a0a1e; --bg3: #0f1028;
+      --border: #1a2040; --accent: #0088ff; --accent2: #00ccff;
+      --green: #00e676; --red: #ff3d57; --yellow: #ffd740;
+      --dim: #334466; --text: #c8d8f0; --text-dim: #5577aa;
+      --font: 'Courier New', 'Consolas', monospace;
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; overflow: hidden; }
+    #shell { display: flex; flex-direction: column; height: 100vh; }
+    #scene-wrap { flex: 1; position: relative; overflow: hidden; background: #020208; }
+    canvas { display: block; }
+
+    /* HUD overlays */
+    .hud { position: absolute; pointer-events: none; z-index: 100; }
+    .hud-panel {
+      background: rgba(5,5,16,0.88); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 16px; pointer-events: auto;
+      backdrop-filter: blur(6px);
+    }
+    #hud-tl { top: 12px; left: 12px; }
+    #hud-tr { top: 12px; right: 12px; }
+    #hud-bl { bottom: 12px; left: 12px; }
+    #hud-br { bottom: 12px; right: 12px; }
+    .hud-title { font-size: 14px; font-weight: bold; color: var(--accent2); letter-spacing: 2px; }
+    .hud-sub { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+    .hud-row { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; font-size: 11px; }
+    .hud-label { color: var(--text-dim); }
+    .hud-val { font-weight: bold; }
+    .hud-val.ok { color: var(--green); }
+    .hud-val.warn { color: var(--yellow); }
+    .hud-val.err { color: var(--red); }
+
+    /* Settings panel */
+    #settings-panel {
+      position: absolute; top: 54px; right: 12px; z-index: 200;
+      background: rgba(8,8,24,0.92); border: 1px solid var(--border);
+      border-radius: 8px; padding: 14px 18px; min-width: 240px;
+      backdrop-filter: blur(8px); pointer-events: auto;
+      display: none;
+    }
+    #settings-panel.open { display: block; }
+    .setting-group { margin-bottom: 12px; }
+    .setting-group-title { font-size: 10px; color: var(--accent); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 6px; }
+    .setting-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; font-size: 11px; }
+    .setting-row label { color: var(--text-dim); cursor: pointer; }
+    .toggle { position: relative; width: 36px; height: 18px; cursor: pointer; }
+    .toggle input { display: none; }
+    .toggle .slider { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #223; border-radius: 9px; transition: 0.2s; }
+    .toggle input:checked + .slider { background: var(--accent); }
+    .toggle .slider::before { content: ''; position: absolute; width: 14px; height: 14px; left: 2px; bottom: 2px; background: #ccc; border-radius: 50%; transition: 0.2s; }
+    .toggle input:checked + .slider::before { transform: translateX(18px); background: #fff; }
+
+    /* Toolbar */
+    #toolbar {
+      position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+      z-index: 200; display: flex; gap: 6px; pointer-events: auto;
+    }
+    .tb-btn {
+      background: rgba(8,8,24,0.9); border: 1px solid var(--border); color: var(--text-dim);
+      padding: 8px 14px; border-radius: 6px; cursor: pointer; font-family: var(--font);
+      font-size: 11px; transition: all 0.15s; white-space: nowrap;
+    }
+    .tb-btn:hover { color: var(--text); border-color: var(--accent); }
+    .tb-btn.active { color: var(--accent2); border-color: var(--accent2); background: rgba(0,136,255,0.1); }
+
+    /* Node info tooltip */
+    #node-tooltip {
+      position: absolute; z-index: 300; display: none;
+      background: rgba(5,5,16,0.95); border: 1px solid var(--accent);
+      border-radius: 6px; padding: 8px 12px; font-size: 11px;
+      pointer-events: none; white-space: nowrap;
+    }
+
+    /* Render OFF overlay */
+    #render-off-overlay {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+      background: var(--bg); display: none; z-index: 500;
+      justify-content: center; align-items: center; flex-direction: column;
+    }
+    #render-off-overlay.active { display: flex; }
+    #render-off-overlay .msg { font-size: 18px; color: var(--dim); letter-spacing: 4px; text-transform: uppercase; }
+    #render-off-overlay .sub { font-size: 11px; color: var(--text-dim); margin-top: 8px; }
+    #render-off-overlay .resume-btn {
+      margin-top: 24px; padding: 10px 28px; background: transparent;
+      border: 1px solid var(--accent); color: var(--accent); border-radius: 6px;
+      cursor: pointer; font-family: var(--font); font-size: 12px; transition: 0.2s;
+    }
+    #render-off-overlay .resume-btn:hover { background: rgba(0,136,255,0.1); }
+  </style>
+</head>
+<body>
+  <div id="shell">
+    <nav id="global-nav"></nav>
+    <div id="scene-wrap">
+      <!-- HUD: top-left status -->
+      <div class="hud" id="hud-tl">
+        <div class="hud-panel">
+          <div class="hud-title">XYZ SEGMENT</div>
+          <div class="hud-sub">3D Node Positioning & Interference Map</div>
+          <div class="hud-row"><span class="hud-label">Nodes</span><span class="hud-val" id="hud-node-count">0</span></div>
+          <div class="hud-row"><span class="hud-label">Calibrated</span><span class="hud-val" id="hud-calibrated">—</span></div>
+          <div class="hud-row"><span class="hud-label">Persons</span><span class="hud-val" id="hud-persons">0</span></div>
+          <div class="hud-row"><span class="hud-label">FPS</span><span class="hud-val" id="hud-fps">—</span></div>
+        </div>
+      </div>
+
+      <!-- HUD: top-right gear button + settings -->
+      <div class="hud" id="hud-tr">
+        <button class="tb-btn" id="settings-toggle" title="Settings">⚙ Settings</button>
+      </div>
+      <div id="settings-panel">
+        <div class="setting-group">
+          <div class="setting-group-title">Rendering</div>
+          <div class="setting-row">
+            <label for="toggle-render">Master Render</label>
+            <label class="toggle"><input type="checkbox" id="toggle-render" checked><span class="slider"></span></label>
+          </div>
+          <div class="setting-row">
+            <label for="toggle-shadows">Shadows</label>
+            <label class="toggle"><input type="checkbox" id="toggle-shadows" checked><span class="slider"></span></label>
+          </div>
+          <div class="setting-row">
+            <label for="toggle-antialias">High Quality</label>
+            <label class="toggle"><input type="checkbox" id="toggle-antialias" checked><span class="slider"></span></label>
+          </div>
+        </div>
+        <div class="setting-group">
+          <div class="setting-group-title">Layers</div>
+          <div class="setting-row">
+            <label for="toggle-heatmap">Signal Heatmap</label>
+            <label class="toggle"><input type="checkbox" id="toggle-heatmap" checked><span class="slider"></span></label>
+          </div>
+          <div class="setting-row">
+            <label for="toggle-grid">Floor Grid</label>
+            <label class="toggle"><input type="checkbox" id="toggle-grid" checked><span class="slider"></span></label>
+          </div>
+          <div class="setting-row">
+            <label for="toggle-walls">Walls</label>
+            <label class="toggle"><input type="checkbox" id="toggle-walls" checked><span class="slider"></span></label>
+          </div>
+          <div class="setting-row">
+            <label for="toggle-links">Signal Links</label>
+            <label class="toggle"><input type="checkbox" id="toggle-links" checked><span class="slider"></span></label>
+          </div>
+          <div class="setting-row">
+            <label for="toggle-furniture">Furniture</label>
+            <label class="toggle"><input type="checkbox" id="toggle-furniture" checked><span class="slider"></span></label>
+          </div>
+          <div class="setting-row">
+            <label for="toggle-persons">Person Skeletons</label>
+            <label class="toggle"><input type="checkbox" id="toggle-persons" checked><span class="slider"></span></label>
+          </div>
+        </div>
+        <div class="setting-group">
+          <div class="setting-group-title">Room</div>
+          <div class="setting-row">
+            <label>Width (m)</label>
+            <input type="number" id="room-width" value="8" min="2" max="30" step="0.5" style="width:50px;background:#111;border:1px solid var(--border);color:var(--text);border-radius:3px;padding:2px 4px;font-family:var(--font);font-size:11px;">
+          </div>
+          <div class="setting-row">
+            <label>Depth (m)</label>
+            <input type="number" id="room-depth" value="6" min="2" max="30" step="0.5" style="width:50px;background:#111;border:1px solid var(--border);color:var(--text);border-radius:3px;padding:2px 4px;font-family:var(--font);font-size:11px;">
+          </div>
+          <div class="setting-row">
+            <label>Height (m)</label>
+            <input type="number" id="room-height" value="3" min="2" max="10" step="0.5" style="width:50px;background:#111;border:1px solid var(--border);color:var(--text);border-radius:3px;padding:2px 4px;font-family:var(--font);font-size:11px;">
+          </div>
+        </div>
+      </div>
+
+      <!-- Toolbar: furniture & mode buttons -->
+      <div id="toolbar">
+        <button class="tb-btn active" id="btn-select" title="Select & drag nodes">⊕ Select</button>
+        <button class="tb-btn" id="btn-add-box" title="Add box furniture">▯ Box</button>
+        <button class="tb-btn" id="btn-add-cylinder" title="Add cylinder">◯ Cylinder</button>
+        <button class="tb-btn" id="btn-add-plane" title="Add plane">▬ Plane</button>
+        <button class="tb-btn" id="btn-delete" title="Delete selected">✕ Delete</button>
+        <button class="tb-btn" id="btn-save" title="Save layout to localStorage">💾 Save</button>
+        <button class="tb-btn" id="btn-reset-cam" title="Reset camera">⟲ Camera</button>
+      </div>
+
+      <!-- Node tooltip -->
+      <div id="node-tooltip"></div>
+
+      <!-- Render-off overlay -->
+      <div id="render-off-overlay">
+        <div class="msg">Rendering Paused</div>
+        <div class="sub">GPU idle — data collection continues in background</div>
+        <button class="resume-btn" id="btn-resume-render">▶ Resume Rendering</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Three.js CDN -->
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <script src="https://unpkg.com/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://unpkg.com/three@0.160.0/examples/js/controls/TransformControls.js"></script>
+
+  <script type="module">
+    import { injectNav, NAV_CSS } from './shared/nav.js';
+
+    // Inject nav
+    const navStyle = document.createElement('style');
+    navStyle.textContent = NAV_CSS;
+    document.head.appendChild(navStyle);
+    injectNav();
+
+    // ── State ──────────────────────────────────────────────────────────
+    const S = {
+      scene: null, camera: null, renderer: null, controls: null, clock: null,
+      transformControls: null,
+      // Groups
+      roomGroup: null, gridGroup: null, wallGroup: null,
+      nodeGroup: null, linkGroup: null, heatmapGroup: null,
+      furnitureGroup: null, personGroup: null,
+      // Data
+      room: { width: 8, depth: 6, height: 3 },
+      nodes: [],           // { mesh, id, position:[x,y,z], status, rssi }
+      furniture: [],       // { mesh, type, position, scale }
+      persons: [],         // skeleton meshes
+      heatmapCells: [],    // mesh array for floor heatmap
+      signalLinks: [],     // line meshes between nodes
+      // Mode
+      mode: 'select',      // select | add-box | add-cylinder | add-plane
+      selected: null,       // currently selected mesh
+      renderEnabled: true,
+      animationId: null,
+      ws: null,
+      wsConnected: false,
+      lastSensingData: null,
+      fpsFrames: 0, fpsTime: 0, fpsDisplay: 0,
+    };
+
+    // ── Three.js Init ─────────────────────────────────────────────────
+    function initThree() {
+      const wrap = document.getElementById('scene-wrap');
+      const w = wrap.clientWidth, h = wrap.clientHeight;
+
+      S.scene = new THREE.Scene();
+      S.scene.background = new THREE.Color(0x050510);
+      S.scene.fog = new THREE.FogExp2(0x050510, 0.006);
+
+      S.camera = new THREE.PerspectiveCamera(55, w / h, 0.1, 200);
+      S.camera.position.set(10, 8, 12);
+      S.camera.lookAt(0, 1, 0);
+
+      S.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      S.renderer.setSize(w, h);
+      S.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      S.renderer.shadowMap.enabled = true;
+      S.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      S.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      S.renderer.toneMappingExposure = 1.0;
+      wrap.insertBefore(S.renderer.domElement, wrap.firstChild);
+
+      // OrbitControls
+      S.controls = new THREE.OrbitControls(S.camera, S.renderer.domElement);
+      S.controls.enableDamping = true;
+      S.controls.dampingFactor = 0.08;
+      S.controls.minDistance = 3;
+      S.controls.maxDistance = 40;
+      S.controls.maxPolarAngle = Math.PI * 0.85;
+      S.controls.target.set(0, 1, 0);
+
+      // TransformControls for node dragging
+      S.transformControls = new THREE.TransformControls(S.camera, S.renderer.domElement);
+      S.transformControls.setMode('translate');
+      S.transformControls.setSize(0.6);
+      S.transformControls.addEventListener('dragging-changed', e => {
+        S.controls.enabled = !e.value;
+      });
+      S.transformControls.addEventListener('objectChange', () => {
+        if (S.selected && S.selected.userData.type === 'node') {
+          const p = S.selected.position;
+          const nodeData = S.nodes.find(n => n.mesh === S.selected);
+          if (nodeData) nodeData.position = [p.x, p.y, p.z];
+          updateLinks();
+          updateTooltip();
+        }
+      });
+      S.scene.add(S.transformControls);
+
+      // Lights
+      const ambient = new THREE.AmbientLight(0x223355, 0.5);
+      S.scene.add(ambient);
+      const dirLight = new THREE.DirectionalLight(0xaabbdd, 0.8);
+      dirLight.position.set(5, 10, 5);
+      dirLight.castShadow = true;
+      dirLight.shadow.mapSize.set(1024, 1024);
+      dirLight.shadow.camera.near = 0.5;
+      dirLight.shadow.camera.far = 30;
+      dirLight.shadow.camera.left = -10;
+      dirLight.shadow.camera.right = 10;
+      dirLight.shadow.camera.top = 10;
+      dirLight.shadow.camera.bottom = -10;
+      S.scene.add(dirLight);
+      const hemiLight = new THREE.HemisphereLight(0x223366, 0x0a0a15, 0.3);
+      S.scene.add(hemiLight);
+
+      // Groups
+      S.roomGroup = new THREE.Group(); S.roomGroup.name = 'room';
+      S.gridGroup = new THREE.Group(); S.gridGroup.name = 'grid';
+      S.wallGroup = new THREE.Group(); S.wallGroup.name = 'walls';
+      S.nodeGroup = new THREE.Group(); S.nodeGroup.name = 'nodes';
+      S.linkGroup = new THREE.Group(); S.linkGroup.name = 'links';
+      S.heatmapGroup = new THREE.Group(); S.heatmapGroup.name = 'heatmap';
+      S.furnitureGroup = new THREE.Group(); S.furnitureGroup.name = 'furniture';
+      S.personGroup = new THREE.Group(); S.personGroup.name = 'persons';
+
+      S.scene.add(S.roomGroup, S.gridGroup, S.wallGroup, S.nodeGroup,
+                   S.linkGroup, S.heatmapGroup, S.furnitureGroup, S.personGroup);
+
+      S.clock = new THREE.Clock();
+
+      // Resize
+      const ro = new ResizeObserver(() => onResize());
+      ro.observe(wrap);
+    }
+
+    function onResize() {
+      const wrap = document.getElementById('scene-wrap');
+      const w = wrap.clientWidth, h = wrap.clientHeight;
+      S.camera.aspect = w / h;
+      S.camera.updateProjectionMatrix();
+      S.renderer.setSize(w, h);
+    }
+
+    // ── Room Building ─────────────────────────────────────────────────
+    function buildRoom() {
+      // Clear previous
+      [S.roomGroup, S.gridGroup, S.wallGroup].forEach(g => {
+        while (g.children.length) {
+          const c = g.children[0];
+          if (c.geometry) c.geometry.dispose();
+          if (c.material) c.material.dispose();
+          g.remove(c);
+        }
+      });
+
+      const { width: W, depth: D, height: H } = S.room;
+      const hw = W / 2, hd = D / 2;
+
+      // Floor
+      const floorGeom = new THREE.PlaneGeometry(W, D);
+      const floorMat = new THREE.MeshPhongMaterial({
+        color: 0x0a0a15, emissive: 0x050510, shininess: 60, transparent: true, opacity: 0.95, side: THREE.DoubleSide
+      });
+      const floor = new THREE.Mesh(floorGeom, floorMat);
+      floor.rotation.x = -Math.PI / 2;
+      floor.receiveShadow = true;
+      S.roomGroup.add(floor);
+
+      // Grid
+      const gridMat = new THREE.LineBasicMaterial({ color: 0x1a1a3a, transparent: true, opacity: 0.4 });
+      for (let x = -hw; x <= hw; x += 0.5) {
+        const pts = [new THREE.Vector3(x, 0.005, -hd), new THREE.Vector3(x, 0.005, hd)];
+        S.gridGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), gridMat));
+      }
+      for (let z = -hd; z <= hd; z += 0.5) {
+        const pts = [new THREE.Vector3(-hw, 0.005, z), new THREE.Vector3(hw, 0.005, z)];
+        S.gridGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), gridMat));
+      }
+
+      // Axis markers on floor
+      const axisR = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0.01,0), new THREE.Vector3(hw,0.01,0)]),
+        new THREE.LineBasicMaterial({ color: 0xff2244, transparent: true, opacity: 0.5 })
+      );
+      const axisB = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0.01,0), new THREE.Vector3(0,0.01,hd)]),
+        new THREE.LineBasicMaterial({ color: 0x2244ff, transparent: true, opacity: 0.5 })
+      );
+      S.gridGroup.add(axisR, axisB);
+
+      // Walls (semi-transparent)
+      const wallMat = new THREE.MeshPhongMaterial({
+        color: 0x0d1530, emissive: 0x060818, transparent: true, opacity: 0.15, side: THREE.DoubleSide
+      });
+      // Back wall
+      const backWall = new THREE.Mesh(new THREE.PlaneGeometry(W, H), wallMat);
+      backWall.position.set(0, H / 2, -hd);
+      S.wallGroup.add(backWall);
+      // Front wall
+      const frontWall = new THREE.Mesh(new THREE.PlaneGeometry(W, H), wallMat.clone());
+      frontWall.position.set(0, H / 2, hd);
+      frontWall.rotation.y = Math.PI;
+      S.wallGroup.add(frontWall);
+      // Left wall
+      const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(D, H), wallMat.clone());
+      leftWall.position.set(-hw, H / 2, 0);
+      leftWall.rotation.y = Math.PI / 2;
+      S.wallGroup.add(leftWall);
+      // Right wall
+      const rightWall = new THREE.Mesh(new THREE.PlaneGeometry(D, H), wallMat.clone());
+      rightWall.position.set(hw, H / 2, 0);
+      rightWall.rotation.y = -Math.PI / 2;
+      S.wallGroup.add(rightWall);
+
+      // Wall edge wireframes
+      const edgeMat = new THREE.LineBasicMaterial({ color: 0x1a3060, transparent: true, opacity: 0.5 });
+      const corners = [
+        [-hw, 0, -hd], [hw, 0, -hd], [hw, 0, hd], [-hw, 0, hd],
+        [-hw, H, -hd], [hw, H, -hd], [hw, H, hd], [-hw, H, hd]
+      ];
+      const edges = [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+      edges.forEach(([a,b]) => {
+        const pts = [new THREE.Vector3(...corners[a]), new THREE.Vector3(...corners[b])];
+        S.wallGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), edgeMat));
+      });
+
+      buildHeatmap();
+    }
+
+    // ── Signal Heatmap (floor) ────────────────────────────────────────
+    function buildHeatmap() {
+      while (S.heatmapGroup.children.length) {
+        const c = S.heatmapGroup.children[0];
+        if (c.geometry) c.geometry.dispose();
+        if (c.material) c.material.dispose();
+        S.heatmapGroup.remove(c);
+      }
+      S.heatmapCells = [];
+
+      const { width: W, depth: D } = S.room;
+      const res = 20; // cells per axis
+      const cellW = W / res, cellD = D / res;
+      const hw = W / 2, hd = D / 2;
+
+      for (let ix = 0; ix < res; ix++) {
+        for (let iz = 0; iz < res; iz++) {
+          const geom = new THREE.PlaneGeometry(cellW * 0.92, cellD * 0.92);
+          const mat = new THREE.MeshBasicMaterial({
+            color: 0x000000, transparent: true, opacity: 0, side: THREE.DoubleSide
+          });
+          const cell = new THREE.Mesh(geom, mat);
+          cell.rotation.x = -Math.PI / 2;
+          cell.position.set(
+            -hw + cellW * (ix + 0.5),
+            0.01,
+            -hd + cellD * (iz + 0.5)
+          );
+          S.heatmapGroup.add(cell);
+          S.heatmapCells.push(cell);
+        }
+      }
+    }
+
+    function updateHeatmap(data) {
+      // data: flat array of intensities [0..1] or null for demo
+      const res = 20;
+      S.heatmapCells.forEach((cell, i) => {
+        let val = 0;
+        if (data && data[i] != null) {
+          val = data[i];
+        } else {
+          // Demo: radial falloff from each node
+          const cx = cell.position.x, cz = cell.position.z;
+          S.nodes.forEach(n => {
+            const dx = cx - n.position[0], dz = cz - n.position[2];
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            val += Math.max(0, 1 - dist / 4);
+          });
+          val = Math.min(val, 1);
+        }
+        // Color: blue → cyan → green → yellow → red
+        const hue = (1 - val) * 0.65; // 0.65=blue, 0=red
+        cell.material.color.setHSL(hue, 0.9, 0.4 + val * 0.2);
+        cell.material.opacity = val * 0.35;
+      });
+    }
+
+    // ── Node Meshes ───────────────────────────────────────────────────
+    function createNodeMesh(id, pos, status) {
+      const group = new THREE.Group();
+      group.userData = { type: 'node', nodeId: id };
+
+      // Main body (box with antenna vibe)
+      const bodyGeom = new THREE.BoxGeometry(0.15, 0.08, 0.10);
+      const bodyMat = new THREE.MeshPhongMaterial({
+        color: status === 'active' ? 0x00ccff : 0x445566,
+        emissive: status === 'active' ? 0x003355 : 0x111122,
+        shininess: 80,
+      });
+      const body = new THREE.Mesh(bodyGeom, bodyMat);
+      group.add(body);
+
+      // LED indicator
+      const ledGeom = new THREE.SphereGeometry(0.02, 8, 8);
+      const ledMat = new THREE.MeshBasicMaterial({
+        color: status === 'active' ? 0x00ff88 : 0x553300
+      });
+      const led = new THREE.Mesh(ledGeom, ledMat);
+      led.position.set(0.05, 0.04, 0);
+      group.add(led);
+
+      // Antenna
+      const antGeom = new THREE.CylinderGeometry(0.005, 0.005, 0.12, 6);
+      const antMat = new THREE.MeshPhongMaterial({ color: 0x889999 });
+      const ant = new THREE.Mesh(antGeom, antMat);
+      ant.position.set(-0.04, 0.10, 0);
+      group.add(ant);
+
+      // Label sprite
+      const canvas = document.createElement('canvas');
+      canvas.width = 128; canvas.height = 48;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#00ccff';
+      ctx.font = 'bold 24px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`ESP${id}`, 64, 30);
+      const tex = new THREE.CanvasTexture(canvas);
+      const spriteMat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.9 });
+      const sprite = new THREE.Sprite(spriteMat);
+      sprite.scale.set(0.5, 0.18, 1);
+      sprite.position.y = 0.22;
+      group.add(sprite);
+
+      // Signal ring (pulsing)
+      const ringGeom = new THREE.RingGeometry(0.18, 0.22, 32);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0x0088ff, transparent: true, opacity: 0.3, side: THREE.DoubleSide
+      });
+      const ring = new THREE.Mesh(ringGeom, ringMat);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = -0.03;
+      ring.userData.pulse = true;
+      group.add(ring);
+
+      group.position.set(pos[0], pos[1], pos[2]);
+      group.castShadow = true;
+
+      S.nodeGroup.add(group);
+      return group;
+    }
+
+    function clearNodes() {
+      while (S.nodeGroup.children.length) {
+        const c = S.nodeGroup.children[0];
+        c.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+        S.nodeGroup.remove(c);
+      }
+      S.nodes = [];
+    }
+
+    // ── Signal Links ──────────────────────────────────────────────────
+    function updateLinks() {
+      while (S.linkGroup.children.length) {
+        const c = S.linkGroup.children[0];
+        if (c.geometry) c.geometry.dispose();
+        if (c.material) c.material.dispose();
+        S.linkGroup.remove(c);
+      }
+      S.signalLinks = [];
+
+      const lineMat = new THREE.LineBasicMaterial({ color: 0x0055aa, transparent: true, opacity: 0.25 });
+      for (let i = 0; i < S.nodes.length; i++) {
+        for (let j = i + 1; j < S.nodes.length; j++) {
+          const a = S.nodes[i].position, b = S.nodes[j].position;
+          const pts = [new THREE.Vector3(a[0], a[1], a[2]), new THREE.Vector3(b[0], b[1], b[2])];
+          const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), lineMat.clone());
+          S.linkGroup.add(line);
+          S.signalLinks.push(line);
+        }
+      }
+    }
+
+    // ── Person Skeletons ──────────────────────────────────────────────
+    function updatePersons(personData) {
+      // Clear existing
+      while (S.personGroup.children.length) {
+        const c = S.personGroup.children[0];
+        c.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+        S.personGroup.remove(c);
+      }
+
+      if (!personData || !personData.length) return;
+
+      personData.forEach((person, pi) => {
+        const g = new THREE.Group();
+        g.userData = { type: 'person', personId: pi };
+
+        // Simple capsule body
+        const bodyGeo = new THREE.CapsuleGeometry(0.15, 0.8, 4, 8);
+        const bodyMat = new THREE.MeshPhongMaterial({
+          color: 0x0088ff, emissive: 0x002244, transparent: true, opacity: 0.6
+        });
+        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        body.position.y = 0.85;
+        g.add(body);
+
+        // Head
+        const headGeo = new THREE.SphereGeometry(0.12, 12, 12);
+        const headMat = new THREE.MeshPhongMaterial({
+          color: 0x00aaff, emissive: 0x003366, transparent: true, opacity: 0.7
+        });
+        const head = new THREE.Mesh(headGeo, headMat);
+        head.position.y = 1.55;
+        g.add(head);
+
+        // Ground circle
+        const circGeo = new THREE.RingGeometry(0.2, 0.3, 24);
+        const circMat = new THREE.MeshBasicMaterial({
+          color: 0x00ccff, transparent: true, opacity: 0.4, side: THREE.DoubleSide
+        });
+        const circ = new THREE.Mesh(circGeo, circMat);
+        circ.rotation.x = -Math.PI / 2;
+        circ.position.y = 0.01;
+        g.add(circ);
+
+        const px = person.x != null ? person.x : 0;
+        const pz = person.z != null ? person.z : 0;
+        g.position.set(px, 0, pz);
+        S.personGroup.add(g);
+      });
+    }
+
+    // ── Furniture ─────────────────────────────────────────────────────
+    function addFurniture(type) {
+      let geom, h;
+      switch (type) {
+        case 'box':
+          geom = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+          h = 0.4;
+          break;
+        case 'cylinder':
+          geom = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16);
+          h = 0.4;
+          break;
+        case 'plane':
+          geom = new THREE.PlaneGeometry(1.2, 0.8);
+          h = 0.6;
+          break;
+        default: return;
+      }
+      const mat = new THREE.MeshPhongMaterial({
+        color: 0x334455, emissive: 0x0a0a18, transparent: true, opacity: 0.5, side: THREE.DoubleSide
+      });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.position.set(0, h, 0);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.userData = { type: 'furniture', furnitureType: type };
+      S.furnitureGroup.add(mesh);
+      S.furniture.push({ mesh, type, position: [0, h, 0], scale: [1, 1, 1] });
+      selectObject(mesh);
+    }
+
+    function deleteFurniture(mesh) {
+      if (!mesh || mesh.userData.type !== 'furniture') return;
+      S.furniture = S.furniture.filter(f => f.mesh !== mesh);
+      if (mesh.geometry) mesh.geometry.dispose();
+      if (mesh.material) mesh.material.dispose();
+      S.furnitureGroup.remove(mesh);
+      deselectAll();
+    }
+
+    // ── Selection ─────────────────────────────────────────────────────
+    function selectObject(mesh) {
+      deselectAll();
+      S.selected = mesh;
+      S.transformControls.attach(mesh);
+    }
+
+    function deselectAll() {
+      S.selected = null;
+      S.transformControls.detach();
+      document.getElementById('node-tooltip').style.display = 'none';
+    }
+
+    function updateTooltip() {
+      if (!S.selected || S.selected.userData.type !== 'node') return;
+      const tooltip = document.getElementById('node-tooltip');
+      const nd = S.nodes.find(n => n.mesh === S.selected);
+      if (!nd) return;
+      const pos = S.selected.position;
+      // Project to screen
+      const vec = pos.clone().project(S.camera);
+      const wrap = document.getElementById('scene-wrap');
+      const x = (vec.x * 0.5 + 0.5) * wrap.clientWidth;
+      const y = (-vec.y * 0.5 + 0.5) * wrap.clientHeight;
+      tooltip.style.display = 'block';
+      tooltip.style.left = (x + 16) + 'px';
+      tooltip.style.top = (y - 10) + 'px';
+      tooltip.innerHTML = `<b>ESP${nd.id}</b> [${nd.status}]<br>x:${pos.x.toFixed(2)} y:${pos.y.toFixed(2)} z:${pos.z.toFixed(2)}<br>RSSI: ${nd.rssi ?? '—'} dBm`;
+    }
+
+    // ── Raycaster for picking ─────────────────────────────────────────
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+
+    function onPointerDown(e) {
+      if (S.mode !== 'select') return;
+      if (S.transformControls.dragging) return;
+
+      const wrap = document.getElementById('scene-wrap');
+      const rect = wrap.getBoundingClientRect();
+      pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(pointer, S.camera);
+
+      // Check nodes first, then furniture
+      const nodeTargets = [];
+      S.nodeGroup.traverse(c => { if (c.isMesh) nodeTargets.push(c); });
+      const furnitureTargets = [];
+      S.furnitureGroup.traverse(c => { if (c.isMesh) furnitureTargets.push(c); });
+
+      let hit = raycaster.intersectObjects(nodeTargets, false)[0];
+      if (hit) {
+        // Walk up to find the Group with userData.type
+        let obj = hit.object;
+        while (obj && !obj.userData.type && obj.parent) obj = obj.parent;
+        if (obj && obj.userData.type === 'node') {
+          selectObject(obj);
+          updateTooltip();
+          return;
+        }
+      }
+
+      hit = raycaster.intersectObjects(furnitureTargets, false)[0];
+      if (hit) {
+        selectObject(hit.object);
+        return;
+      }
+
+      deselectAll();
+    }
+
+    // ── WebSocket ─────────────────────────────────────────────────────
+    function connectWS() {
+      const wsUrl = `ws://${window.location.hostname}:${window.location.port || 3000}/ws/sensing`;
+      try {
+        S.ws = new WebSocket(wsUrl);
+        S.ws.onopen = () => { S.wsConnected = true; console.log('[XYZ] WS connected'); };
+        S.ws.onclose = () => {
+          S.wsConnected = false;
+          setTimeout(connectWS, 3000);
+        };
+        S.ws.onerror = () => { S.wsConnected = false; };
+        S.ws.onmessage = (evt) => {
+          try {
+            S.lastSensingData = JSON.parse(evt.data);
+          } catch { /* ignore non-JSON */ }
+        };
+      } catch {
+        setTimeout(connectWS, 3000);
+      }
+    }
+
+    // ── Fetch room config from API ────────────────────────────────────
+    async function fetchRoomConfig() {
+      try {
+        const r = await fetch('/api/v1/room');
+        const data = await r.json();
+        if (data.room) {
+          S.room.width = data.room.width || 8;
+          S.room.depth = data.room.depth || 6;
+          S.room.height = data.room.height || 3;
+          document.getElementById('room-width').value = S.room.width;
+          document.getElementById('room-depth').value = S.room.depth;
+          document.getElementById('room-height').value = S.room.height;
+        }
+
+        // Update HUD
+        document.getElementById('hud-calibrated').textContent = data.calibrated ? 'Yes' : 'No';
+        document.getElementById('hud-calibrated').className = 'hud-val ' + (data.calibrated ? 'ok' : 'warn');
+
+        buildRoom();
+
+        // Set nodes from config
+        clearNodes();
+        const nodePositions = data.node_positions || [];
+        const activeNodes = data.active_nodes || [];
+        const activeMap = {};
+        activeNodes.forEach(n => { activeMap[n.node_id] = n; });
+
+        if (nodePositions.length > 0) {
+          nodePositions.forEach(np => {
+            const active = activeMap[np.node_id];
+            const status = active ? active.status : 'configured';
+            const mesh = createNodeMesh(np.node_id, [np.x, np.y, np.z], status);
+            S.nodes.push({
+              mesh, id: np.node_id,
+              position: [np.x, np.y, np.z],
+              status, rssi: active ? active.rssi_dbm : null
+            });
+          });
+        } else if (activeNodes.length > 0) {
+          // No explicit positions — place nodes along the wall
+          activeNodes.forEach((an, i) => {
+            const x = -S.room.width / 2 + 0.5 + i * 1.5;
+            const pos = [x, 2.2, -S.room.depth / 2 + 0.1];
+            const mesh = createNodeMesh(an.node_id, pos, an.status);
+            S.nodes.push({
+              mesh, id: an.node_id, position: pos,
+              status: an.status, rssi: an.rssi_dbm
+            });
+          });
+        } else {
+          // Defaults — 3 demo nodes
+          const defaults = [
+            [-3, 2.2, -2.5], [0, 2.2, -2.5], [3, 2.2, -2.5]
+          ];
+          defaults.forEach((pos, i) => {
+            const mesh = createNodeMesh(i, pos, 'demo');
+            S.nodes.push({ mesh, id: i, position: pos, status: 'demo', rssi: null });
+          });
+        }
+
+        updateLinks();
+        document.getElementById('hud-node-count').textContent = S.nodes.length;
+      } catch (err) {
+        console.warn('[XYZ] Room config fetch failed, using defaults:', err.message);
+        buildRoom();
+        // Default 3 demo nodes
+        clearNodes();
+        [[-3, 2.2, -2.5], [0, 2.2, -2.5], [3, 2.2, -2.5]].forEach((pos, i) => {
+          const mesh = createNodeMesh(i, pos, 'demo');
+          S.nodes.push({ mesh, id: i, position: pos, status: 'demo', rssi: null });
+        });
+        updateLinks();
+        document.getElementById('hud-node-count').textContent = S.nodes.length;
+      }
+    }
+
+    // ── Save node positions to server ─────────────────────────────────
+    async function saveNodePositions() {
+      const payload = S.nodes.map(n => ({ node_id: n.id, x: n.position[0], y: n.position[1], z: n.position[2] }));
+      try {
+        const r = await fetch('/api/v1/nodes/positions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await r.json();
+        console.log('[XYZ] Saved node positions:', data);
+      } catch (err) {
+        console.warn('[XYZ] Save failed:', err.message);
+      }
+
+      // Also save furniture to localStorage
+      const furnitureData = S.furniture.map(f => ({
+        type: f.type,
+        position: [f.mesh.position.x, f.mesh.position.y, f.mesh.position.z],
+        scale: [f.mesh.scale.x, f.mesh.scale.y, f.mesh.scale.z],
+      }));
+      localStorage.setItem('xyz-segment-furniture', JSON.stringify(furnitureData));
+    }
+
+    // ── Load furniture from localStorage ──────────────────────────────
+    function loadFurniture() {
+      try {
+        const saved = JSON.parse(localStorage.getItem('xyz-segment-furniture') || '[]');
+        saved.forEach(f => {
+          addFurniture(f.type);
+          const last = S.furniture[S.furniture.length - 1];
+          if (last) {
+            last.mesh.position.set(f.position[0], f.position[1], f.position[2]);
+            last.mesh.scale.set(f.scale[0], f.scale[1], f.scale[2]);
+          }
+        });
+        deselectAll();
+      } catch { /* ignore corrupt data */ }
+    }
+
+    // ── Animation Loop ────────────────────────────────────────────────
+    function animate() {
+      S.animationId = requestAnimationFrame(animate);
+      if (!S.renderEnabled) return;
+
+      const delta = S.clock.getDelta();
+      const elapsed = S.clock.getElapsedTime();
+
+      S.controls.update();
+
+      // Pulse node rings
+      S.nodeGroup.children.forEach(g => {
+        g.children.forEach(c => {
+          if (c.userData.pulse) {
+            const scale = 1 + 0.15 * Math.sin(elapsed * 3 + g.position.x);
+            c.scale.set(scale, scale, 1);
+            c.material.opacity = 0.15 + 0.15 * Math.sin(elapsed * 2);
+          }
+        });
+      });
+
+      // Pulse signal links
+      S.signalLinks.forEach((l, i) => {
+        l.material.opacity = 0.12 + 0.08 * Math.sin(elapsed * 1.5 + i * 0.7);
+      });
+
+      // Process sensing data
+      if (S.lastSensingData) {
+        const d = S.lastSensingData;
+        document.getElementById('hud-persons').textContent = d.person_count ?? d.persons?.length ?? 0;
+
+        // Update persons
+        if (d.persons) {
+          updatePersons(d.persons);
+        }
+
+        // Update heatmap from signal field
+        if (d.signal_field && d.signal_field.values) {
+          updateHeatmap(d.signal_field.values);
+        } else {
+          updateHeatmap(null); // demo
+        }
+      } else {
+        updateHeatmap(null); // demo falloff
+      }
+
+      // FPS calculation
+      S.fpsFrames++;
+      const now = performance.now();
+      if (now - S.fpsTime >= 1000) {
+        S.fpsDisplay = S.fpsFrames;
+        S.fpsFrames = 0;
+        S.fpsTime = now;
+        document.getElementById('hud-fps').textContent = S.fpsDisplay;
+      }
+
+      // Update tooltip if selected
+      if (S.selected && S.selected.userData.type === 'node') {
+        updateTooltip();
+      }
+
+      S.renderer.render(S.scene, S.camera);
+    }
+
+    // ── Settings Bindings ─────────────────────────────────────────────
+    function bindSettings() {
+      const panel = document.getElementById('settings-panel');
+      document.getElementById('settings-toggle').addEventListener('click', () => {
+        panel.classList.toggle('open');
+      });
+
+      // Master render toggle
+      document.getElementById('toggle-render').addEventListener('change', (e) => {
+        S.renderEnabled = e.target.checked;
+        document.getElementById('render-off-overlay').classList.toggle('active', !S.renderEnabled);
+      });
+      document.getElementById('btn-resume-render').addEventListener('click', () => {
+        S.renderEnabled = true;
+        document.getElementById('toggle-render').checked = true;
+        document.getElementById('render-off-overlay').classList.remove('active');
+      });
+
+      // Layer toggles
+      document.getElementById('toggle-shadows').addEventListener('change', (e) => {
+        S.renderer.shadowMap.enabled = e.target.checked;
+      });
+      document.getElementById('toggle-antialias').addEventListener('change', (e) => {
+        S.renderer.setPixelRatio(e.target.checked ? Math.min(window.devicePixelRatio, 2) : 1);
+      });
+      document.getElementById('toggle-heatmap').addEventListener('change', (e) => {
+        S.heatmapGroup.visible = e.target.checked;
+      });
+      document.getElementById('toggle-grid').addEventListener('change', (e) => {
+        S.gridGroup.visible = e.target.checked;
+      });
+      document.getElementById('toggle-walls').addEventListener('change', (e) => {
+        S.wallGroup.visible = e.target.checked;
+      });
+      document.getElementById('toggle-links').addEventListener('change', (e) => {
+        S.linkGroup.visible = e.target.checked;
+      });
+      document.getElementById('toggle-furniture').addEventListener('change', (e) => {
+        S.furnitureGroup.visible = e.target.checked;
+      });
+      document.getElementById('toggle-persons').addEventListener('change', (e) => {
+        S.personGroup.visible = e.target.checked;
+      });
+
+      // Room dimension inputs
+      ['room-width', 'room-depth', 'room-height'].forEach(id => {
+        document.getElementById(id).addEventListener('change', () => {
+          S.room.width = parseFloat(document.getElementById('room-width').value) || 8;
+          S.room.depth = parseFloat(document.getElementById('room-depth').value) || 6;
+          S.room.height = parseFloat(document.getElementById('room-height').value) || 3;
+          buildRoom();
+        });
+      });
+    }
+
+    // ── Toolbar Bindings ──────────────────────────────────────────────
+    function bindToolbar() {
+      const btns = { 'btn-select': 'select', 'btn-add-box': 'add-box', 'btn-add-cylinder': 'add-cylinder', 'btn-add-plane': 'add-plane' };
+      Object.entries(btns).forEach(([btnId, mode]) => {
+        document.getElementById(btnId).addEventListener('click', () => {
+          if (mode.startsWith('add-')) {
+            addFurniture(mode.replace('add-', ''));
+            // Stay in select mode
+            S.mode = 'select';
+          } else {
+            S.mode = mode;
+          }
+          // Update active button
+          Object.keys(btns).forEach(b => document.getElementById(b).classList.remove('active'));
+          document.getElementById('btn-select').classList.add('active');
+        });
+      });
+
+      document.getElementById('btn-delete').addEventListener('click', () => {
+        if (S.selected) deleteFurniture(S.selected);
+      });
+
+      document.getElementById('btn-save').addEventListener('click', () => {
+        saveNodePositions();
+      });
+
+      document.getElementById('btn-reset-cam').addEventListener('click', () => {
+        S.camera.position.set(10, 8, 12);
+        S.controls.target.set(0, 1, 0);
+        S.controls.update();
+      });
+    }
+
+    // ── Keyboard Shortcuts ────────────────────────────────────────────
+    function bindKeys() {
+      document.addEventListener('keydown', (e) => {
+        if (e.target.tagName === 'INPUT') return;
+        switch (e.key) {
+          case 'Escape': deselectAll(); break;
+          case 'Delete': case 'Backspace':
+            if (S.selected && S.selected.userData.type === 'furniture') deleteFurniture(S.selected);
+            break;
+          case 'r': case 'R':
+            S.camera.position.set(10, 8, 12);
+            S.controls.target.set(0, 1, 0);
+            S.controls.update();
+            break;
+          case 's': case 'S':
+            if (e.ctrlKey || e.metaKey) { e.preventDefault(); saveNodePositions(); }
+            break;
+        }
+      });
+    }
+
+    // ── Periodically poll tomography ──────────────────────────────────
+    async function pollTomography() {
+      try {
+        const r = await fetch('/api/v1/tomography');
+        const d = await r.json();
+        if (d.status === 'calibrated') {
+          document.getElementById('hud-calibrated').textContent = 'Yes';
+          document.getElementById('hud-calibrated').className = 'hud-val ok';
+          document.getElementById('hud-persons').textContent = d.person_count ?? 0;
+        }
+      } catch { /* noop */ }
+    }
+
+    // ── Boot ──────────────────────────────────────────────────────────
+    async function boot() {
+      initThree();
+      bindSettings();
+      bindToolbar();
+      bindKeys();
+
+      document.getElementById('scene-wrap').addEventListener('pointerdown', onPointerDown);
+
+      await fetchRoomConfig();
+      loadFurniture();
+
+      connectWS();
+      animate();
+
+      // Poll tomography every 5s
+      setInterval(pollTomography, 5000);
+
+      console.log('[XYZ] XYZ Segment initialized');
+    }
+
+    boot();
+  </script>
+</body>
+</html>

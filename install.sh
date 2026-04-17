@@ -53,6 +53,7 @@ HAS_WASM_TARGET=false
 HAS_DOCKER=false; DOCKER_VERSION=""
 HAS_NODE=false; NODE_VERSION=""
 HAS_NPM=false
+HAS_DOTNET=false; DOTNET_VERSION=""
 HAS_ESPIDF=false
 HAS_GIT=false
 HAS_GPU=false; GPU_INFO=""
@@ -298,6 +299,17 @@ detect_toolchains() {
         ok "Git: $(git --version 2>&1)"
     else
         need "Git: not installed"
+    fi
+
+    # .NET SDK
+    export DOTNET_ROOT="${HOME}/.dotnet"
+    export PATH="${HOME}/.dotnet:${PATH}"
+    if command -v dotnet &>/dev/null; then
+        HAS_DOTNET=true
+        DOTNET_VERSION="$(dotnet --version 2>&1)"
+        ok ".NET SDK: ${DOTNET_VERSION}"
+    else
+        info ".NET SDK: not installed (optional)"
     fi
 
     # ESP-IDF

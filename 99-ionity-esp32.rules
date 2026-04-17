@@ -1,0 +1,9 @@
+# Ionity ESP32-S3 CSI Nodes — persistent device symlinks
+# Install: sudo cp 99-ionity-esp32.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger
+#
+# Board 1: USB port 3-1.2, MAC 98:A3:16:E7:FE:30
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", ATTRS{serial}=="98:A3:16:E7:FE:30", SYMLINK+="Ionity_Esp_Dev_1", MODE="0666"
+# Board 2: USB port 3-1.4, MAC 98:A3:16:E3:88:E8
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", ATTRS{serial}=="98:A3:16:E3:88:E8", SYMLINK+="Ionity_Esp_Dev_2", MODE="0666"
+# Board 3: USB port 3-1.3, MAC 34:85:18:42:08:14
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", ATTRS{serial}=="34:85:18:42:08:14", SYMLINK+="Ionity_Esp_Dev_3", MODE="0666"

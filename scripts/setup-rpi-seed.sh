@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║  RuView — Raspberry Pi Zero 2 W "Cognitum Seed" Setup                      ║
+# ║  AEDI-S — Raspberry Pi Zero 2 W "Cognitum Seed" Setup                      ║
 # ║  Installs all dependencies for the edge AI pipeline + sensing server.       ║
 # ║                                                                              ║
 # ║  Usage:                                                                      ║
@@ -59,7 +59,7 @@ info() { echo -e "  ${DIM}$1${RESET}"; }
 # ── Banner ────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════════════════════╗${RESET}"
-echo -e "${CYAN}${BOLD}║${RESET}  ${BOLD}RuView — Cognitum Seed (RPi Zero 2 W) Setup${RESET}"
+echo -e "${CYAN}${BOLD}║${RESET}  ${BOLD}AEDI-S — Cognitum Seed (RPi Zero 2 W) Setup${RESET}"
 echo -e "${CYAN}${BOLD}║${RESET}  ${DIM}Edge AI pipeline: Python + ONNX + Node.js + Rust${RESET}"
 echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════════════════════╝${RESET}"
 echo ""

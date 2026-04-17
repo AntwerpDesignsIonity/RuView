@@ -1,5 +1,5 @@
 /**
- * Demo Data Generator — RuView Observatory
+ * Demo Data Generator — AEDI-S Observatory
  *
  * Generates synthetic CSI data matching the SensingUpdate contract.
  * 12 scenarios covering all edge module categories.

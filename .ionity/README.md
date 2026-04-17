@@ -1,9 +1,9 @@
-# Ionity RuView Launcher
+# Ionity AEDI-S Launcher
 
 **Ionity Global (Pty) Ltd, South Africa**
 ai@ionity.today | [www.ionity.today](https://www.ionity.today) | +27 646 999 877
 
-Single-command startup for the full RuView WiFi sensing stack — Rust server, Python env, UI, ESP32 provisioning, and all analysis scripts.
+Single-command startup for the full AEDI-S WiFi sensing stack — Rust server, Python env, UI, ESP32 provisioning, and all analysis scripts.
 
 ---
 
@@ -73,7 +73,7 @@ bash .ionity/ionity.sh provision /dev/ttyACM0 1
 
 ```bash
 # 1. Clone / enter repo
-cd RuView
+cd AEDI-S
 
 # 2. Set credentials (copy once, never committed)
 cp example.env .env.local

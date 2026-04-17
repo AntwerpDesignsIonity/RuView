@@ -20,6 +20,11 @@ const MAX_RECONNECT_ATTEMPTS = 20;
 // This prevents the UI from flashing "SIMULATED" on a brief hiccup.
 const SIM_FALLBACK_AFTER_ATTEMPTS = 5;
 const SIMULATION_INTERVAL = 500; // ms
+const HEALTH_CHECK_INTERVAL = 15000; // ms
+const WATCHDOG_INTERVAL = 1000; // ms
+const STALE_FRAME_WARN_MS = 7000;
+const STALE_FRAME_RECOVER_MS = 20000;
+const AUTO_RECOVER_COOLDOWN_MS = 20000;
 
 class SensingService {
   constructor() {
@@ -27,9 +32,16 @@ class SensingService {
     this._ws = null;
     this._listeners = new Set();
     this._stateListeners = new Set();
+    this._diagnosticsListeners = new Set();
     this._reconnectAttempt = 0;
     this._reconnectTimer = null;
     this._simTimer = null;
+    this._healthTimer = null;
+    this._watchdogTimer = null;
+    this._healthInFlight = false;
+    this._isRunning = false;
+    this._isStopping = false;
+    this._lastAutoRecoverAt = 0;
     // Connection state: disconnected | connecting | connected | reconnecting | simulated
     this._state = 'disconnected';
     // Data-source label exposed to the UI:
@@ -41,6 +53,31 @@ class SensingService {
     // The raw source string from the server (e.g. "esp32", "simulated", "simulate")
     this._serverSource = null;
     this._lastMessage = null;
+    this._lastFrameAt = 0;
+
+    this._boundOnlineHandler = null;
+    this._boundOfflineHandler = null;
+    this._boundVisibilityHandler = null;
+
+    this._diagnostics = {
+      wsUrl: SENSING_WS_URL,
+      state: this._state,
+      dataSource: this._dataSource,
+      serverSource: this._serverSource,
+      reconnectAttempt: this._reconnectAttempt,
+      maxReconnectAttempts: MAX_RECONNECT_ATTEMPTS,
+      lastFrameAt: null,
+      lastFrameAgeMs: null,
+      networkOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+      visibility: typeof document !== 'undefined' ? document.visibilityState : 'visible',
+      health: {
+        status: 'unknown', // unknown | healthy | degraded | down | stale
+        latencyMs: null,
+        httpStatus: null,
+        error: null,
+        lastCheckedAt: null,
+      },
+    };
 
     // Ring buffer of recent RSSI values for sparkline
     this._rssiHistory = [];
@@ -51,17 +88,44 @@ class SensingService {
 
   /** Start the service (connect or simulate). */
   start() {
+    if (this._isRunning) return;
+    this._isRunning = true;
+    this._isStopping = false;
+    this._attachBrowserListeners();
+    this._startRunners();
     this._connect();
   }
 
   /** Stop the service entirely. */
   stop() {
+    this._isRunning = false;
+    this._isStopping = true;
+    this._detachBrowserListeners();
     this._clearTimers();
     if (this._ws) {
       this._ws.close(1000, 'client stop');
       this._ws = null;
     }
     this._setState('disconnected');
+    this._setDataSource('reconnecting');
+    this._emitDiagnostics();
+  }
+
+  /** Force a reconnect cycle immediately. */
+  forceReconnect() {
+    if (!this._isRunning) return;
+    this._clearReconnectTimer();
+    this._stopSimulation();
+    if (this._ws) {
+      try {
+        this._ws.close(4001, 'force reconnect');
+      } catch {
+        this._ws = null;
+      }
+    }
+    this._setState('reconnecting');
+    this._setDataSource('reconnecting');
+    this._connect();
   }
 
   /** Register a callback for sensing data updates. Returns unsubscribe fn. */
@@ -77,6 +141,13 @@ class SensingService {
     this._stateListeners.add(callback);
     callback(this._state);
     return () => this._stateListeners.delete(callback);
+  }
+
+  /** Register a callback for diagnostics updates. Returns unsubscribe fn. */
+  onDiagnostics(callback) {
+    this._diagnosticsListeners.add(callback);
+    callback(this.diagnostics);
+    return () => this._diagnosticsListeners.delete(callback);
   }
 
   /** Get the RSSI sparkline history (array of floats). */
@@ -96,17 +167,28 @@ class SensingService {
 
   /**
    * Current data source label.
-   * "live"         — frames are arriving from the real ESP32 over WebSocket
-   * "reconnecting" — WebSocket disconnected; actively retrying, no frames emitted
-   * "simulated"    — max reconnect attempts exhausted; emitting synthetic frames
+    * "live"              — frames are arriving from real ESP32 hardware
+    * "hardware-offline"  — server reports ESP32 source but no CSI frames yet
+    * "server-simulated"  — server is online but synthesizing data
+    * "reconnecting"      — transport degraded, retrying
+    * "simulated"         — local client-side fallback simulation
    */
   get dataSource() {
     return this._dataSource;
   }
 
+  /** Snapshot of connection diagnostics for UI cards and debug panels. */
+  get diagnostics() {
+    return {
+      ...this._diagnostics,
+      health: { ...this._diagnostics.health },
+    };
+  }
+
   // ---- Connection --------------------------------------------------------
 
   _connect() {
+    if (!this._isRunning) return;
     if (this._ws && this._ws.readyState <= WebSocket.OPEN) return;
 
     this._setState('connecting');
@@ -126,7 +208,8 @@ class SensingService {
       this._setState('connected');
       // Don't assume "live" yet — wait for first frame's source field.
       // Fetch server status to determine actual data source immediately.
-      this._detectServerSource();
+      this._detectServerSource('ws-open');
+      this._emitDiagnostics();
     };
 
     this._ws.onmessage = (evt) => {
@@ -145,6 +228,11 @@ class SensingService {
     this._ws.onclose = (evt) => {
       console.info('[Sensing] Connection closed (code=%d)', evt.code);
       this._ws = null;
+      if (this._isStopping || !this._isRunning || evt.code === 1000) {
+        this._setState('disconnected');
+        this._emitDiagnostics();
+        return;
+      }
       if (evt.code !== 1000) {
         this._scheduleReconnect();
       } else {
@@ -168,6 +256,7 @@ class SensingService {
     this._setState('reconnecting');
     this._setDataSource('reconnecting');
 
+    this._clearReconnectTimer();
     this._reconnectTimer = setTimeout(() => {
       this._reconnectTimer = null;
       this._connect();
@@ -178,6 +267,8 @@ class SensingService {
     if (this._reconnectAttempt >= SIM_FALLBACK_AFTER_ATTEMPTS && this._state !== 'simulated') {
       this._fallbackToSimulation();
     }
+
+    this._emitDiagnostics();
   }
 
   // ---- Simulation fallback -----------------------------------------------
@@ -192,6 +283,8 @@ class SensingService {
       const data = this._generateSimulatedData();
       this._handleData(data);
     }, SIMULATION_INTERVAL);
+
+    this._emitDiagnostics();
   }
 
   _stopSimulation() {
@@ -272,21 +365,50 @@ class SensingService {
   // ---- Server source detection -------------------------------------------
 
   /**
-   * Fetch `/api/v1/status` to find out if the server is using real
+    * Fetch `/health` to find out if the server is using real
    * hardware or simulation. Called once on WebSocket open.
    */
-  async _detectServerSource() {
+  async _detectServerSource(reason = 'manual') {
+    if (this._healthInFlight) return;
+    this._healthInFlight = true;
+    const start = Date.now();
     try {
-      const resp = await fetch('/health');
+      const resp = await fetch('/health', { cache: 'no-store' });
+      const latencyMs = Date.now() - start;
       if (resp.ok) {
         const json = await resp.json();
         this._applyServerSource(json.source);
+        this._diagnostics.health = {
+          status: reason === 'watchdog' ? 'degraded' : 'healthy',
+          latencyMs,
+          httpStatus: resp.status,
+          error: null,
+          lastCheckedAt: Date.now(),
+        };
       } else {
         // Can't reach health endpoint — assume live until first frame tells us
-        this._setDataSource('live');
+        this._diagnostics.health = {
+          status: 'degraded',
+          latencyMs,
+          httpStatus: resp.status,
+          error: `HTTP ${resp.status}`,
+          lastCheckedAt: Date.now(),
+        };
       }
-    } catch {
-      this._setDataSource('live');
+    } catch (err) {
+      this._diagnostics.health = {
+        status: 'down',
+        latencyMs: null,
+        httpStatus: null,
+        error: err?.message || 'health-check-failed',
+        lastCheckedAt: Date.now(),
+      };
+      if (this._state === 'connected') {
+        this._setDataSource('reconnecting');
+      }
+    } finally {
+      this._healthInFlight = false;
+      this._emitDiagnostics();
     }
   }
 
@@ -306,6 +428,7 @@ class SensingService {
       // Unknown source — show as server-simulated to be safe
       this._setDataSource('server-simulated');
     }
+    this._emitDiagnostics();
   }
 
   /** @return {string|null} Raw server source (e.g. "esp32", "simulated") */
@@ -317,6 +440,7 @@ class SensingService {
 
   _handleData(data) {
     this._lastMessage = data;
+    this._lastFrameAt = Date.now();
 
     // Track the server's source field from each frame so the UI
     // can react if the server switches between esp32 ↔ simulated at runtime.
@@ -357,6 +481,8 @@ class SensingService {
         console.error('[Sensing] Listener error:', e);
       }
     }
+
+    this._emitDiagnostics();
   }
 
   // ---- State management --------------------------------------------------
@@ -367,31 +493,148 @@ class SensingService {
     for (const cb of this._stateListeners) {
       try { cb(newState); } catch (e) { /* ignore */ }
     }
+    this._emitDiagnostics();
   }
 
   /**
    * Update the dataSource label and notify state listeners so the UI can
    * react without needing a separate subscription.
-   * @param {'live'|'server-simulated'|'reconnecting'|'simulated'} source
+   * @param {'live'|'hardware-offline'|'server-simulated'|'reconnecting'|'simulated'} source
    */
   _setDataSource(source) {
     if (source === this._dataSource) return;
     this._dataSource = source;
-    // Re-use the same state-listener channel — listeners receive the
-    // connection state but can read dataSource via service.dataSource.
     for (const cb of this._stateListeners) {
       try { cb(this._state); } catch (e) { /* ignore */ }
     }
+    this._emitDiagnostics();
   }
 
-  _clearTimers() {
-    this._stopSimulation();
+  _emitDiagnostics() {
+    const lastFrameAgeMs = this._lastFrameAt > 0 ? Date.now() - this._lastFrameAt : null;
+    const health = { ...this._diagnostics.health };
+
+    if (this._state === 'connected' && Number.isFinite(lastFrameAgeMs) && lastFrameAgeMs > STALE_FRAME_WARN_MS) {
+      if (health.status === 'healthy' || health.status === 'unknown') {
+        health.status = 'stale';
+      }
+    }
+
+    this._diagnostics = {
+      ...this._diagnostics,
+      wsUrl: SENSING_WS_URL,
+      state: this._state,
+      dataSource: this._dataSource,
+      serverSource: this._serverSource,
+      reconnectAttempt: this._reconnectAttempt,
+      maxReconnectAttempts: MAX_RECONNECT_ATTEMPTS,
+      lastFrameAt: this._lastFrameAt || null,
+      lastFrameAgeMs,
+      networkOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+      visibility: typeof document !== 'undefined' ? document.visibilityState : 'visible',
+      health,
+    };
+
+    for (const cb of this._diagnosticsListeners) {
+      try { cb(this.diagnostics); } catch (e) { /* ignore */ }
+    }
+  }
+
+  _startRunners() {
+    if (!this._healthTimer) {
+      this._healthTimer = setInterval(() => {
+        if (!this._isRunning) return;
+        this._detectServerSource('interval');
+      }, HEALTH_CHECK_INTERVAL);
+    }
+
+    if (!this._watchdogTimer) {
+      this._watchdogTimer = setInterval(() => {
+        if (!this._isRunning) return;
+
+        const lastFrameAgeMs = this._lastFrameAt > 0 ? Date.now() - this._lastFrameAt : null;
+        if (this._state === 'connected' && Number.isFinite(lastFrameAgeMs) && lastFrameAgeMs > STALE_FRAME_WARN_MS) {
+          this._emitDiagnostics();
+        }
+
+        if (
+          this._state === 'connected' &&
+          Number.isFinite(lastFrameAgeMs) &&
+          lastFrameAgeMs > STALE_FRAME_RECOVER_MS &&
+          Date.now() - this._lastAutoRecoverAt > AUTO_RECOVER_COOLDOWN_MS
+        ) {
+          this._lastAutoRecoverAt = Date.now();
+          this._detectServerSource('watchdog');
+          this.forceReconnect();
+        }
+      }, WATCHDOG_INTERVAL);
+    }
+
+    this._emitDiagnostics();
+  }
+
+  _attachBrowserListeners() {
+    if (typeof window !== 'undefined' && !this._boundOnlineHandler) {
+      this._boundOnlineHandler = () => {
+        this._emitDiagnostics();
+        if (this._isRunning && this._state !== 'connected') {
+          this.forceReconnect();
+        }
+      };
+      this._boundOfflineHandler = () => {
+        this._setDataSource('reconnecting');
+        this._emitDiagnostics();
+      };
+      window.addEventListener('online', this._boundOnlineHandler);
+      window.addEventListener('offline', this._boundOfflineHandler);
+    }
+
+    if (typeof document !== 'undefined' && !this._boundVisibilityHandler) {
+      this._boundVisibilityHandler = () => {
+        this._emitDiagnostics();
+        if (document.visibilityState === 'visible' && this._isRunning && this._state === 'connected') {
+          this._detectServerSource('visibility');
+        }
+      };
+      document.addEventListener('visibilitychange', this._boundVisibilityHandler);
+    }
+  }
+
+  _detachBrowserListeners() {
+    if (typeof window !== 'undefined' && this._boundOnlineHandler) {
+      window.removeEventListener('online', this._boundOnlineHandler);
+      window.removeEventListener('offline', this._boundOfflineHandler);
+      this._boundOnlineHandler = null;
+      this._boundOfflineHandler = null;
+    }
+
+    if (typeof document !== 'undefined' && this._boundVisibilityHandler) {
+      document.removeEventListener('visibilitychange', this._boundVisibilityHandler);
+      this._boundVisibilityHandler = null;
+    }
+  }
+
+  _clearReconnectTimer() {
     if (this._reconnectTimer) {
       clearTimeout(this._reconnectTimer);
       this._reconnectTimer = null;
     }
   }
+
+  _clearTimers() {
+    this._stopSimulation();
+    this._clearReconnectTimer();
+
+    if (this._healthTimer) {
+      clearInterval(this._healthTimer);
+      this._healthTimer = null;
+    }
+
+    if (this._watchdogTimer) {
+      clearInterval(this._watchdogTimer);
+      this._watchdogTimer = null;
+    }
+  }
 }
 
-// Singleton
 export const sensingService = new SensingService();

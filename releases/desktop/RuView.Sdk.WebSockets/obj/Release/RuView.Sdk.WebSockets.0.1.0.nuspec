@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd">
+  <metadata>
+    <id>RuView.Sdk.WebSockets</id>
+    <version>0.1.0</version>
+    <authors>Ionity Global</authors>
+    <description>WebSocket client SDK for live RuView sensing streams.</description>
+    <tags>ruview aedi sensing sdk websocket</tags>
+    <repository type="git" url="https://github.com/AntwerpDesignsIonity/AEDI-SIGHT-IO-with-RuView" commit="d6ffca465b247471b110d51eec847413465d284f" />
+    <dependencies>
+      <group targetFramework="net8.0">
+        <dependency id="RuView.Sdk.Models" version="0.1.0" exclude="Build,Analyzers" />
+      </group>
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.WebSockets/bin/Release/net8.0/RuView.Sdk.WebSockets.dll" target="lib/net8.0/RuView.Sdk.WebSockets.dll" />
+  </files>
+</package>

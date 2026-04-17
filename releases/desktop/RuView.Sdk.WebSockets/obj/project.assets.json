@@ -1,0 +1,105 @@
+{
+  "version": 3,
+  "targets": {
+    "net8.0": {
+      "RuView.Sdk.Models/0.1.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "compile": {
+          "bin/placeholder/RuView.Sdk.Models.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/RuView.Sdk.Models.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "RuView.Sdk.Models/0.1.0": {
+      "type": "project",
+      "path": "../RuView.Sdk.Models/RuView.Sdk.Models.csproj",
+      "msbuildProject": "../RuView.Sdk.Models/RuView.Sdk.Models.csproj"
+    }
+  },
+  "projectFileDependencyGroups": {
+    "net8.0": [
+      "RuView.Sdk.Models >= 0.1.0"
+    ]
+  },
+  "packageFolders": {
+    "/home/antwerp/.nuget/packages/": {}
+  },
+  "project": {
+    "version": "0.1.0",
+    "restore": {
+      "projectUniqueName": "/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.WebSockets/RuView.Sdk.WebSockets.csproj",
+      "projectName": "RuView.Sdk.WebSockets",
+      "projectPath": "/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.WebSockets/RuView.Sdk.WebSockets.csproj",
+      "packagesPath": "/home/antwerp/.nuget/packages/",
+      "outputPath": "/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.WebSockets/obj/",
+      "projectStyle": "PackageReference",
+      "configFilePaths": [
+        "/home/antwerp/.nuget/NuGet/NuGet.Config"
+      ],
+      "originalTargetFrameworks": [
+        "net8.0"
+      ],
+      "sources": {
+        "https://api.nuget.org/v3/index.json": {}
+      },
+      "frameworks": {
+        "net8.0": {
+          "targetAlias": "net8.0",
+          "projectReferences": {
+            "/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.Models/RuView.Sdk.Models.csproj": {
+              "projectPath": "/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.Models/RuView.Sdk.Models.csproj"
+            }
+          }
+        }
+      },
+      "warningProperties": {
+        "warnAsError": [
+          "NU1605"
+        ]
+      },
+      "restoreAuditProperties": {
+        "enableAudit": "true",
+        "auditLevel": "low",
+        "auditMode": "direct"
+      },
+      "SdkAnalysisLevel": "10.0.200"
+    },
+    "frameworks": {
+      "net8.0": {
+        "targetAlias": "net8.0",
+        "imports": [
+          "net461",
+          "net462",
+          "net47",
+          "net471",
+          "net472",
+          "net48",
+          "net481"
+        ],
+        "assetTargetFallback": true,
+        "warn": true,
+        "downloadDependencies": [
+          {
+            "name": "Microsoft.AspNetCore.App.Ref",
+            "version": "[8.0.25, 8.0.25]"
+          },
+          {
+            "name": "Microsoft.NETCore.App.Ref",
+            "version": "[8.0.25, 8.0.25]"
+          }
+        ],
+        "frameworkReferences": {
+          "Microsoft.NETCore.App": {
+            "privateAssets": "all"
+          }
+        },
+        "runtimeIdentifierGraphPath": "/home/antwerp/.dotnet/sdk/10.0.201/PortableRuntimeIdentifierGraph.json"
+      }
+    }
+  }
+}

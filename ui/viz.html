@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>WiFi DensePose - 3D Visualization</title>
+  <title>AEDI-S — 3D Visualization</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body {
@@ -101,6 +104,9 @@
     import { WebSocketClient } from './services/websocket-client.js';
     import { DataProcessor } from './services/data-processor.js';
 
+    // SDK modules
+    import { sdk, SensingPipeline } from './sdk/index.js';
+
     // -- Application State --
     const state = {
       scene: null,
@@ -111,6 +117,7 @@
       wsClient: null,
       dataProcessor: null,
       stats: null,
+      pipeline: null,
       isDemoMode: true,
       startTime: Date.now()
     };
@@ -145,6 +152,11 @@
       const container = document.getElementById('viz-container');
 
       try {
+        setLoadingProgress(5, 'Initializing SDK...');
+
+        // 0. SDK initialization (capability detection)
+        await sdk.init();
+        console.log(`[VIZ] SDK tier: ${sdk.tier}`);
         setLoadingProgress(10, 'Creating 3D scene...');
 
         // 1. Scene setup
@@ -157,10 +169,25 @@
 
         // 3. Body model manager
         state.bodyModelManager = new BodyModelManager(state.scene.getScene());
-        setLoadingProgress(55, 'Setting up signal visualization...');
+        setLoadingProgress(50, 'Setting up signal visualization...');
 
         // 4. Signal visualization
         state.signalViz = new SignalVisualization(state.scene.getScene());
+        setLoadingProgress(58, 'Initializing GPU sensing pipeline...');
+
+        // 4b. SDK Sensing Pipeline (GPU compute + instanced field + particles + post-FX)
+        state.pipeline = new SensingPipeline({
+          gridX: 24, gridZ: 18, cellSize: 0.33,
+          maxParticles: 1500,
+          onFeatures: (features) => {
+            sdk.events.emit('features:update', features);
+          },
+        });
+        await state.pipeline.init(
+          state.scene.getScene(),
+          state.scene.getRenderer(),
+          state.scene.getCamera()
+        );
         setLoadingProgress(65, 'Creating HUD...');
 
         // 5. Dashboard HUD
@@ -177,7 +204,7 @@
 
         // 8. WebSocket client
         state.wsClient = new WebSocketClient({
-          url: `ws://${window.location.hostname}:8765`,
+          url: `ws://${window.location.hostname}:3001/ws/sensing`,
           onMessage: (msg) => handleWebSocketMessage(msg),
           onStateChange: (newState, oldState) => handleConnectionStateChange(newState, oldState),
           onError: (err) => console.error('[VIZ] WebSocket error:', err)
@@ -212,6 +239,9 @@
       // Stats.js begin
       if (state.stats) state.stats.begin();
 
+      // SDK performance tracking
+      sdk.performance.beginFrame();
+
       // Determine data source
       let vizData = null;
 
@@ -222,6 +252,24 @@
         // Generate demo signal data
         const demoSignal = SignalVisualization.generateDemoData(elapsed);
         state.signalViz.updateSignalData(demoSignal);
+
+        // Feed demo data through SDK pipeline
+        if (state.pipeline) {
+          state.pipeline.processSensingData({
+            classification: { presence: true, motion_level: 0.3 + Math.sin(elapsed) * 0.3 },
+            vital_signs: { heart_rate_bpm: 72, breathing_rate_bpm: 16, breathing_confidence: 0.8 },
+            signal_metrics: { variance: 0.1 + Math.sin(elapsed * 0.5) * 0.05, rssi: -45 },
+            nodes: [
+              { node_id: 'demo1', rssi: -42, x: Math.sin(elapsed * 0.3) * 2, y: 0.5, z: Math.cos(elapsed * 0.3) * 1.5 },
+              { node_id: 'demo2', rssi: -50, x: -Math.sin(elapsed * 0.2) * 1.5, y: 0.5, z: Math.sin(elapsed * 0.4) * 2 },
+            ],
+          });
+        }
+      }
+
+      // Update SDK pipeline (particles, etc.)
+      if (state.pipeline) {
+        state.pipeline.update(delta);
       }
 
       // If we have viz data (from demo or last processed real data), update visualizations
@@ -250,6 +298,7 @@
         state.hud.tickFPS();
 
         const wsMetrics = state.wsClient.getMetrics();
+        const pipelineFeatures = state.pipeline ? state.pipeline.features : null;
         state.hud.updateState({
           connectionStatus: state.wsClient.state,
           isRealData: state.wsClient.isRealData && !state.isDemoMode,
@@ -258,9 +307,16 @@
           uptime: wsMetrics.uptime,
           personCount: state.bodyModelManager.getActiveCount(),
           confidence: state.bodyModelManager.getAverageConfidence(),
-          sensingMode: state.isDemoMode ? 'Mock' : (state.wsClient.isRealData ? 'CSI' : 'Mock')
+          sensingMode: state.isDemoMode ? 'Mock' : (state.wsClient.isRealData ? 'CSI' : 'Mock'),
+          sdkTier: sdk.tier,
+          computeBackend: state.pipeline ? state.pipeline.computeBackend : 'none',
+          breathingBand: pipelineFeatures ? pipelineFeatures.breathingBand : 0,
+          motionBand: pipelineFeatures ? pipelineFeatures.motionBand : 0,
         });
       }
+
+      // SDK performance tracking
+      sdk.performance.endFrame(state.scene?.getRenderer());
 
       // Stats.js end
       if (state.stats) state.stats.end();
@@ -270,6 +326,11 @@
     function handleWebSocketMessage(message) {
       const processed = state.dataProcessor.processMessage(message);
       if (!processed) return;
+
+      // Feed raw message through SDK sensing pipeline
+      if (state.pipeline) {
+        state.pipeline.processSensingData(message);
+      }
 
       // Switch off demo mode when we get real data
       if (processed.persons.length > 0) {
@@ -315,12 +376,14 @@
 
     // -- Cleanup on page unload --
     window.addEventListener('beforeunload', () => {
+      if (state.pipeline) state.pipeline.dispose();
       if (state.wsClient) state.wsClient.dispose();
       if (state.bodyModelManager) state.bodyModelManager.dispose();
       if (state.signalViz) state.signalViz.dispose();
       if (state.environment) state.environment.dispose();
       if (state.hud) state.hud.dispose();
       if (state.scene) state.scene.dispose();
+      sdk.dispose();
     });
 
     // -- Keyboard shortcuts --
@@ -343,6 +406,20 @@
             state.wsClient.reconnectAttempts = 0;
             state.wsClient.connect();
           }
+          break;
+        case 't':
+          // Run SDK diagnostics
+          (async () => {
+            const { RuntimeDiagnostics, registerBuiltInDiagnostics, FaultFinder } = await import('./sdk/diagnostics.js');
+            const diag = new RuntimeDiagnostics();
+            registerBuiltInDiagnostics(diag);
+            const report = await diag.runAll();
+            console.log('[VIZ] Diagnostics:', report);
+            // Also run fault-finder
+            const ff = new FaultFinder();
+            await ff.analyze();
+            ff.printReport();
+          })();
           break;
       }
     });

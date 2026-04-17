@@ -1,8 +1,8 @@
-# RuView — Complete File System & Folder Path Reference
+# AEDI-S — Complete File System & Folder Path Reference
 
 > **Version:** 0.6.0 | **Updated:** 2026-04-06 | **Repository:** [ionity.today](https://www.ionity.today)
 
-This document maps every directory and key file in the RuView monorepo. Use it to navigate the codebase, understand boundaries between Rust/Python/firmware/UI layers, and locate ML pipelines, edge computing infrastructure, and logging systems.
+This document maps every directory and key file in the AEDI-S monorepo. Use it to navigate the codebase, understand boundaries between Rust/Python/firmware/UI layers, and locate ML pipelines, edge computing infrastructure, and logging systems.
 
 ---
 
@@ -33,7 +33,7 @@ This document maps every directory and key file in the RuView monorepo. Use it t
 ## Root Layout
 
 ```
-RuView/
+AEDI-S/
 │
 ├── CLAUDE.md                     # Project conventions & architecture map
 ├── README.md                     # Public-facing documentation & wiki
@@ -164,7 +164,7 @@ rust-port/wifi-densepose-rs/
 │   │       ├── losses.rs             # Contrastive + MSE + physics loss
 │   │       ├── eval.rs               # PCK, AUC, MPJPE evaluation
 │   │       ├── metrics.rs            # DynamicPersonMatcher (mincut)
-│   │       ├── ruview_metrics.rs     # RuView-specific KPIs
+│   │       ├── aedis_metrics.rs     # AEDI-S-specific KPIs
 │   │       ├── config.rs             # Training hyperparameters
 │   │       ├── domain.rs             # Training domain model
 │   │       ├── geometry.rs           # Skeleton constraint validation
@@ -353,7 +353,7 @@ wifi-densepose-train/src/
 ├── rapid_adapt.rs      # Online: EWC penalty + LoRA inject + distillation
 ├── virtual_aug.rs      # Synthetic augmentation (noise, rotation, occlusion)
 ├── proof.rs            # SHA-256 deterministic pipeline proof (ADR-028)
-└── ruview_metrics.rs   # Dashboard-specific KPIs
+└── aedis_metrics.rs   # Dashboard-specific KPIs
 ```
 
 ---
@@ -836,7 +836,7 @@ ui/
 │                                                               │
 │  Docker: ruvnet/wifi-densepose:latest (amd64 + arm64)        │
 │  Kubernetes: Helm chart + HPA scaling                        │
-│  HuggingFace: ruv/ruview (model hosting)                     │
+│  HuggingFace: ruv/aedi-s (model hosting)                     │
 │  Google Cloud: gcloud-train.sh (GPU training)                │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -1021,7 +1021,7 @@ cargo build -p wifi-densepose-sensing-server --release
 | **RF Tomography** | `rf-tomography.js` | 2D room imaging via RF backprojection |
 | **Mesh Graph** | `mesh-graph-transformer.js` | GNN-based mesh topology analysis |
 | **QEMU Testing** | `qemu_swarm.py`, `qemu-esp32s3-test.sh`, `qemu-mesh-test.sh`, `qemu-chaos-test.sh` | Firmware emulation and testing |
-| **Deployment** | `flash-node.sh`, `provision.py`, `deploy.sh`, `start-ruview.sh` | Hardware flashing, provisioning, deployment |
+| **Deployment** | `flash-node.sh`, `provision.py`, `deploy.sh`, `start-aedi-s.sh` | Hardware flashing, provisioning, deployment |
 | **Publishing** | `publish-huggingface.py`, `publish-huggingface.sh`, `generate-witness-bundle.sh` | Model publishing, witness verification |
 | **Utilities** | `check_health.py`, `swarm_health.py`, `inject_fault.py`, `seed_csi_bridge.py` | Health checks, fault injection, data bridging |
 
@@ -1089,7 +1089,7 @@ docs/adr/
 ├── ADR-028  ESP32 capability audit ✓ ACCEPTED
 ├── ADR-029  RuvSense multistatic sensing mode → PROPOSED
 ├── ADR-030  RuvSense persistent field model → PROPOSED
-├── ADR-031  RuView sensing-first RF mode → PROPOSED
+├── ADR-031  AEDI-S sensing-first RF mode → PROPOSED
 ├── ADR-032  Multistatic mesh security hardening → PROPOSED
 │
 │ ── PLATFORM (033-056) ─────────────────────────────────
@@ -1116,7 +1116,7 @@ docs/adr/
 ├── ADR-053  UI design system
 ├── ADR-054  Desktop full implementation
 ├── ADR-055  Integrated sensing server
-├── ADR-056  RuView desktop capabilities
+├── ADR-056  AEDI-S desktop capabilities
 │
 │ ── FIRMWARE (057-062) ─────────────────────────────────
 ├── ADR-057  Firmware CSI build guard
@@ -1311,7 +1311,7 @@ docs/edge-modules/
 
 | Example | Directory | Description |
 |---------|-----------|-------------|
-| **Live Streaming** | `ruview_live.py` | Real-time CSI visualization |
+| **Live Streaming** | `aedis_live.py` | Real-time CSI visualization |
 | **Room Monitor** | `environment/room_monitor.py` | Room-level occupancy analytics |
 | **Blood Pressure** | `medical/bp_estimator.py` | Contactless BP via 60 GHz mmWave |
 | **Vitals Suite** | `medical/vitals_suite.py` | Full vital signs dashboard |
@@ -1337,6 +1337,6 @@ docs/edge-modules/
 | Check CI pipeline | `.github/workflows/ci.yml` |
 | Deploy via Docker | `docker/docker-compose.yml` |
 | View research papers | `docs/research/` |
-| Download pre-trained models | `https://huggingface.co/ruv/ruview` |
+| Download pre-trained models | `https://huggingface.co/ruv/aedi-s` |
 | Run deterministic proof | `python v1/data/proof/verify.py` |
 | Test firmware in QEMU | `scripts/qemu-esp32s3-test.sh` |

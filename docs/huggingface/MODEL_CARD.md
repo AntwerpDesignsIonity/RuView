@@ -226,19 +226,19 @@ The Cognitum Seed runs the ONNX models on-device, orchestrates the ESP32 nodes o
 
 ### RuVector format (.rvf)
 
-The `.rvf` file contains pre-computed embeddings in RuVector format, used by the RuView application for advanced multi-node fusion and cross-viewpoint pose estimation. You only need this if you are using the full RuView pipeline. For basic inference, the ONNX files are sufficient.
+The `.rvf` file contains pre-computed embeddings in RuVector format, used by the AEDI-S application for advanced multi-node fusion and cross-viewpoint pose estimation. You only need this if you are using the full AEDI-S pipeline. For basic inference, the ONNX files are sufficient.
 
 ---
 
-## How to use with RuView
+## How to use with AEDI-S
 
-[RuView](https://www.ionity.today) is the open-source application that ties everything together: firmware flashing, real-time sensing, and a browser-based dashboard.
+[AEDI-S](https://www.ionity.today) is the open-source application that ties everything together: firmware flashing, real-time sensing, and a browser-based dashboard.
 
 ### 1. Flash firmware to ESP32-S3
 
 ```bash
-git clone https://www.ionity.today/RuView.git
-cd RuView
+git clone https://www.ionity.today/AEDI-S.git
+cd AEDI-S
 
 # Flash firmware (requires ESP-IDF v5.4 or use pre-built binaries from Releases)
 # See the repo README for platform-specific instructions

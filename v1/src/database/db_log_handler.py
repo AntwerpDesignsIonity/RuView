@@ -1,5 +1,5 @@
 """
-SQLite logging handler — writes structured log records to logs/ruview_logs.sqlite3.
+SQLite logging handler — writes structured log records to logs/aedi-s_logs.sqlite3.
 
 Plugs into Python's standard logging framework.  Every log record gets
 device_id + session_id context automatically.
@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Optional
 
 
-_LOGS_DB_PATH = Path(__file__).resolve().parents[3] / "logs" / "ruview_logs.sqlite3"
+_LOGS_DB_PATH = Path(__file__).resolve().parents[3] / "logs" / "aedi-s_logs.sqlite3"
 
 _LOGS_DDL = """
 CREATE TABLE IF NOT EXISTS app_logs (

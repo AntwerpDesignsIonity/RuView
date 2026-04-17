@@ -83,7 +83,7 @@ def download_file(url: str, dest: str) -> bool:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Download RuView ONNX models for Cognitum Seed")
+    parser = argparse.ArgumentParser(description="Download AEDI-S ONNX models for Cognitum Seed")
     parser.add_argument("--model-dir", default=DEFAULT_MODEL_DIR, help="Target directory")
     parser.add_argument("--quantized-only", action="store_true",
                         help="Download only quantized model + config (saves bandwidth)")

@@ -1,13 +1,13 @@
 ---
 name: "Fault Finding Startups"
-description: "Systematic diagnosis and resolution of startup failures across the Ionity RuView stack: Rust sensing-server, ESP32 firmware boot, Python venv/packages, Docker containers, serial ports, and network services. Use when any component fails to start, hangs during boot, crashes on init, or produces startup errors."
+description: "Systematic diagnosis and resolution of startup failures across the Ionity AEDI-S stack: Rust sensing-server, ESP32 firmware boot, Python venv/packages, Docker containers, serial ports, and network services. Use when any component fails to start, hangs during boot, crashes on init, or produces startup errors."
 ---
 
 # Fault Finding Startups
 
 ## What This Skill Does
 
-Provides a structured triage workflow to diagnose and fix startup failures across the full Ionity RuView stack. Covers the 4-phase startup pipeline (deps → build → stack → ready) and every component that can fail during initialisation.
+Provides a structured triage workflow to diagnose and fix startup failures across the full Ionity AEDI-S stack. Covers the 4-phase startup pipeline (deps → build → stack → ready) and every component that can fail during initialisation.
 
 ## Startup Architecture
 
@@ -167,9 +167,9 @@ RUST_LOG=debug,tower_http=trace \
 |---------|-------|-----|
 | `docker: command not found` | Docker not installed | Install Docker Engine |
 | `permission denied` | User not in docker group | `sudo usermod -aG docker $USER` then re-login |
-| Container exits immediately | Missing env vars or crash | `docker logs ruview` |
+| Container exits immediately | Missing env vars or crash | `docker logs aedi-s` |
 | Port mapping fails | Host port taken | Change ports or stop conflicting service |
-| `image not found` | Not pulled | `docker pull ionity/ruview:latest` |
+| `image not found` | Not pulled | `docker pull ionity/aedi-s:latest` |
 
 #### ESP32 Board Scan
 

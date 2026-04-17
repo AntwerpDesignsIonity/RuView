@@ -1,13 +1,13 @@
-# ADR-056: RuView Desktop Complete Capabilities Reference
+# ADR-056: AEDI-S Desktop Complete Capabilities Reference
 
 ## Status
 Accepted
 
 ## Context
-RuView Desktop is a comprehensive WiFi-based sensing platform that combines hardware management, real-time signal processing, neural network inference, and intelligent monitoring. This ADR documents all integrated capabilities across the desktop application and underlying crates.
+AEDI-S Desktop is a comprehensive WiFi-based sensing platform that combines hardware management, real-time signal processing, neural network inference, and intelligent monitoring. This ADR documents all integrated capabilities across the desktop application and underlying crates.
 
 ## Decision
-The RuView Desktop application consolidates all WiFi-DensePose functionality into a single, unified interface with the following capabilities.
+The AEDI-S Desktop application consolidates all WiFi-DensePose functionality into a single, unified interface with the following capabilities.
 
 ---
 

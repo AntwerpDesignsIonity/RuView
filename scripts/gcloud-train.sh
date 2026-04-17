@@ -45,7 +45,7 @@ DRY_RUN=false
 SWEEP=false
 KEEP_VM=false
 INSTANCE_NAME=""
-REPO_URL="https://github.com/ionity-global/RuView.git"
+REPO_URL="https://github.com/ionity-global/AEDI-S.git"
 BRANCH="main"
 
 # ── Parse arguments ───────────────────────────────────────────────────────────

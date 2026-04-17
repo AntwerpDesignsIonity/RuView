@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RuView — Observatory</title>
+  <title>AEDI-S — Observatory</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -59,7 +62,7 @@
 
     <!-- Top-left: Branding -->
     <div class="hud hud-panel" id="hud-tl">
-      <div class="hud-title">π RuView Observatory</div>
+      <div class="hud-title">AEDI-S Observatory</div>
       <div class="hud-sub">WiFi DensePose Sensing — Ionity Global</div>
       <div class="hud-row" style="margin-top:6px">
         <span><span class="dot-sm off" id="obs-dot"></span><span id="obs-status">Connecting…</span></span>
@@ -105,7 +108,7 @@ injectNav();
 const $ = id => document.getElementById(id);
 const canvas = $('scene-canvas');
 const ctx = canvas.getContext('2d');
-const WS_URL = `ws://${location.hostname}:8765`;
+const WS_URL = `ws://${location.hostname}:3001/ws/sensing`;
 
 // Room dimensions (virtual meters)
 const ROOM_W = 6, ROOM_D = 8, ROOM_H = 3;
@@ -251,17 +254,35 @@ function drawWifiWaves(w, h, t) {
 function drawPersons(d, w, h) {
   if (!d) return;
   const persons = d.persons || [];
-  const kps = d.pose_keypoints;
   const cls = d.classification || {};
 
   const BONES = [[0,1],[0,2],[1,3],[2,4],[5,6],[5,7],[7,9],[6,8],[8,10],[5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16]];
   const colors = ['#00e676', '#00ccff', '#ff6040', '#ffd740'];
 
-  if (kps && kps.length > 0) {
-    drawWireframe(kps, w, h, '#00e676');
-  } else if (persons.length > 0) {
+  // Normalize keypoints: server sends {name,x,y,z,confidence} objects with
+  // absolute pixel coords (~150-400). Convert to [x,y,z,conf] arrays with
+  // 0-1 normalized coords for room projection.
+  function normalizeKeypoints(kps) {
+    if (!kps || !kps.length) return null;
+    // Handle both array [x,y,z,conf] and object {x,y,z,confidence} formats
+    const first = kps[0];
+    const isObj = typeof first === 'object' && !Array.isArray(first) && 'x' in first;
+    const raw = isObj
+      ? kps.map(k => [k.x, k.y, k.z || 0, k.confidence ?? 0])
+      : kps;
+    // Auto-detect if coords are absolute pixel (>2) or normalized (0-1)
+    const maxCoord = Math.max(...raw.map(k => Math.max(Math.abs(k[0]), Math.abs(k[1]))));
+    if (maxCoord > 2) {
+      // Normalize absolute pixel coords to 0-1 range (assume 640x480 canvas)
+      return raw.map(([x,y,z,c]) => [x/640, y/480, z, Math.max(c, 0.5)]);
+    }
+    return raw;
+  }
+
+  if (persons.length > 0) {
     persons.forEach((p, i) => {
-      if (p.keypoints) { drawWireframe(p.keypoints, w, h, colors[i % colors.length]); return; }
+      const nkps = normalizeKeypoints(p.keypoints);
+      if (nkps) { drawWireframe(nkps, w, h, colors[i % colors.length]); return; }
       // Position-only marker
       const pos = p.position || [ROOM_W / 2, 0.9, ROOM_D / 2];
       const [px, py] = project(pos[0], pos[1], pos[2], w, h);
@@ -289,27 +310,26 @@ function drawPersons(d, w, h) {
   }
 
   function drawWireframe(keypoints, w, h, color) {
-    // Map normalized keypoints into room space
-    keypoints.forEach(([x, y, z, conf], i) => {
-      if (conf < 0.1) return;
+    // keypoints are normalized [x,y,z,conf] arrays in 0-1 range
+    const projected = keypoints.map(([x, y, z, conf]) => {
       const rx = ROOM_W * 0.2 + x * ROOM_W * 0.6;
       const ry = y * ROOM_H;
       const rz = ROOM_D * 0.3 + (z || 0.5) * ROOM_D * 0.4;
-      keypoints[i]._p = project(rx, ry, rz, w, h);
+      return { p: project(rx, ry, rz, w, h), conf };
     });
     // Bones
     ctx.lineWidth = 2.5; ctx.lineCap = 'round';
     for (const [a, b] of BONES) {
-      if (a >= keypoints.length || b >= keypoints.length) continue;
-      if (!keypoints[a]._p || !keypoints[b]._p) continue;
-      if (keypoints[a][3] < 0.1 || keypoints[b][3] < 0.1) continue;
+      if (a >= projected.length || b >= projected.length) continue;
+      if (!projected[a].p || !projected[b].p) continue;
       ctx.strokeStyle = color + 'cc';
-      ctx.beginPath(); ctx.moveTo(...keypoints[a]._p); ctx.lineTo(...keypoints[b]._p); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(...projected[a].p); ctx.lineTo(...projected[b].p); ctx.stroke();
     }
     // Joints
-    keypoints.forEach(([,,, conf], i) => {
-      if (conf < 0.1 || !keypoints[i]._p) return;
-      ctx.beginPath(); ctx.arc(...keypoints[i]._p, 3 + conf * 3, 0, Math.PI * 2);
+    projected.forEach(({ p, conf }) => {
+      if (!p) return;
+      const r = 3 + Math.max(conf, 0.3) * 3;
+      ctx.beginPath(); ctx.arc(...p, r, 0, Math.PI * 2);
       ctx.fillStyle = color; ctx.fill();
     });
   }

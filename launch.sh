@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║  RuView — single unified launcher                               ║
+# ║  AEDI-S — single unified launcher                               ║
 # ║  Ionity Global (Pty) Ltd  |  www.ionity.today                   ║
 # ╚══════════════════════════════════════════════════════════════════╝
 #
 # Usage:
 #   ./launch.sh              auto-detect source (ESP32 → WiFi → sim)
-#   ./launch.sh esp32        force USB/CSI mode (ESP32 boards)
+#   ./launch.sh esp32        ESP32 mode (default transport: USB serial bridge)
+#   ./launch.sh esp32 usb    ESP32 via USB serial bridge → local UDP
+#   ./launch.sh esp32 wifi   ESP32 direct WiFi UDP → hub
 #   ./launch.sh wifi         neighbour-WiFi passive radar (no boards needed)
 #   ./launch.sh sim          simulation mode (no hardware at all)
 #   ./launch.sh stop         stop all running services
@@ -31,7 +33,7 @@ RED=$'\033[31m'; DIM=$'\033[2m'; RESET=$'\033[0m'
 banner() {
   echo ""
   echo -e "${BOLD}${CYAN}╔══════════════════════════════════════════════╗${RESET}"
-  echo -e "${BOLD}${CYAN}║  🛜  RuView WiFi Sensing Platform            ║${RESET}"
+  echo -e "${BOLD}${CYAN}║  🛜  AEDI-S WiFi Sensing Platform            ║${RESET}"
   echo -e "${BOLD}${CYAN}╚══════════════════════════════════════════════╝${RESET}"
   echo ""
 }
@@ -41,9 +43,10 @@ info() { echo -e "${GREEN}[✓]${RESET} $*"; }
 warn() { echo -e "${YELLOW}[!]${RESET} $*"; }
 
 # ── Prereq check ───────────────────────────────────────────────────
-[[ -f "${IONITY}" ]] || die "ionity.sh not found at ${IONITY} — is this the RuView repo?"
+[[ -f "${IONITY}" ]] || die "ionity.sh not found at ${IONITY} — is this the AEDI-S repo?"
 
 MODE="${1:-auto}"
+ESP32_LINK_MODE="${2:-usb}"
 
 # ── Dispatch ───────────────────────────────────────────────────────
 case "${MODE}" in
@@ -52,15 +55,29 @@ case "${MODE}" in
   auto)
     banner
     info "Source: auto-detect (ESP32 → WiFi → simulate)"
-    IONITY_SKIP_PROVISION=1 exec "${IONITY}" run --yes
+    IONITY_SKIP_PROVISION_PROMPT=1 exec "${IONITY}" run --yes
     ;;
 
   esp32)
-    banner
-    info "Source: ESP32 USB/CSI boards"
-    echo -e "  ${DIM}Bridge reads /dev/ttyACM* serial at 460800 baud → UDP :5005${RESET}"
-    echo ""
-    IONITY_SOURCE=esp32 IONITY_SKIP_PROVISION=1 exec "${IONITY}" run --yes
+    case "${ESP32_LINK_MODE}" in
+      usb)
+        banner
+        info "Source: ESP32 boards over USB serial bridge"
+        echo -e "  ${DIM}Bridge reads /dev/ttyACM* serial at 460800 baud → UDP :5005${RESET}"
+        echo ""
+        IONITY_SOURCE=esp32 IONITY_ESP32_LINK=usb IONITY_SKIP_PROVISION_PROMPT=1 exec "${IONITY}" run --yes
+        ;;
+      wifi)
+        banner
+        info "Source: ESP32 boards over WiFi UDP"
+        echo -e "  ${DIM}ESP32 nodes must be provisioned to send CSI to this hub on UDP :5005${RESET}"
+        echo ""
+        IONITY_SOURCE=esp32 IONITY_ESP32_LINK=wifi IONITY_SKIP_PROVISION_PROMPT=1 exec "${IONITY}" run --yes
+        ;;
+      *)
+        die "Unknown ESP32 transport: '${ESP32_LINK_MODE}'. Use './launch.sh esp32 usb' or './launch.sh esp32 wifi'."
+        ;;
+    esac
     ;;
 
   wifi)
@@ -81,8 +98,16 @@ case "${MODE}" in
     ;;
 
   # ── Management ───────────────────────────────────────────────────
+  autorepair|watchdog)
+    banner
+    info "Starting autorepair watchdog (monitors sensing-server, CSI bridge, bridge-controller)"
+    info "Checks every 15 s — restarts any offline service automatically"
+    echo -e "  ${DIM}Logs: logs/autorepair.log  |  Faults: logs/fault.log${RESET}"
+    echo ""
+    exec "${IONITY}" autorepair
+    ;;
   stop)
-    info "Stopping all RuView services…"
+    info "Stopping all AEDI-S services…"
     "${IONITY}" stop
     info "All services stopped."
     ;;
@@ -119,12 +144,14 @@ case "${MODE}" in
     echo -e "${BOLD}Usage:${RESET}  ./launch.sh [mode]"
     echo ""
     echo -e "  ${CYAN}(no arg)${RESET}     Auto-detect source (ESP32 → WiFi → sim)"
-    echo -e "  ${CYAN}esp32${RESET}        Force USB ESP32 boards (CSI over serial)"
+    echo -e "  ${CYAN}esp32 usb${RESET}    ESP32 boards via USB serial bridge"
+    echo -e "  ${CYAN}esp32 wifi${RESET}   ESP32 boards via direct WiFi UDP"
     echo -e "  ${CYAN}wifi${RESET}         Neighbour-WiFi passive radar — ${BOLD}no boards needed${RESET}"
     echo -e "  ${CYAN}sim${RESET}          Simulation — ${BOLD}no hardware at all${RESET}"
     echo -e "  ${CYAN}stop${RESET}         Stop all services"
     echo -e "  ${CYAN}status${RESET}       Show running services"
     echo -e "  ${CYAN}logs${RESET}         Tail live log output"
+    echo -e "  ${CYAN}autorepair${RESET}   Start watchdog (auto-restart on failure, 15s checks)"
     echo -e "  ${CYAN}install${RESET}      Full dependency installer"
     echo -e "  ${CYAN}provision${RESET}    Flash & provision ESP32 boards"
     echo ""
@@ -141,8 +168,11 @@ case "${MODE}" in
     echo -e "  # Any WiFi router as sensor:"
     echo -e "  ${DIM}./launch.sh wifi${RESET}"
     echo ""
-    echo -e "  # ESP32 boards via USB:"
-    echo -e "  ${DIM}./launch.sh esp32${RESET}"
+    echo -e "  # ESP32 boards via USB serial bridge:"
+    echo -e "  ${DIM}./launch.sh esp32 usb${RESET}"
+    echo ""
+    echo -e "  # ESP32 boards via direct WiFi UDP:"
+    echo -e "  ${DIM}./launch.sh esp32 wifi${RESET}"
     echo ""
     ;;
 

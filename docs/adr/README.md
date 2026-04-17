@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-This folder contains 44 Architecture Decision Records (ADRs) that document every significant technical choice in the RuView / WiFi-DensePose project.
+This folder contains 44 Architecture Decision Records (ADRs) that document every significant technical choice in the AEDI-S / WiFi-DensePose project.
 
 ## Why ADRs?
 
@@ -84,7 +84,7 @@ Statuses: **Proposed** (under discussion), **Accepted** (approved and/or impleme
 | [ADR-019](ADR-019-sensing-only-ui-mode.md) | Sensing-Only UI with Gaussian Splats | Accepted |
 | [ADR-022](ADR-022-windows-wifi-enhanced-fidelity-ruvector.md) | Windows WiFi Enhanced Fidelity (multi-BSSID) | Partial |
 | [ADR-025](ADR-025-macos-corewlan-wifi-sensing.md) | macOS CoreWLAN WiFi Sensing | Proposed |
-| [ADR-031](ADR-031-ruview-sensing-first-rf-mode.md) | RuView Sensing-First RF Mode | Proposed |
+| [ADR-031](ADR-031-aedi-s-sensing-first-rf-mode.md) | AEDI-S Sensing-First RF Mode | Proposed |
 | [ADR-034](ADR-034-expo-mobile-app.md) | Expo React Native Mobile App | Accepted |
 | [ADR-035](ADR-035-live-sensing-ui-accuracy.md) | Live Sensing UI Accuracy and Data Transparency | Accepted |
 | [ADR-036](ADR-036-rvf-training-pipeline-ui.md) | Training Pipeline UI Integration | Proposed |

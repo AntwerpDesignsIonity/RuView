@@ -1,5 +1,5 @@
 /**
- * Ionity RuView — Shared Navigation Bar
+ * Ionity AEDI-S — Shared Navigation Bar
  * Auto-detects current page and highlights active link.
  * Auto-connects to health endpoint and shows live status.
  */
@@ -10,6 +10,7 @@ export function injectNav(containerId = 'global-nav') {
     { href: 'monitor.html',     label: 'Monitor',    icon: '◎' },
     { href: 'observatory.html', label: 'Observatory', icon: '◈' },
     { href: 'pose-fusion.html', label: 'Pose Fusion', icon: '⬡' },
+    { href: 'xyz-segment.html', label: 'XYZ Segment', icon: '◆' },
     { href: 'aedi.html',        label: 'AEDI',       icon: '⬢' },
   ];
 
@@ -17,7 +18,7 @@ export function injectNav(containerId = 'global-nav') {
   if (!nav) return;
 
   nav.innerHTML = `
-    <a class="gnav-brand" href="index.html">π RuView</a>
+    <a class="gnav-brand" href="index.html"><img src="aedi-logo.svg" alt="AEDI-S" style="height:22px;vertical-align:middle;margin-right:6px">AEDI-S</a>
     <span class="gnav-sep">│</span>
     ${links.map(l =>
       `<a class="gnav-link${page === l.href ? ' active' : ''}" href="${l.href}">${l.icon} ${l.label}</a>`

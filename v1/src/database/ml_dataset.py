@@ -1,5 +1,5 @@
 """
-PyTorch Dataset that reads directly from the ruview_sensing.sqlite3 database.
+PyTorch Dataset that reads directly from the aedi-s_sensing.sqlite3 database.
 
 Designed for RPi-friendly training: reads windows of CSI features from SQLite,
 returns (X, y) pairs for presence/motion classification or vital-sign regression.
@@ -32,7 +32,7 @@ try:
 except ImportError:
     raise ImportError("PyTorch is required: pip install torch")
 
-_DEFAULT_DB = Path(__file__).resolve().parents[3] / "data" / "db" / "ruview_sensing.sqlite3"
+_DEFAULT_DB = Path(__file__).resolve().parents[3] / "data" / "db" / "aedi-s_sensing.sqlite3"
 
 # Feature columns for the model input (all numeric, from the readings table)
 DEFAULT_FEATURES = [
@@ -51,7 +51,7 @@ class SensingDataset(Dataset):
 
     Parameters
     ----------
-    db_path : path to ruview_sensing.sqlite3
+    db_path : path to aedi-s_sensing.sqlite3
     window_size : number of consecutive ticks per sample
     step : stride between windows (default: window_size // 2)
     features : list of column names from the readings table

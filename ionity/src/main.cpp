@@ -81,7 +81,7 @@ float temperatureRead(void);  // returns °C from internal sensor
 // ---------------------------------------------------------------------------
 #define HARDCODED_SSID       ""
 #define HARDCODED_PASSWORD   ""
-#define DEFAULT_TARGET_IP    "172.23.9.61"  // Hub's IP (same as HUB_IP in .env.local)
+#define DEFAULT_TARGET_IP    "10.42.0.1"  // Hub's IP (wlan0 AP address)
 #define DEFAULT_TARGET_PORT  5005
 #define DEFAULT_NODE_ID      0              // Overridden by NVS node_id
 
@@ -95,8 +95,10 @@ float temperatureRead(void);  // returns °C from internal sensor
 #define CSI_HEADER_SIZE     20
 #define CSI_MAX_FRAME_SIZE  1500  // fits in one UDP datagram
 
-// Rate-limit: max 50 Hz UDP sends (20 ms minimum between sends)
-#define CSI_MIN_SEND_INTERVAL_MS  20
+// Rate-limit: max 20 Hz UDP sends (50 ms minimum between sends)
+// Reduced from 50 Hz — Arduino lwIP pbuf pool is smaller than ESP-IDF,
+// causing ENOMEM at higher rates over WiFi.
+#define CSI_MIN_SEND_INTERVAL_MS  50
 
 // ---------------------------------------------------------------------------
 // ADR-018 telemetry extension (magic 0xC5110003)
@@ -168,7 +170,7 @@ uint32_t          g_udp_sent       = 0;  // frames sent over UDP
 uint32_t          g_ser_sent       = 0;  // frames sent over serial bridge
 uint32_t          g_udp_fail       = 0;  // send failures
 bool              g_csi_running    = false;
-bool              g_serial_bridge  = true;  // always send via serial (AP-isolation bypass)
+bool              g_serial_bridge  = false;  // WiFi UDP only (no serial bridge)
 
 // WiFi credentials kept globally so reconnect can re-use them
 static char g_ssid[33] = {};
@@ -261,6 +263,13 @@ static void csiCallback(void *ctx, wifi_csi_info_t *info)
 //   1. BSD UDP socket   (works if AP isolation is disabled)
 //   2. Serial SLIP frame (always works — Pi bridge reads and forwards to UDP)
 // ---------------------------------------------------------------------------
+
+// ENOMEM backoff: when lwIP runs out of pbufs, back off to let WiFi TX drain.
+// Without this, rapid-fire sendto() exhausts the pbuf pool and almost every
+// call fails (seen: 122/173 failures on Arduino lwIP default config).
+static int64_t s_udp_backoff_until_us = 0;
+#define UDP_ENOMEM_COOLDOWN_MS  50   // suppress sends for 50 ms after ENOMEM
+
 static void csiSenderTask(void *pv)
 {
     // Build the sockaddr_in for the target once
@@ -273,12 +282,32 @@ static void csiSenderTask(void *pv)
     for (;;) {
         if (xQueueReceive(g_csi_queue, &item, portMAX_DELAY) == pdTRUE) {
 
-            // 1. UDP send (may silently fail with AP isolation — that's ok)
+            // 1. UDP send with ENOMEM backoff
             if (g_udp_sock >= 0) {
-                int r = sendto(g_udp_sock, item.buf, item.len, 0,
-                               (struct sockaddr *)&dest, sizeof(dest));
-                if (r > 0) g_udp_sent++;
-                else       g_udp_fail++;
+                int64_t now_us = esp_timer_get_time();
+
+                // Skip send if in ENOMEM cooldown
+                if (s_udp_backoff_until_us > 0 && now_us < s_udp_backoff_until_us) {
+                    g_udp_fail++;
+                } else {
+                    if (s_udp_backoff_until_us > 0) {
+                        s_udp_backoff_until_us = 0;  // cooldown expired
+                    }
+                    int r = sendto(g_udp_sock, item.buf, item.len, 0,
+                                   (struct sockaddr *)&dest, sizeof(dest));
+                    if (r > 0) {
+                        g_udp_sent++;
+                        // Small yield after successful send to let lwIP TX drain
+                        vTaskDelay(pdMS_TO_TICKS(2));
+                    } else {
+                        g_udp_fail++;
+                        if (errno == ENOMEM) {
+                            // Start backoff to let lwIP reclaim pbufs
+                            s_udp_backoff_until_us = now_us +
+                                (int64_t)UDP_ENOMEM_COOLDOWN_MS * 1000LL;
+                        }
+                    }
+                }
             }
 
             // 2. Serial SLIP-lite bridge (bypasses AP isolation)
@@ -319,12 +348,12 @@ static void startCSI()
     esp_wifi_set_csi_rx_cb(csiCallback, nullptr);
     esp_wifi_set_csi(true);
 
-    // Open raw UDP socket (SO_SNDBUF tuned to 6 datagrams x ~1500 bytes)
+    // Open raw UDP socket (SO_SNDBUF tuned for WiFi TX reliability)
     g_udp_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (g_udp_sock < 0) {
         Serial.printf("[CSI] socket() failed: %d\n", errno);
     } else {
-        int sndbuf = 9000;
+        int sndbuf = 16384;  // 16 KB — give lwIP more headroom for WiFi TX
         setsockopt(g_udp_sock, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
     }
 

@@ -209,7 +209,7 @@ The compiled binary is at `target/release/sensing-server`. Default ports are HTT
   --udp-port 5005 \
   --bind-addr 0.0.0.0 \
   --source esp32 \
-  --ui-path /path/to/RuView/ui
+  --ui-path /path/to/AEDI-S/ui
 
 # Simulated mode (no hardware)
 ./target/release/sensing-server \

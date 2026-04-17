@@ -200,6 +200,22 @@ export class LiveDemoTab {
                   <label>Last Update:</label>
                   <span id="last-update">Never</span>
                 </div>
+                <div class="metric">
+                  <label>Stream Health:</label>
+                  <span id="stream-health">Unknown</span>
+                </div>
+                <div class="metric">
+                  <label>Health RTT:</label>
+                  <span id="health-latency">-- ms</span>
+                </div>
+                <div class="metric">
+                  <label>Frame Age:</label>
+                  <span id="frame-age">-- ms</span>
+                </div>
+                <div class="metric">
+                  <label>Reconnect:</label>
+                  <span id="reconnect-attempt">0/0</span>
+                </div>
               </div>
               
               <div class="pose-source-panel">
@@ -1104,6 +1120,11 @@ export class LiveDemoTab {
         this.updateSourceBanner();
       }
     });
+    this._sensingDiagUnsub = sensingService.onDiagnostics(() => {
+      this.updateMetricsDisplay();
+      this.updateSourceBanner();
+      this.updateStatusIndicator();
+    });
     // Initial banner update
     this.updateSourceBanner();
 
@@ -1307,6 +1328,7 @@ export class LiveDemoTab {
     }
     const ds = sensingService.dataSource;
     if (ds === 'live') return 'active';
+    if (ds === 'hardware-offline') return 'connecting';
     if (ds === 'server-simulated') return 'sim';
     return 'connecting';
   }
@@ -1317,6 +1339,7 @@ export class LiveDemoTab {
     }
     const ds = sensingService.dataSource;
     if (ds === 'live') return 'Active \u2014 ESP32 Live';
+    if (ds === 'hardware-offline') return 'Active \u2014 ESP32 Waiting';
     if (ds === 'server-simulated') return 'Active \u2014 Simulated Data';
     if (ds === 'simulated') return 'Active \u2014 Offline Simulation';
     return 'Connecting...';
@@ -1329,6 +1352,7 @@ export class LiveDemoTab {
     const ds = sensingService.dataSource;
     const config = {
       'live':             { text: 'LIVE \u2014 ESP32 Hardware Connected',           cls: 'demo-source-live' },
+      'hardware-offline': { text: 'ESP32 WAITING \u2014 No CSI Frames Yet',          cls: 'demo-source-reconnecting' },
       'server-simulated': { text: 'SIMULATED DATA \u2014 No Hardware Detected',     cls: 'demo-source-sim' },
       'reconnecting':     { text: 'RECONNECTING TO SERVER...',                      cls: 'demo-source-reconnecting' },
       'simulated':        { text: 'OFFLINE \u2014 Server Unreachable, Local Sim',   cls: 'demo-source-offline' },
@@ -1362,13 +1386,18 @@ export class LiveDemoTab {
       frameCount: this.container.querySelector('#frame-count'),
       uptime: this.container.querySelector('#uptime'),
       errorCount: this.container.querySelector('#error-count'),
-      lastUpdate: this.container.querySelector('#last-update')
+      lastUpdate: this.container.querySelector('#last-update'),
+      streamHealth: this.container.querySelector('#stream-health'),
+      healthLatency: this.container.querySelector('#health-latency'),
+      frameAge: this.container.querySelector('#frame-age'),
+      reconnectAttempt: this.container.querySelector('#reconnect-attempt')
     };
 
     if (elements.connectionStatus) {
       const ds = sensingService.dataSource;
       const dsLabels = {
         'live':              'Connected \u2014 ESP32',
+        'hardware-offline':  'Connected \u2014 ESP32 Waiting',
         'server-simulated':  'Connected \u2014 Simulated',
         'reconnecting':      'Reconnecting...',
         'simulated':         'Offline \u2014 Simulated',
@@ -1376,6 +1405,7 @@ export class LiveDemoTab {
       const label = dsLabels[ds] || this.state.connectionState;
       elements.connectionStatus.textContent = label;
       const cls = ds === 'live' ? 'good'
+        : ds === 'hardware-offline' ? 'poor'
         : ds === 'server-simulated' ? 'sim'
         : ds === 'simulated' ? 'bad'
         : this.getHealthClass(this.state.connectionState);
@@ -1401,6 +1431,46 @@ export class LiveDemoTab {
       const lastUpdate = this.metrics.lastUpdate ? 
         new Date(this.metrics.lastUpdate).toLocaleTimeString() : 'Never';
       elements.lastUpdate.textContent = lastUpdate;
+    }
+
+    const diag = sensingService.diagnostics;
+    const health = diag.health || {};
+    if (elements.streamHealth) {
+      const status = (health.status || 'unknown').toLowerCase();
+      const map = {
+        healthy: 'good',
+        stale: 'poor',
+        degraded: 'poor',
+        down: 'bad',
+        unknown: 'unknown',
+      };
+      elements.streamHealth.textContent = status.toUpperCase();
+      elements.streamHealth.className = `health-${map[status] || 'unknown'}`;
+    }
+
+    if (elements.healthLatency) {
+      const latency = health.latencyMs;
+      elements.healthLatency.textContent = Number.isFinite(latency) ? `${latency} ms` : '-- ms';
+      const latencyClass = Number.isFinite(latency)
+        ? (latency < 120 ? 'good' : latency < 400 ? 'poor' : 'bad')
+        : 'unknown';
+      elements.healthLatency.className = `health-${latencyClass}`;
+    }
+
+    if (elements.frameAge) {
+      const age = diag.lastFrameAgeMs;
+      elements.frameAge.textContent = Number.isFinite(age) ? `${age} ms` : '-- ms';
+      const ageClass = Number.isFinite(age)
+        ? (age < 1500 ? 'good' : age < 7000 ? 'poor' : 'bad')
+        : 'unknown';
+      elements.frameAge.className = `health-${ageClass}`;
+    }
+
+    if (elements.reconnectAttempt) {
+      const attempt = Number.isFinite(diag.reconnectAttempt) ? diag.reconnectAttempt : 0;
+      const max = Number.isFinite(diag.maxReconnectAttempts) ? diag.maxReconnectAttempts : 0;
+      elements.reconnectAttempt.textContent = `${attempt}/${max}`;
+      elements.reconnectAttempt.className = attempt === 0 ? 'health-good' : 'health-poor';
     }
   }
 
@@ -1517,370 +1587,4 @@ export class LiveDemoTab {
     }
   }
 
-  populateModelSelector() {
-    const selector = this.container.querySelector('#model-selector');
-    if (!selector) return;
-    // Keep the first "Signal-Derived" option
-    selector.innerHTML = '<option value="">Signal-Derived (no model)</option>';
-    this.modelState.models.forEach(model => {
-      const opt = document.createElement('option');
-      opt.value = model.id || model.model_id || model.name;
-      opt.textContent = model.name || model.id || 'Unknown Model';
-      selector.appendChild(opt);
-    });
-    if (this.modelState.activeModelId) {
-      selector.value = this.modelState.activeModelId;
-    }
-  }
-
-  async handleLoadModel() {
-    if (!modelService) return;
-    const selector = this.container.querySelector('#model-selector');
-    const modelId = selector?.value;
-    if (!modelId) {
-      this.setModelStatus('Select a model first');
-      return;
-    }
-    try {
-      this.modelState.loading = true;
-      this.setModelStatus('Loading...');
-      const loadBtn = this.container.querySelector('#load-model-btn');
-      if (loadBtn) loadBtn.disabled = true;
-
-      await modelService.loadModel(modelId);
-      this.modelState.activeModelId = modelId;
-
-      // Try to fetch full info
-      try {
-        const info = await modelService.getModel(modelId);
-        this.modelState.activeModelInfo = info;
-      } catch (e) {
-        this.modelState.activeModelInfo = { model_id: modelId };
-      }
-
-      // Fetch LoRA profiles
-      try {
-        const profiles = await modelService.getLoraProfiles();
-        this.modelState.loraProfiles = profiles || [];
-      } catch (e) {
-        this.modelState.loraProfiles = [];
-      }
-
-      this.modelState.loading = false;
-      this.updateModelUI();
-      this.updateSplitViewAvailability();
-
-      // Update pose source badge to model inference
-      this.setState({ poseSource: 'model_inference' });
-
-    } catch (error) {
-      this.modelState.loading = false;
-      this.setModelStatus(`Error: ${error.message}`);
-      const loadBtn = this.container.querySelector('#load-model-btn');
-      if (loadBtn) loadBtn.disabled = false;
-      this.logger.error('Failed to load model', { error: error.message });
-    }
-  }
-
-  async handleUnloadModel() {
-    if (!modelService) return;
-    try {
-      await modelService.unloadModel();
-      this.modelState.activeModelId = null;
-      this.modelState.activeModelInfo = null;
-      this.modelState.loraProfiles = [];
-      this.modelState.selectedLoraProfile = null;
-      this.updateModelUI();
-      this.updateSplitViewAvailability();
-      this.disableSplitView();
-      this.setState({ poseSource: 'signal_derived' });
-    } catch (error) {
-      this.setModelStatus(`Error: ${error.message}`);
-      this.logger.error('Failed to unload model', { error: error.message });
-    }
-  }
-
-  async handleLoraProfileChange(profileName) {
-    if (!modelService || !this.modelState.activeModelId) return;
-    if (!profileName) return;
-    try {
-      await modelService.activateLoraProfile(this.modelState.activeModelId, profileName);
-      this.modelState.selectedLoraProfile = profileName;
-      this.setModelStatus(`LoRA: ${profileName} active`);
-    } catch (error) {
-      this.setModelStatus(`LoRA error: ${error.message}`);
-    }
-  }
-
-  updateModelUI() {
-    const loadBtn = this.container.querySelector('#load-model-btn');
-    const unloadBtn = this.container.querySelector('#unload-model-btn');
-    const infoRow = this.container.querySelector('#model-active-info');
-    const nameEl = this.container.querySelector('#model-active-name');
-    const pckEl = this.container.querySelector('#model-active-pck');
-    const loraRow = this.container.querySelector('#lora-profile-row');
-    const loraSel = this.container.querySelector('#lora-profile-selector');
-
-    const isLoaded = !!this.modelState.activeModelId;
-
-    if (loadBtn) loadBtn.disabled = isLoaded;
-    if (unloadBtn) unloadBtn.disabled = !isLoaded;
-
-    if (infoRow) {
-      infoRow.style.display = isLoaded ? 'flex' : 'none';
-    }
-
-    if (isLoaded && this.modelState.activeModelInfo) {
-      const info = this.modelState.activeModelInfo;
-      const name = info.name || info.model_id || this.modelState.activeModelId;
-      const version = info.version ? ` v${info.version}` : '';
-      const pck = info.pck_score != null ? info.pck_score.toFixed(2) : '--';
-      if (nameEl) nameEl.textContent = `${name}${version}`;
-      if (pckEl) pckEl.textContent = `PCK: ${pck}`;
-      this.setModelStatus(`Model: ${name} (PCK: ${pck})`);
-    } else if (!isLoaded) {
-      this.setModelStatus('No model loaded');
-    }
-
-    // LoRA profiles
-    if (loraRow && loraSel) {
-      if (isLoaded && this.modelState.loraProfiles.length > 0) {
-        loraRow.style.display = 'flex';
-        loraSel.innerHTML = '<option value="">None</option>';
-        this.modelState.loraProfiles.forEach(profile => {
-          const opt = document.createElement('option');
-          opt.value = profile.name || profile;
-          opt.textContent = profile.name || profile;
-          loraSel.appendChild(opt);
-        });
-      } else {
-        loraRow.style.display = 'none';
-      }
-    }
-  }
-
-  setModelStatus(text) {
-    const el = this.container.querySelector('#model-status-text');
-    if (el) el.textContent = text;
-  }
-
-  // --- A/B Split View Methods ---
-
-  updateSplitViewAvailability() {
-    const toggle = this.container.querySelector('#split-view-toggle');
-    if (toggle) {
-      toggle.disabled = !this.modelState.activeModelId;
-    }
-  }
-
-  toggleSplitView() {
-    if (!this.modelState.activeModelId) return;
-    this.splitViewActive = !this.splitViewActive;
-    const toggle = this.container.querySelector('#split-view-toggle');
-    if (toggle) {
-      toggle.textContent = this.splitViewActive ? 'On' : 'Off';
-      toggle.classList.toggle('active', this.splitViewActive);
-    }
-    this.updateSplitViewOverlay();
-  }
-
-  disableSplitView() {
-    this.splitViewActive = false;
-    const toggle = this.container.querySelector('#split-view-toggle');
-    if (toggle) {
-      toggle.textContent = 'Off';
-      toggle.classList.remove('active');
-    }
-    this.updateSplitViewOverlay();
-  }
-
-  updateSplitViewOverlay() {
-    const mainContainer = this.container.querySelector('.pose-detection-container');
-    if (!mainContainer) return;
-
-    // Remove existing overlays
-    mainContainer.querySelectorAll('.split-view-divider, .split-view-label').forEach(el => el.remove());
-
-    if (this.splitViewActive) {
-      const divider = document.createElement('div');
-      divider.className = 'split-view-divider';
-      mainContainer.appendChild(divider);
-
-      const leftLabel = document.createElement('div');
-      leftLabel.className = 'split-view-label left';
-      leftLabel.textContent = 'Signal-Derived';
-      mainContainer.appendChild(leftLabel);
-
-      const rightLabel = document.createElement('div');
-      rightLabel.className = 'split-view-label right';
-      rightLabel.textContent = 'Model Inference';
-      mainContainer.appendChild(rightLabel);
-    }
-  }
-
-  // --- Training Quick-Panel Methods ---
-
-  updateTrainingStatus() {
-    const badge = this.container.querySelector('#training-status-badge');
-    if (!badge) return;
-
-    const state = this.trainingState.status;
-    badge.classList.remove('training', 'recording');
-
-    if (state === 'training') {
-      badge.classList.add('training');
-      badge.textContent = `Training epoch ${this.trainingState.epoch}/${this.trainingState.totalEpochs}`;
-    } else if (state === 'recording') {
-      badge.classList.add('recording');
-      badge.textContent = 'Recording...';
-    } else {
-      badge.textContent = 'Idle';
-    }
-  }
-
-  async handleQuickRecord() {
-    if (!trainingService) {
-      this.logger.warn('Training service not available');
-      return;
-    }
-    try {
-      await trainingService.startRecording({ session_name: `quick_${Date.now()}`, duration_secs: 60 });
-      this.trainingState.status = 'recording';
-      this.updateTrainingStatus();
-      // Auto-reset after ~65 seconds
-      setTimeout(() => {
-        if (this.trainingState.status === 'recording') {
-          this.trainingState.status = 'idle';
-          this.updateTrainingStatus();
-        }
-      }, 65000);
-    } catch (error) {
-      this.logger.error('Quick record failed', { error: error.message });
-    }
-  }
-
-  showTrainingPanel() {
-    // Create a simple modal overlay for the training panel
-    const existing = document.querySelector('.training-panel-overlay');
-    if (existing) existing.remove();
-
-    const overlay = document.createElement('div');
-    overlay.className = 'training-panel-overlay';
-    overlay.innerHTML = `
-      <div class="training-panel-modal">
-        <button class="close-btn" id="close-training-modal">Close</button>
-        <h3>Training Panel</h3>
-        <p style="color: #8899aa; font-size: 13px; margin-bottom: 16px;">
-          Configure and start model training from here. Connect to the backend training API to manage epochs, datasets, and checkpoints.
-        </p>
-        <div style="display: flex; flex-direction: column; gap: 10px;">
-          <div class="setting-row-ld">
-            <label class="ld-label" style="flex: 1;">Status:</label>
-            <span style="color: #c8d0dc; font-size: 12px;">${this.trainingState.status}</span>
-          </div>
-          <div class="setting-row-ld">
-            <label class="ld-label" style="flex: 1;">Training service:</label>
-            <span style="color: ${trainingService ? '#00cc88' : '#ef4444'}; font-size: 12px;">${trainingService ? 'Connected' : 'Not available'}</span>
-          </div>
-        </div>
-      </div>
-    `;
-
-    document.body.appendChild(overlay);
-
-    // Close handler
-    overlay.querySelector('#close-training-modal').addEventListener('click', () => overlay.remove());
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) overlay.remove();
-    });
-  }
-
-  // --- Service Event Listeners ---
-
-  setupServiceListeners() {
-    if (modelService) {
-      const unsub1 = modelService.on('model-loaded', (data) => {
-        this.logger.info('Model loaded event', data);
-      });
-      const unsub2 = modelService.on('model-unloaded', () => {
-        this.modelState.activeModelId = null;
-        this.modelState.activeModelInfo = null;
-        this.updateModelUI();
-        this.disableSplitView();
-      });
-      this.subscriptions.push(unsub1, unsub2);
-    }
-
-    if (trainingService) {
-      const unsub3 = trainingService.on('progress', (data) => {
-        if (data && data.epoch != null) {
-          this.trainingState.epoch = data.epoch;
-          this.trainingState.totalEpochs = data.total_epochs || data.totalEpochs || this.trainingState.totalEpochs;
-          this.trainingState.status = 'training';
-          this.updateTrainingStatus();
-        }
-      });
-      const unsub4 = trainingService.on('training-stopped', () => {
-        this.trainingState.status = 'idle';
-        this.updateTrainingStatus();
-      });
-      this.subscriptions.push(unsub3, unsub4);
-    }
-  }
-
-  // --- Enhanced Controls Setup ---
-
-  setupModelTrainingControls() {
-    // Model control buttons
-    const loadBtn = this.container.querySelector('#load-model-btn');
-    const unloadBtn = this.container.querySelector('#unload-model-btn');
-    const loraSel = this.container.querySelector('#lora-profile-selector');
-    const splitToggle = this.container.querySelector('#split-view-toggle');
-    const openTrainingBtn = this.container.querySelector('#open-training-panel-btn');
-    const quickRecordBtn = this.container.querySelector('#quick-record-btn');
-
-    if (loadBtn) loadBtn.addEventListener('click', () => this.handleLoadModel());
-    if (unloadBtn) unloadBtn.addEventListener('click', () => this.handleUnloadModel());
-    if (loraSel) loraSel.addEventListener('change', (e) => this.handleLoraProfileChange(e.target.value));
-    if (splitToggle) splitToggle.addEventListener('click', () => this.toggleSplitView());
-    if (openTrainingBtn) openTrainingBtn.addEventListener('click', () => this.showTrainingPanel());
-    if (quickRecordBtn) quickRecordBtn.addEventListener('click', () => this.handleQuickRecord());
-  }
-
-  // Clean up
-  dispose() {
-    try {
-      this.logger.info('Disposing LiveDemoTab component');
-      
-      // Stop demo if running
-      if (this.state.isActive) {
-        this.stopDemo();
-      }
-      
-      // Clear intervals
-      if (this.healthCheckInterval) {
-        clearInterval(this.healthCheckInterval);
-      }
-      
-      if (this.uiUpdateInterval) {
-        clearInterval(this.uiUpdateInterval);
-      }
-      
-      // Dispose canvas component
-      if (this.components.poseCanvas) {
-        this.components.poseCanvas.dispose();
-      }
-      
-      // Unsubscribe from services
-      this.subscriptions.forEach(unsubscribe => unsubscribe());
-      this.subscriptions = [];
-      if (this._sensingStateUnsub) this._sensingStateUnsub();
-      if (this._sensingDataUnsub) this._sensingDataUnsub();
-      if (this._autoStartUnsub) this._autoStartUnsub();
-      
-      this.logger.info('LiveDemoTab component disposed successfully');
-    } catch (error) {
-      this.logger.error('Error during disposal', { error: error.message });
-    }
-  }
-}
+  populateModelSelector(

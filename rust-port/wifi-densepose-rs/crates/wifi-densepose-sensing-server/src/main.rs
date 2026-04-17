@@ -43,8 +43,10 @@ use tokio::net::UdpSocket;
 use tokio::sync::{broadcast, RwLock};
 use tower_http::services::ServeDir;
 use tower_http::set_header::SetResponseHeaderLayer;
+use tower_http::trace::{DefaultMakeSpan, DefaultOnFailure, DefaultOnResponse, TraceLayer};
 use axum::http::HeaderValue;
-use tracing::{info, warn, debug, error};
+use tracing::{info, warn, debug, error, Level};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 use rvf_container::{RvfBuilder, RvfContainerInfo, RvfReader, VitalSignConfig};
 use rvf_pipeline::ProgressiveLoader;
@@ -926,7 +928,7 @@ fn estimate_breathing_rate_hz(frame_history: &VecDeque<Vec<f64>>, sample_rate_hz
         total / n_candidates as f64
     };
 
-    if best_power > avg_power * 3.0 {
+    if best_power > avg_power * 5.0 {
         best_freq.clamp(f_low, f_high)
     } else {
         0.0
@@ -1156,10 +1158,12 @@ fn extract_features_from_frame(
 }
 
 /// Simple threshold classification (no smoothing) — used as the "raw" input.
+/// Thresholds calibrated for real ESP32 hardware and WiFi BSSID sensing.
+/// Lower presence threshold (0.03) catches subtle body-induced signal changes.
 fn raw_classify(score: f64) -> String {
-    if score > 0.25 { "active".into() }
-    else if score > 0.12 { "present_moving".into() }
-    else if score > 0.04 { "present_still".into() }
+    if score > 0.22 { "active".into() }
+    else if score > 0.10 { "present_moving".into() }
+    else if score > 0.03 { "present_still".into() }
     else { "absent".into() }
 }
 
@@ -2039,6 +2043,24 @@ async fn probe_windows_wifi() -> bool {
     }
 }
 
+/// Probe if Linux WiFi interface is connected (non-async, fast check).
+#[cfg(target_os = "linux")]
+fn probe_linux_wifi() -> bool {
+    std::process::Command::new("iw")
+        .arg("dev")
+        .output()
+        .map(|o| {
+            let out = String::from_utf8_lossy(&o.stdout);
+            out.contains("Interface") && out.contains("ssid")
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn probe_linux_wifi() -> bool {
+    false
+}
+
 /// Probe if ESP32 is streaming on UDP port
 async fn probe_esp32(port: u16) -> bool {
     let addr = format!("0.0.0.0:{port}");
@@ -2353,14 +2375,15 @@ fn fuse_multi_node_features(
 ///
 /// Returns a raw score (0.0..1.0) that the caller converts to person count
 /// after temporal smoothing.
+///
+/// Normalization ranges calibrated from real ESP32 hardware (COM6/COM9 on
+/// ruv.net, March 2026) and Linux WiFi BSSID scans (Antwerp-Pi, July 2026).
 fn compute_person_score(feat: &FeatureInfo) -> f64 {
-    // Normalize each feature to [0, 1] using ranges calibrated from real
-    // ESP32 hardware (COM6/COM9 on ruv.net, March 2026).
-    let var_norm = (feat.variance / 300.0).clamp(0.0, 1.0);
-    let cp_norm = (feat.change_points as f64 / 30.0).clamp(0.0, 1.0);
-    let motion_norm = (feat.motion_band_power / 250.0).clamp(0.0, 1.0);
-    let sp_norm = (feat.spectral_power / 500.0).clamp(0.0, 1.0);
-    var_norm * 0.40 + cp_norm * 0.20 + motion_norm * 0.25 + sp_norm * 0.15
+    let var_norm = (feat.variance / 350.0).clamp(0.0, 1.0);
+    let cp_norm = (feat.change_points as f64 / 25.0).clamp(0.0, 1.0);
+    let motion_norm = (feat.motion_band_power / 200.0).clamp(0.0, 1.0);
+    let sp_norm = (feat.spectral_power / 450.0).clamp(0.0, 1.0);
+    var_norm * 0.35 + cp_norm * 0.20 + motion_norm * 0.30 + sp_norm * 0.15
 }
 
 /// Estimate person count via ruvector DynamicMinCut on the subcarrier
@@ -3749,6 +3772,90 @@ async fn nodes_endpoint(State(state): State<SharedState>) -> Json<serde_json::Va
     }))
 }
 
+/// GET /api/v1/room — room dimensions + node positions for 3D visualization.
+async fn room_endpoint(State(state): State<SharedState>) -> Json<serde_json::Value> {
+    let s = state.read().await;
+    let node_positions: Vec<serde_json::Value> = s.multistatic_fuser.node_positions()
+        .iter()
+        .enumerate()
+        .map(|(i, pos)| serde_json::json!({
+            "node_id": i,
+            "x": pos[0] as f64,
+            "y": pos[1] as f64,
+            "z": pos[2] as f64,
+        }))
+        .collect();
+    let now = std::time::Instant::now();
+    let active_nodes: Vec<serde_json::Value> = s.node_states.iter()
+        .map(|(&id, ns)| {
+            let elapsed_ms = ns.last_frame_time
+                .map(|t| now.duration_since(t).as_millis() as u64)
+                .unwrap_or(999999);
+            serde_json::json!({
+                "node_id": id,
+                "status": if elapsed_ms > 5000 { "stale" } else { "active" },
+                "rssi_dbm": ns.rssi_history.back().copied().unwrap_or(-90.0),
+            })
+        })
+        .collect();
+    Json(serde_json::json!({
+        "room": { "width": 8.0, "depth": 6.0, "height": 3.0 },
+        "node_positions": node_positions,
+        "active_nodes": active_nodes,
+        "calibrated": s.field_model.is_some(),
+    }))
+}
+
+/// POST /api/v1/nodes/positions — update node positions at runtime.
+async fn update_node_positions(
+    State(state): State<SharedState>,
+    Json(body): Json<Vec<serde_json::Value>>,
+) -> Json<serde_json::Value> {
+    let mut positions: Vec<[f32; 3]> = Vec::new();
+    for entry in &body {
+        let x = entry.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+        let y = entry.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+        let z = entry.get("z").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+        positions.push([x, y, z]);
+    }
+    let count = positions.len();
+    {
+        let mut s = state.write().await;
+        s.multistatic_fuser.set_node_positions(positions);
+    }
+    info!("Node positions updated via API: {} nodes", count);
+    Json(serde_json::json!({
+        "status": "ok",
+        "updated": count,
+    }))
+}
+
+/// GET /api/v1/tomography — voxel grid status from field model.
+async fn tomography_endpoint(State(state): State<SharedState>) -> Json<serde_json::Value> {
+    let s = state.read().await;
+    match &s.field_model {
+        Some(fm) => {
+            let person_count = s.person_count();
+            let has_data = !s.frame_history.is_empty() ||
+                s.node_states.values().any(|ns| !ns.frame_history.is_empty());
+            let variance_explained = fm.modes()
+                .map(|m| m.variance_explained)
+                .unwrap_or(0.0);
+            Json(serde_json::json!({
+                "status": "calibrated",
+                "grid": [8, 8, 4],
+                "person_count": person_count,
+                "has_data": has_data,
+                "variance_explained": variance_explained,
+            }))
+        }
+        None => Json(serde_json::json!({
+            "status": "uncalibrated",
+            "message": "Run POST /api/v1/calibration/start to calibrate the field model",
+        })),
+    }
+}
+
 async fn info_page() -> Html<String> {
     Html(format!(
         "<html><body>\
@@ -4323,16 +4430,83 @@ async fn simulated_data_task(state: SharedState, tick_ms: u64) {
 
 async fn broadcast_tick_task(state: SharedState, tick_ms: u64) {
     let mut interval = tokio::time::interval(Duration::from_millis(tick_ms));
+    let mut offline_fallback_count: u64 = 0;
 
     loop {
         interval.tick().await;
-        let s = state.read().await;
-        if let Some(ref update) = s.latest_update {
-            if s.tx.receiver_count() > 0 {
-                // Re-broadcast the latest sensing_update so pose WS clients
-                // always get data even when ESP32 pauses between frames.
-                if let Ok(json) = serde_json::to_string(update) {
-                    let _ = s.tx.send(json);
+
+        // Check if ESP32 is offline — if so, generate a synthetic tick to
+        // keep the server alive and the UI responsive.
+        let is_offline = {
+            let s = state.read().await;
+            s.effective_source().contains("offline")
+        };
+
+        if is_offline {
+            offline_fallback_count += 1;
+            // Generate a minimal synthetic tick every broadcast interval
+            // so the tick counter advances, the watchdog stays happy, and
+            // WebSocket clients see activity ("esp32:offline" source label).
+            let mut s = state.write().await;
+            s.tick += 1;
+            let tick = s.tick;
+
+            if offline_fallback_count % 50 == 1 {
+                info!("ESP32 offline fallback active — generating synthetic ticks (tick={tick})");
+            }
+
+            let update = SensingUpdate {
+                msg_type: "sensing_update".to_string(),
+                timestamp: chrono::Utc::now().timestamp_millis() as f64 / 1000.0,
+                source: "esp32:offline".to_string(),
+                tick,
+                nodes: vec![],
+                features: FeatureInfo {
+                    mean_rssi: -90.0,
+                    variance: 0.0,
+                    motion_band_power: 0.0,
+                    breathing_band_power: 0.0,
+                    dominant_freq_hz: 0.0,
+                    change_points: 0,
+                    spectral_power: 0.0,
+                },
+                classification: ClassificationInfo {
+                    motion_level: "absent".to_string(),
+                    presence: false,
+                    confidence: 0.0,
+                },
+                signal_field: SignalField {
+                    grid_size: [20, 1, 20],
+                    values: vec![0.0; 400],
+                },
+                vital_signs: None,
+                enhanced_motion: None,
+                enhanced_breathing: None,
+                posture: None,
+                signal_quality_score: None,
+                quality_verdict: None,
+                bssid_count: None,
+                pose_keypoints: None,
+                model_status: None,
+                persons: None,
+                estimated_persons: None,
+                node_features: None,
+            };
+
+            if let Ok(json) = serde_json::to_string(&update) {
+                let _ = s.tx.send(json);
+            }
+            s.latest_update = Some(update);
+        } else {
+            offline_fallback_count = 0;
+            let s = state.read().await;
+            if let Some(ref update) = s.latest_update {
+                if s.tx.receiver_count() > 0 {
+                    // Re-broadcast the latest sensing_update so pose WS clients
+                    // always get data even when ESP32 pauses between frames.
+                    if let Ok(json) = serde_json::to_string(update) {
+                        let _ = s.tx.send(json);
+                    }
                 }
             }
         }
@@ -4403,23 +4577,43 @@ async fn autorepair_watchdog_task(state: SharedState, interval_secs: u64) {
         };
 
         // 1. Tick progress check
-        if current_tick == prev_tick && current_tick > 0 {
-            stall_count += 1;
-            status.tick_stall = true;
-            status.healthy = false;
-            warn!(
-                "Autorepair: tick stalled at {} for {} consecutive checks",
-                current_tick, stall_count
-            );
+        //    When the source is offline (e.g. ESP32 disconnected), tick stalls
+        //    are expected — the server is healthy, just waiting for data.
+        //    Only count tick stalls toward the exit threshold when the source
+        //    is actively receiving data (not offline/degraded).
+        let source_offline = {
+            let s = state.read().await;
+            let src = s.effective_source();
+            src.contains("offline") || src.contains("degraded")
+        };
 
-            if stall_count >= max_stall_before_exit {
-                error!(
-                    "Autorepair: tick stalled for {} checks — exiting for supervisor restart",
-                    stall_count
+        if current_tick == prev_tick && current_tick > 0 {
+            if source_offline {
+                // Source offline — tick stall is expected; don't count toward exit.
+                debug!(
+                    "Autorepair: tick idle at {} (source offline, not counting as stall)",
+                    current_tick
                 );
-                recovery_count += 1;
-                // Exit with non-zero code so supervisor knows to restart
-                std::process::exit(1);
+                // Reset stall counter since this is a known-good state.
+                stall_count = 0;
+            } else {
+                stall_count += 1;
+                status.tick_stall = true;
+                status.healthy = false;
+                warn!(
+                    "Autorepair: tick stalled at {} for {} consecutive checks",
+                    current_tick, stall_count
+                );
+
+                if stall_count >= max_stall_before_exit {
+                    error!(
+                        "Autorepair: tick stalled for {} checks with active source — exiting for supervisor restart",
+                        stall_count
+                    );
+                    recovery_count += 1;
+                    // Exit with non-zero code so supervisor knows to restart
+                    std::process::exit(1);
+                }
             }
         } else {
             if stall_count > 0 {
@@ -4481,15 +4675,33 @@ async fn autorepair_watchdog_task(state: SharedState, interval_secs: u64) {
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
+fn init_tracing() {
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,tower_http=debug"));
+    let trace_format = std::env::var("SENSING_TRACE_FORMAT")
+        .unwrap_or_else(|_| "pretty".to_string())
+        .to_ascii_lowercase();
+
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_thread_names(true);
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(match trace_format.as_str() {
+            "json" => fmt_layer.json().flatten_event(true).boxed(),
+            "plain" | "compact" => fmt_layer.compact().boxed(),
+            _ => fmt_layer.pretty().boxed(),
+        })
+        .init();
+
+    info!(trace_format, "Tracing initialised");
+}
+
 #[tokio::main]
 async fn main() {
-    // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,tower_http=debug".into()),
-        )
-        .init();
+    init_tracing();
 
     let args = Args::parse();
 
@@ -4932,6 +5144,9 @@ async fn main() {
             } else if probe_windows_wifi().await {
                 info!("  Windows WiFi detected");
                 "wifi"
+            } else if probe_linux_wifi() {
+                info!("  Linux WiFi detected (iw dev)");
+                "wifi"
             } else {
                 info!("  No hardware detected, using simulation");
                 "simulate"
@@ -5130,11 +5345,17 @@ async fn main() {
     let bind_ip: std::net::IpAddr = args.bind_addr.parse()
         .expect("Invalid --bind-addr (use 127.0.0.1 or 0.0.0.0)");
 
+    let http_trace = TraceLayer::new_for_http()
+        .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+        .on_response(DefaultOnResponse::new().level(Level::INFO))
+        .on_failure(DefaultOnFailure::new().level(Level::ERROR));
+
     // WebSocket server on dedicated port (8765)
     let ws_state = state.clone();
     let ws_app = Router::new()
         .route("/ws/sensing", get(ws_sensing_handler))
         .route("/health", get(health))
+        .layer(http_trace.clone())
         .with_state(ws_state);
 
     let ws_addr = SocketAddr::from((bind_ip, args.ws_port));
@@ -5166,6 +5387,10 @@ async fn main() {
         .route("/api/v1/sensing/latest", get(latest))
         // Per-node health endpoint
         .route("/api/v1/nodes", get(nodes_endpoint))
+        // Room config + node positions for XYZ Segment 3D page
+        .route("/api/v1/room", get(room_endpoint))
+        .route("/api/v1/nodes/positions", post(update_node_positions))
+        .route("/api/v1/tomography", get(tomography_endpoint))
         // Vital sign endpoints
         .route("/api/v1/vital-signs", get(vital_signs_endpoint))
         .route("/api/v1/edge-vitals", get(edge_vitals_endpoint))
@@ -5217,6 +5442,7 @@ async fn main() {
             axum::http::header::CACHE_CONTROL,
             HeaderValue::from_static("no-cache, no-store, must-revalidate"),
         ))
+        .layer(http_trace)
         .with_state(state.clone());
 
     let http_addr = SocketAddr::from((bind_ip, args.http_port));

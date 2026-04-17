@@ -1,5 +1,5 @@
 /**
- * RuView — Dual-Modal Pose Estimation Demo
+ * AEDI-S — Dual-Modal Pose Estimation Demo
  *
  * Main orchestration: video capture → CNN embedding → CSI processing → fusion → rendering
  */
@@ -137,7 +137,7 @@ function init() {
   csiCnn.tryLoadWasm(wasmBase);
 
   // Auto-connect to local sensing server WebSocket if available
-  const defaultWsUrl = 'ws://localhost:8765/ws/sensing';
+  const defaultWsUrl = `ws://${window.location.hostname || 'localhost'}:3001/ws/sensing`;
   if (wsUrlInput) wsUrlInput.value = defaultWsUrl;
   csiSimulator.connectLive(defaultWsUrl).then(ok => {
     if (ok && connectWsBtn) {

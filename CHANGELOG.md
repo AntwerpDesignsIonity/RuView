@@ -133,10 +133,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Unified QEMU CLI** (`qemu-cli.sh`) — single entry point for all 11 QEMU test commands
 - CI: `firmware-qemu.yml` workflow with QEMU test matrix, fuzz testing, NVS validation, and swarm test jobs
 - User guide: QEMU testing and swarm configurator section with plain-language walkthrough
+- Native sensing-server startup now exports tracing defaults and supports selectable output via `SENSING_TRACE_FORMAT`
+
+### Changed
+- The Rust sensing server now emits HTTP request traces through `tower_http::trace::TraceLayer` for both HTTP and WebSocket listeners
 
 ### Fixed
 - Firmware now boots in QEMU: WiFi/UDP/OTA/display guards for mock CSI mode
 - 9 bugs in mock_csi.c (LFSR bias, MAC filter init, scenario loop, overflow burst timing)
+- `scripts/start-aedi-s.sh` now uses the current sensing-server CLI flags (`--bind-addr`, `--http-port`, `--udp-port`, `--ui-path`) instead of stale options that prevented startup
 - 23 bugs from ADR-061 deep review (inject_fault.py writes, CI cache, snapshot log corruption, etc.)
 - 16 bugs from ADR-062 deep review (log filename mismatch, SLIRP port collision, heap false positives, etc.)
 - All scripts: `--help` flags, prerequisite checks with install hints, standardized exit codes

@@ -10,7 +10,7 @@ Dual codebase: Python v1 (`v1/`) and Rust port (`rust-port/wifi-densepose-rs/`).
 | `wifi-densepose-core` | Core types, traits, error types, CSI frame primitives |
 | `wifi-densepose-signal` | SOTA signal processing + RuvSense multistatic sensing (14 modules) |
 | `wifi-densepose-nn` | Neural network inference (ONNX, PyTorch, Candle backends) |
-| `wifi-densepose-train` | Training pipeline with ruvector integration + ruview_metrics |
+| `wifi-densepose-train` | Training pipeline with ruvector integration + aedis_metrics |
 | `wifi-densepose-mat` | Mass Casualty Assessment Tool — disaster survivor detection |
 | `wifi-densepose-hardware` | ESP32 aggregator, TDM protocol, channel hopping firmware |
 | `wifi-densepose-ruvector` | RuVector v2.0.4 integration + cross-viewpoint fusion (5 modules) |
@@ -67,7 +67,7 @@ All 5 ruvector crates integrated in workspace:
 - ADR-028: ESP32 capability audit + witness verification (Accepted)
 - ADR-029: RuvSense multistatic sensing mode (Proposed)
 - ADR-030: RuvSense persistent field model (Proposed)
-- ADR-031: RuView sensing-first RF mode (Proposed)
+- ADR-031: AEDI-S sensing-first RF mode (Proposed)
 - ADR-032: Multistatic mesh security hardening (Proposed)
 
 ### Supported Hardware

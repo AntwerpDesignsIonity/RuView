@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>IONITY Monitor Hub — WiFi DensePose</title>
+  <title>AEDI-S — Monitor Hub</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
   <style>
     /* ── Reset & base ──────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -212,7 +215,7 @@
 
   <!-- ══ Global navigation ══════════════════════════════════════════════ -->
   <nav id="global-nav">
-    <a class="gnav-brand" href="index.html">π IONITY</a>
+    <a class="gnav-brand" href="index.html"><img src="aedi-logo.svg" alt="AEDI-S" style="height:22px;vertical-align:middle;margin-right:6px">AEDI-S</a>
     <span class="gnav-sep">|</span>
     <a class="gnav-link" href="index.html">Dashboard</a>
     <a class="gnav-link active" href="monitor.html">Monitor</a>
@@ -517,8 +520,8 @@ const BASE_URL   = (() => {
   const h = window.location.hostname || 'localhost';
   return `${window.location.protocol}//${h}${p}`;
 })();
-// WS runs on port 8765 (Python sensing server)
-const WS_PORT    = 8765;
+// WS runs on port 3001 (Rust sensing server)
+const WS_PORT    = 3001;
 const WS_BASE    = `ws://${window.location.hostname || 'localhost'}:${WS_PORT}`;
 const API        = `${BASE_URL}/api/v1`;
 const HEALTH_URL = `${BASE_URL}/health`;
@@ -999,12 +1002,34 @@ q('btn-refresh-all').addEventListener('click', () => { pollHealth(); pollVitals(
 q('btn-open-gui').addEventListener('click', () => {
   ['index.html','pose-fusion.html','observatory.html','viz.html'].forEach(p => window.open(p,'_blank'));
 });
-q('btn-start-srv').addEventListener('click', () => {
-  appendLog('Server start must be initiated from CLI: .ionity/ionity.sh run', 'warn');
-  q('tab-logs').querySelector && document.querySelector('.tab-btn[data-tab="logs"]').click();
+q('btn-start-srv').addEventListener('click', async () => {
+  appendLog('Starting sensing server…', 'ok');
+  try {
+    const r = await fetch('http://' + location.hostname + ':3002/api/server/start', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({source: 'esp32'})
+    });
+    const d = await r.json();
+    if (d.running) {
+      appendLog('Server started (PID ' + d.pid + ', source=' + d.source + ')', 'ok');
+      setTimeout(pollHealth, 2000);
+    } else {
+      appendLog('Start failed: ' + (d.error || 'unknown'), 'err');
+    }
+  } catch(e) {
+    appendLog('Bridge controller not reachable (port 3002). Start it: python scripts/bridge-controller.py', 'warn');
+  }
 });
-q('btn-stop-srv').addEventListener('click', () => {
-  appendLog('Server stop must be initiated from CLI: .ionity/ionity.sh stop', 'warn');
+q('btn-stop-srv').addEventListener('click', async () => {
+  appendLog('Stopping sensing server…', 'warn');
+  try {
+    const r = await fetch('http://' + location.hostname + ':3002/api/server/stop', {method:'POST'});
+    const d = await r.json();
+    appendLog('Server stopped', 'ok');
+    setTimeout(pollHealth, 1000);
+  } catch(e) {
+    appendLog('Bridge controller not reachable (port 3002). Start it: python scripts/bridge-controller.py', 'warn');
+  }
 });
 
 // Signals

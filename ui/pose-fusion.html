@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RuView — Pose Fusion</title>
+  <title>AEDI-S — Pose Fusion</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -101,7 +104,7 @@ const st = document.createElement('style'); st.textContent = NAV_CSS; document.h
 injectNav();
 
 const $ = id => document.getElementById(id);
-const WS_URL = `ws://${location.hostname}:8765`;
+const WS_URL = `ws://${location.hostname}:3001/ws/sensing`;
 
 // COCO-17 skeleton pairs for drawing bones
 const BONES = [[0,1],[0,2],[1,3],[2,4],[5,6],[5,7],[7,9],[6,8],[8,10],[5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16]];
@@ -178,8 +181,8 @@ function onData(d) {
   $('p-bband').textContent = f.breathing_band_power != null ? f.breathing_band_power.toFixed(4) : '--';
   $('p-mband').textContent = f.motion_band_power != null ? f.motion_band_power.toFixed(4) : '--';
 
-  // Draw skeleton from pose_keypoints or persons
-  drawSkeleton(d.pose_keypoints, persons);
+  // Draw skeleton from persons (keypoints are inside person objects)
+  drawSkeleton(null, persons);
 
   // CSI amplitude from nodes
   drawCSI(d.nodes || []);
@@ -248,16 +251,27 @@ function drawKeypointSkeleton(kps, w, h, color) {
   const padX = w * 0.1, padY = h * 0.05;
   const scaleX = w * 0.8, scaleY = h * 0.9;
 
+  // Normalize: server sends {name,x,y,z,confidence} objects with absolute
+  // pixel coords (~150-400). Convert to [x,y,z,conf] arrays normalized 0-1.
+  const first = kps[0];
+  const isObj = typeof first === 'object' && !Array.isArray(first) && 'x' in first;
+  const raw = isObj
+    ? kps.map(k => [k.x, k.y, k.z || 0, k.confidence ?? 0])
+    : kps;
+  const maxCoord = Math.max(...raw.map(k => Math.max(Math.abs(k[0]), Math.abs(k[1]))));
+  const norm = maxCoord > 2
+    ? raw.map(([x,y,z,c]) => [x/640, y/480, z, Math.max(c, 0.5)])
+    : raw;
+
   // Draw bones
   skCtx.lineWidth = 3;
   skCtx.lineCap = 'round';
   for (const [a, b] of BONES) {
-    if (a >= kps.length || b >= kps.length) continue;
-    const [ax, ay, , ac] = kps[a];
-    const [bx, by, , bc] = kps[b];
-    if (ac < 0.1 || bc < 0.1) continue;
+    if (a >= norm.length || b >= norm.length) continue;
+    const [ax, ay, , ac] = norm[a];
+    const [bx, by, , bc] = norm[b];
     const alpha = Math.min(ac, bc);
-    skCtx.strokeStyle = color + Math.floor(alpha * 200).toString(16).padStart(2, '0');
+    skCtx.strokeStyle = color + Math.floor(Math.max(alpha, 0.3) * 200).toString(16).padStart(2, '0');
     skCtx.beginPath();
     skCtx.moveTo(padX + ax * scaleX, padY + ay * scaleY);
     skCtx.lineTo(padX + bx * scaleX, padY + by * scaleY);
@@ -265,11 +279,10 @@ function drawKeypointSkeleton(kps, w, h, color) {
   }
 
   // Draw joints
-  kps.forEach(([x, y, , conf], i) => {
-    if (conf < 0.1) return;
+  norm.forEach(([x, y, , conf], i) => {
     const px = padX + x * scaleX;
     const py = padY + y * scaleY;
-    const r = 4 + conf * 4;
+    const r = 4 + Math.max(conf, 0.3) * 4;
     skCtx.beginPath();
     skCtx.arc(px, py, r, 0, Math.PI * 2);
     skCtx.fillStyle = JOINT_COLORS[i % JOINT_COLORS.length];

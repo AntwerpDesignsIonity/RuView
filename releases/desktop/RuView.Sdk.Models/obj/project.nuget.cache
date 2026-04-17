@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "LC990U0VR/Y=",
+  "success": true,
+  "projectFilePath": "/home/antwerp/Creations/.2026/.Naked/RuView/releases/desktop/RuView.Sdk.Models/RuView.Sdk.Models.csproj",
+  "expectedPackageFiles": [
+    "/home/antwerp/.nuget/packages/microsoft.netcore.app.ref/8.0.25/microsoft.netcore.app.ref.8.0.25.nupkg.sha512",
+    "/home/antwerp/.nuget/packages/microsoft.aspnetcore.app.ref/8.0.25/microsoft.aspnetcore.app.ref.8.0.25.nupkg.sha512"
+  ],
+  "logs": []
+}

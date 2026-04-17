@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "RuView default capability set",
+  "description": "AEDI-S default capability set",
   "windows": ["main"],
   "permissions": [
     "core:default",

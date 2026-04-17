@@ -147,6 +147,58 @@ def generate_nvs_binary(csv_content, size):
                 os.unlink(p)
 
 
+def detect_firmware_dir(args):
+    """Locate the firmware release_bins directory."""
+    if args.firmware_dir:
+        return args.firmware_dir
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(script_dir, "release_bins")
+
+
+def flash_firmware(port, baud, fw_dir, flash_variant="8mb"):
+    """Flash bootloader + partition table + OTA data + app firmware."""
+    if flash_variant == "4mb":
+        app_bin = os.path.join(fw_dir, "esp32-csi-node-4mb.bin")
+        part_bin = os.path.join(fw_dir, "partition-table-4mb.bin")
+    else:
+        app_bin = os.path.join(fw_dir, "esp32-csi-node.bin")
+        part_bin = os.path.join(fw_dir, "partition-table.bin")
+
+    bootloader_bin = os.path.join(fw_dir, "bootloader.bin")
+    ota_bin = os.path.join(fw_dir, "ota_data_initial.bin")
+
+    # Check all required binaries exist
+    missing = []
+    for path, label in [(bootloader_bin, "bootloader"), (part_bin, "partition-table"),
+                        (app_bin, "application")]:
+        if not os.path.isfile(path):
+            missing.append(f"  {label}: {path}")
+    if missing:
+        print(f"\nERROR: Firmware binaries missing in {fw_dir}:", file=sys.stderr)
+        for m in missing:
+            print(m, file=sys.stderr)
+        print("\nBuild firmware or download release binaries first.", file=sys.stderr)
+        sys.exit(1)
+
+    flash_args = [
+        sys.executable, "-m", "esptool",
+        "--chip", "esp32s3",
+        "--port", port,
+        "--baud", str(baud),
+        "write_flash",
+        "0x0000", bootloader_bin,
+        "0x8000", part_bin,
+    ]
+    if os.path.isfile(ota_bin):
+        flash_args.extend(["0xf000", ota_bin])  # otadata partition offset
+    flash_args.extend(["0x20000", app_bin])  # ota_0 partition offset
+
+    app_size = os.path.getsize(app_bin)
+    print(f"Flashing firmware ({app_size // 1024} KB, {flash_variant}) to {port}...")
+    subprocess.check_call(flash_args)
+    print("Firmware flash complete!")
+
+
 def flash_nvs(port, baud, nvs_bin):
     """Flash the NVS partition binary to the ESP32."""
     with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as f:
@@ -263,6 +315,10 @@ def main():
     parser.add_argument("--swarm-hb", type=int, help="Swarm heartbeat interval in seconds (default 30)")
     parser.add_argument("--swarm-ingest", type=int, help="Swarm vector ingest interval in seconds (default 5)")
     parser.add_argument("--dry-run", action="store_true", help="Generate NVS binary but don't flash")
+    parser.add_argument("--no-firmware", action="store_true",
+                        help="Skip firmware flash, only write NVS config (use when firmware is already flashed)")
+    parser.add_argument("--firmware-dir", type=str, default=None,
+                        help="Directory containing firmware binaries (default: release_bins/ next to this script)")
 
     args = parser.parse_args()
 
@@ -374,6 +430,27 @@ def main():
               f"write_flash 0x9000 {out}")
         return
 
+    # Step 1: Flash firmware (unless --no-firmware)
+    if not args.no_firmware:
+        fw_dir = detect_firmware_dir(args)
+        # Auto-detect flash size via esptool
+        flash_variant = "8mb"
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "esptool", "--port", resolved_port, "flash_id"],
+                capture_output=True, text=True, timeout=15,
+            )
+            for line in result.stdout.splitlines():
+                if "Detected flash size" in line:
+                    size_str = line.split(":")[-1].strip().lower()
+                    if size_str in ("2mb", "4mb"):
+                        flash_variant = "4mb"
+                    break
+        except Exception:
+            pass  # default to 8mb
+        flash_firmware(resolved_port, args.baud, fw_dir, flash_variant)
+
+    # Step 2: Flash NVS config
     flash_nvs(resolved_port, args.baud, nvs_bin)
 
 

@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RuView — WiFi DensePose Dashboard</title>
+  <title>AEDI-S — WiFi DensePose Dashboard</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -42,6 +45,21 @@
     #conn-banner { padding: 8px 16px; text-align: center; font-size: 11px; display: none; }
     #conn-banner.ok { background: #001a0a; color: var(--green); border-bottom: 1px solid var(--green); display: block; }
     #conn-banner.err { background: #1a0000; color: var(--red); border-bottom: 1px solid var(--red); display: block; }
+
+    /* Connection mode toggle */
+    .mode-bar { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; padding: 12px 16px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; flex-wrap: wrap; }
+    .mode-bar .mode-label { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-dim); }
+    .mode-toggle { display: flex; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .mode-btn { padding: 6px 16px; font-size: 11px; font-family: var(--font); cursor: pointer; border: none; background: transparent; color: var(--text-dim); transition: all 0.2s; white-space: nowrap; }
+    .mode-btn.active { background: var(--accent); color: #fff; }
+    .mode-btn:hover:not(.active) { background: var(--bg3); color: var(--text); }
+    .mode-status { font-size: 11px; color: var(--text-dim); flex: 1; }
+    .mode-status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .mode-status .dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .mode-status .dot.red { background: var(--red); box-shadow: 0 0 6px var(--red); }
+    .mode-status .dot.yellow { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+    .mode-warn { font-size: 10px; color: var(--yellow); margin-top: 4px; width: 100%; padding: 6px 10px; background: rgba(255,215,64,0.05); border: 1px solid rgba(255,215,64,0.15); border-radius: 4px; display: none; }
+
     @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -52,6 +70,17 @@
   <div id="main">
     <h1>WiFi DensePose — Live Sensing</h1>
     <p class="subtitle">Real-time human presence detection through WiFi signal analysis — Ionity Global (Pty) Ltd</p>
+
+    <!-- Connection Mode Toggle -->
+    <div class="mode-bar" id="mode-bar">
+      <span class="mode-label">Connection</span>
+      <div class="mode-toggle">
+        <button class="mode-btn active" id="btn-usb" onclick="switchMode('usb')">⚡ USB Serial</button>
+        <button class="mode-btn" id="btn-wifi" onclick="switchMode('wifi')">📡 WiFi Direct</button>
+      </div>
+      <span class="mode-status" id="mode-status"><span class="dot green"></span>USB bridge active</span>
+      <div class="mode-warn" id="mode-warn"></div>
+    </div>
 
     <div class="grid">
       <div class="card">
@@ -125,9 +154,80 @@ const s = document.createElement('style'); s.textContent = NAV_CSS; document.hea
 injectNav();
 
 const WS_URL = `ws://${location.hostname}:3001/ws/sensing`;
+const BRIDGE_API = `http://${location.hostname}:3002`;
 let ws = null;
 const $ = id => document.getElementById(id);
 const banner = $('conn-banner');
+
+// ── Connection Mode Toggle ───────────────────────────────────────────────────
+let currentMode = 'usb';
+
+async function fetchBridgeStatus() {
+  try {
+    const res = await fetch(`${BRIDGE_API}/api/bridge/status`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
+function updateModeUI(mode, message, warnText) {
+  currentMode = mode;
+  const btnUsb = $('btn-usb'), btnWifi = $('btn-wifi');
+  const statusEl = $('mode-status'), warnEl = $('mode-warn');
+
+  btnUsb.classList.toggle('active', mode === 'usb');
+  btnWifi.classList.toggle('active', mode === 'wifi');
+
+  if (mode === 'usb') {
+    statusEl.innerHTML = '<span class="dot green"></span>USB bridge active — serial data forwarding';
+  } else {
+    statusEl.innerHTML = '<span class="dot yellow"></span>WiFi direct — ESP32 → UDP → server';
+  }
+
+  if (warnText) {
+    warnEl.style.display = 'block';
+    warnEl.textContent = warnText;
+  } else {
+    warnEl.style.display = 'none';
+  }
+}
+
+window.switchMode = async function(mode) {
+  const statusEl = $('mode-status');
+  statusEl.innerHTML = '<span class="dot yellow"></span>Switching…';
+
+  try {
+    const res = await fetch(`${BRIDGE_API}/api/bridge/mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    });
+
+    if (!res.ok) {
+      updateModeUI(currentMode, null, `Switch failed: HTTP ${res.status}`);
+      return;
+    }
+
+    const data = await res.json();
+    const warn = data.ap_isolation_detected
+      ? '⚠ AP isolation detected — ESP32 nodes cannot reach the hub via WiFi. Disable AP/Client isolation in your router admin panel (usually under Wireless → Advanced → AP Isolation).'
+      : null;
+
+    updateModeUI(data.mode, data.message, warn);
+  } catch (e) {
+    updateModeUI(currentMode, null, `Bridge controller not reachable (port 3002). Start it: python scripts/bridge-controller.py`);
+  }
+};
+
+// Poll bridge status every 10s
+async function pollBridgeStatus() {
+  const data = await fetchBridgeStatus();
+  if (data) {
+    updateModeUI(data.mode, null, null);
+  }
+}
+pollBridgeStatus();
+setInterval(pollBridgeStatus, 10000);
 
 function connect() {
   if (ws && ws.readyState <= 1) return;
@@ -167,7 +267,7 @@ function update(d) {
   const tbody = $('node-tbody');
   tbody.innerHTML = nodes.length === 0
     ? '<tr><td colspan="4" style="color:var(--text-dim)">No nodes</td></tr>'
-    : nodes.map(n => `<tr><td>${n.node_id}</td><td>${n.rssi_dbm.toFixed(0)} dBm</td><td>${n.subcarrier_count}</td><td>[${n.position.map(p=>p.toFixed(1)).join(', ')}]</td></tr>`).join('');
+    : nodes.map(n => `<tr><td>${n.node_id}</td><td>${(n.rssi_dbm ?? -99).toFixed(0)} dBm</td><td>${n.subcarrier_count ?? (n.amplitude ? n.amplitude.length : '--')}</td><td>[${n.position ? n.position.map(p=>p.toFixed(1)).join(', ') : '--'}]</td></tr>`).join('');
   if (d.signal_field) drawField(d.signal_field);
 }
 

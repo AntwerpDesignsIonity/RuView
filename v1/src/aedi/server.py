@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 AEDI — Automated Ecosystem Designs Ionity
-AI Assistant Service for RuView WiFi Sensing Platform.
+AI Assistant Service for AEDI-S WiFi Sensing Platform.
 
 Runs a lightweight HTTP API on port 3002 that:
   - Connects to Ollama (Gemma 4 E2B) for local LLM inference
@@ -60,8 +60,8 @@ About Ionity:
 • Industries: Transport, Energy, Medical, Banking, Security, GIS, Mining, Hospitality, Retail, Corporate IT, Industrial/Manufacturing.
 • Specialties: Predictive Maintenance (PdM), Data Acquisition (DAQ), Digital Twins, SCADA retrofitting, OTA firmware updates, self-healing mesh networks.
 
-About RuView (the system you're running on):
-• RuView is Ionity's WiFi-based human sensing & pose estimation platform.
+About AEDI-S (the system you're running on):
+• AEDI-S is Ionity's WiFi-based human sensing & pose estimation platform.
 • Uses WiFi Channel State Information (CSI) to detect presence, motion, breathing, and body pose through walls — no cameras needed.
 • Hardware: Raspberry Pi 5 hub + ESP32-S3 nodes forming a multistatic WiFi sensing mesh.
 • Stack: Rust sensing-server (Axum) + Python ML pipeline + 3D Observatory visualization.

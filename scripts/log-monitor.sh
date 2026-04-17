@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║  log-monitor.sh — RuView Stack Log Monitor                                  ║
+# ║  log-monitor.sh — AEDI-S Stack Log Monitor                                  ║
 # ║  Ionity (Pty) Ltd  |  ai@ionity.today  |  www.ionity.today                  ║
 # ║                                                                              ║
 # ║  Monitors: sensing-server · AEDI (local AI) · csi-bridge · autorepair       ║
@@ -124,7 +124,7 @@ export -f colorize_line
 clear
 echo ""
 echo -e "${CYAN}${BOLD}  ╔══════════════════════════════════════════════════════════╗${RESET}"
-echo -e "${CYAN}${BOLD}  ║  ⬡  RuView — Stack Log Monitor             $(date '+%H:%M:%S')  ║${RESET}"
+echo -e "${CYAN}${BOLD}  ║  ⬡  AEDI-S — Stack Log Monitor             $(date '+%H:%M:%S')  ║${RESET}"
 echo -e "${CYAN}${BOLD}  ╚══════════════════════════════════════════════════════════╝${RESET}"
 echo ""
 

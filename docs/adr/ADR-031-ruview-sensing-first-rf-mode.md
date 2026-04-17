@@ -1,11 +1,11 @@
-# ADR-031: Project RuView -- Sensing-First RF Mode for Multistatic Fidelity Enhancement
+# ADR-031: Project AEDI-S -- Sensing-First RF Mode for Multistatic Fidelity Enhancement
 
 | Field | Value |
 |-------|-------|
 | **Status** | Proposed |
 | **Date** | 2026-03-02 |
 | **Deciders** | ruv |
-| **Codename** | **RuView** -- RuVector Viewpoint-Integrated Enhancement |
+| **Codename** | **AEDI-S** -- RuVector Viewpoint-Integrated Enhancement |
 | **Relates to** | ADR-012 (ESP32 Mesh), ADR-014 (SOTA Signal), ADR-016 (RuVector Integration), ADR-017 (RuVector Signal+MAT), ADR-021 (Vital Signs), ADR-024 (AETHER Embeddings), ADR-027 (MERIDIAN Cross-Environment) |
 
 ---
@@ -26,11 +26,11 @@ The ESP32 mesh (ADR-012) partially addresses this via feature-level fusion acros
 
 1. **Bandwidth**: More bandwidth produces better multipath separability. Currently limited to 20 MHz (ESP32 HT20). Wider channels (80/160 MHz) are available on commodity 802.11ac/ax APs.
 2. **Carrier frequency**: Higher frequency produces more phase sensitivity. 2.4 GHz sees macro-motion; 5 GHz sees micro-motion; 60 GHz sees vital signs.
-3. **Viewpoints**: More viewpoints from different angles reduces geometric ambiguity. This is the lever RuView pulls.
+3. **Viewpoints**: More viewpoints from different angles reduces geometric ambiguity. This is the lever AEDI-S pulls.
 
 ### 1.3 Why "Sensing-First RF Mode"
 
-RuView is NOT a new WiFi standard. It is a sensing-first protocol that rides on existing silicon, bands, and regulations. The key insight: instead of upgrading the RF hardware, upgrade the observability by coordinating multiple commodity receivers.
+AEDI-S is NOT a new WiFi standard. It is a sensing-first protocol that rides on existing silicon, bands, and regulations. The key insight: instead of upgrading the RF hardware, upgrade the observability by coordinating multiple commodity receivers.
 
 ### 1.4 What Already Exists
 
@@ -44,19 +44,19 @@ RuView is NOT a new WiFi standard. It is a sensing-first protocol that rides on 
 | AETHER contrastive embeddings | ADR-024 | Proposed |
 | MERIDIAN cross-environment generalization | ADR-027 | Proposed |
 
-RuView fills the gap: **cross-viewpoint embedding fusion** using learned attention weights.
+AEDI-S fills the gap: **cross-viewpoint embedding fusion** using learned attention weights.
 
 ---
 
 ## 2. Decision
 
-Introduce RuView as a cross-viewpoint embedding fusion layer that operates on top of AETHER per-viewpoint embeddings. RuView adds a new bounded context (ViewpointFusion) and extends three existing crates.
+Introduce AEDI-S as a cross-viewpoint embedding fusion layer that operates on top of AETHER per-viewpoint embeddings. AEDI-S adds a new bounded context (ViewpointFusion) and extends three existing crates.
 
 ### 2.1 Core Architecture
 
 ```
 +-----------------------------------------------------------------+
-|                    RuView Multistatic Pipeline                    |
+|                    AEDI-S Multistatic Pipeline                    |
 +-----------------------------------------------------------------+
 |                                                                   |
 |  +----------+  +----------+  +----------+  +----------+          |
@@ -84,7 +84,7 @@ Introduce RuView as a cross-viewpoint embedding fusion layer that operates on to
 |                               |                                   |
 |                               v                                   |
 |  +--------------------------------------------------------+      |
-|  |        * RuView Cross-Viewpoint Fusion *                |      |
+|  |        * AEDI-S Cross-Viewpoint Fusion *                |      |
 |  |                                                          |      |
 |  |  Q = W_q * X,  K = W_k * X,  V = W_v * X              |      |
 |  |  A = softmax((QK^T + G_bias) / sqrt(d))                |      |
@@ -240,7 +240,7 @@ pub enum ViewpointFusionEvent {
   - Event: `TdmSlotCompleted { node_id, slot_index, capture_quality }`
 
 **Training (wifi-densepose-train):**
-- New module: `ruview_metrics.rs`
+- New module: `aedis_metrics.rs`
   - Three-metric acceptance test: PCK/OKS (joint error), MOTA (multi-person separation), vital sign accuracy.
   - Tiered pass/fail: Bronze/Silver/Gold.
 
@@ -274,7 +274,7 @@ pub enum ViewpointFusionEvent {
 
 | File | Purpose | RuVector Crate |
 |------|---------|---------------|
-| `crates/wifi-densepose-train/src/ruview_metrics.rs` | Three-metric acceptance test (PCK/OKS, MOTA, vital sign accuracy) | ruvector-mincut (person matching) |
+| `crates/wifi-densepose-train/src/aedis_metrics.rs` | Three-metric acceptance test (PCK/OKS, MOTA, vital sign accuracy) | ruvector-mincut (person matching) |
 
 ---
 
@@ -328,7 +328,7 @@ pub enum ViewpointFusionEvent {
 - **Fundamental geometric improvement**: Viewpoint diversity reduces body self-occlusion and depth ambiguity -- these are physics, not model, limitations.
 - **Uses existing silicon**: ESP32-S3, commodity WiFi, no custom RF hardware required for Silver tier.
 - **Learned fusion weights**: Embedding-level fusion (Tier 3) outperforms hand-crafted feature-level fusion (Tier 2).
-- **Composes with existing ADRs**: AETHER (per-viewpoint), MERIDIAN (cross-environment), and RuView (cross-viewpoint) are orthogonal -- they compose freely.
+- **Composes with existing ADRs**: AETHER (per-viewpoint), MERIDIAN (cross-environment), and AEDI-S (cross-viewpoint) are orthogonal -- they compose freely.
 - **IEEE 802.11bf aligned**: TDM protocol maps to 802.11bf sensing sessions, enabling future migration to standard-compliant APs.
 - **Commodity price point**: $84 for 6-node Silver-tier deployment.
 
@@ -344,12 +344,12 @@ pub enum ViewpointFusionEvent {
 
 | ADR | Interaction |
 |-----|------------|
-| ADR-012 (ESP32 Mesh) | RuView extends the aggregator from feature-level to embedding-level fusion; TDM protocol replaces simple UDP collection |
+| ADR-012 (ESP32 Mesh) | AEDI-S extends the aggregator from feature-level to embedding-level fusion; TDM protocol replaces simple UDP collection |
 | ADR-014 (SOTA Signal) | Per-viewpoint signal processing is unchanged; cross-viewpoint subcarrier consensus is new |
 | ADR-016/017 (RuVector) | All 5 ruvector crates get new cross-viewpoint operations (see Section 4) |
 | ADR-021 (Vital Signs) | Multi-viewpoint SNR improvement directly benefits vital sign extraction (Gold tier target) |
-| ADR-024 (AETHER) | Per-viewpoint AETHER embeddings are the input to RuView fusion; AETHER is required |
-| ADR-027 (MERIDIAN) | Cross-environment (MERIDIAN) and cross-viewpoint (RuView) are orthogonal; MERIDIAN handles room transfer, RuView handles within-room geometry |
+| ADR-024 (AETHER) | Per-viewpoint AETHER embeddings are the input to AEDI-S fusion; AETHER is required |
+| ADR-027 (MERIDIAN) | Cross-environment (MERIDIAN) and cross-viewpoint (AEDI-S) are orthogonal; MERIDIAN handles room transfer, AEDI-S handles within-room geometry |
 
 ---
 

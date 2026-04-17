@@ -268,7 +268,7 @@ export class HudController {
       const blob = new Blob([JSON.stringify(s, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = 'ruview-observatory-settings.json';
+      a.download = 'aedi-s-observatory-settings.json';
       a.click();
     });
     document.getElementById('btn-reset-settings').addEventListener('click', () => {
@@ -316,7 +316,7 @@ export class HudController {
 
   saveSettings() {
     try {
-      localStorage.setItem('ruview-observatory-settings', JSON.stringify(this._obs.settings));
+      localStorage.setItem('aedi-s-observatory-settings', JSON.stringify(this._obs.settings));
     } catch {}
   }
 

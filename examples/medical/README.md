@@ -99,9 +99,9 @@ This tool is intended for:
 - Technology demonstration
 - Educational purposes
 
-### How This Connects to RuView
+### How This Connects to AEDI-S
 
-This example is part of the [RuView](https://github.com/ruvnet/RuView) ambient intelligence platform. When combined with WiFi CSI sensing:
+This example is part of the [AEDI-S](https://github.com/ruvnet/AEDI-S) ambient intelligence platform. When combined with WiFi CSI sensing:
 
 - **WiFi CSI** provides through-wall presence detection and room-scale activity recognition
 - **mmWave radar** provides clinical-grade heart rate, breathing rate, and BP estimation

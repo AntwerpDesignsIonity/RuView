@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AEDI-S SDK — Runtime Diagnostics</title>
+  <link rel="icon" type="image/x-icon" href="../favicon.ico">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #050510; --bg2: #0a0a1e; --bg3: #0f1028;
+      --border: #1a2040; --accent: #0088ff; --accent2: #00ccff;
+      --green: #00e676; --red: #ff3d57; --yellow: #ffd740;
+      --dim: #334466; --text: #c8d8f0; --text-dim: #5577aa;
+      --font: 'Courier New', 'Consolas', monospace;
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; }
+    #app { max-width: 1000px; margin: 0 auto; padding: 20px; }
+    h1 { font-size: 20px; color: var(--accent2); letter-spacing: 2px; margin-bottom: 4px; }
+    .subtitle { font-size: 11px; color: var(--text-dim); margin-bottom: 20px; }
+
+    /* Summary bar */
+    .summary { display: flex; gap: 16px; margin-bottom: 24px; padding: 14px 18px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; flex-wrap: wrap; align-items: center; }
+    .stat { text-align: center; min-width: 60px; }
+    .stat-val { font-size: 28px; font-weight: bold; line-height: 1.1; }
+    .stat-val.pass { color: var(--green); } .stat-val.fail { color: var(--red); }
+    .stat-val.warn { color: var(--yellow); } .stat-val.skip { color: var(--dim); }
+    .stat-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); }
+    .timer { font-size: 11px; color: var(--text-dim); margin-left: auto; }
+
+    /* Controls */
+    .controls { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+    button { background: var(--bg3); border: 1px solid var(--border); color: var(--accent2); font-family: var(--font); font-size: 12px; padding: 8px 16px; border-radius: 6px; cursor: pointer; transition: all 0.2s; }
+    button:hover { border-color: var(--accent); background: var(--bg2); }
+    button:disabled { opacity: 0.4; cursor: default; }
+    button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    button.primary:hover { background: #0099ff; }
+
+    /* Category sections */
+    .category { margin-bottom: 16px; }
+    .cat-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px 6px 0 0; cursor: pointer; }
+    .cat-header:hover { border-color: var(--accent); }
+    .cat-name { font-size: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 1.5px; color: var(--accent2); }
+    .cat-badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; background: var(--bg3); color: var(--text-dim); }
+    .cat-badge.all-pass { background: #0a2a0a; color: var(--green); }
+    .cat-badge.has-fail { background: #2a0a0a; color: var(--red); }
+    .cat-badge.has-warn { background: #2a1a0a; color: var(--yellow); }
+
+    /* Test items */
+    .test-list { border: 1px solid var(--border); border-top: none; border-radius: 0 0 6px 6px; overflow: hidden; }
+    .test-item { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--border); transition: background 0.15s; }
+    .test-item:last-child { border-bottom: none; }
+    .test-item:hover { background: var(--bg2); }
+    .test-icon { font-size: 14px; width: 18px; text-align: center; flex-shrink: 0; }
+    .test-icon.pass { color: var(--green); }
+    .test-icon.fail { color: var(--red); }
+    .test-icon.warn { color: var(--yellow); }
+    .test-icon.skip { color: var(--dim); }
+    .test-icon.pending { color: var(--dim); }
+    .test-name { flex: 1; font-size: 12px; }
+    .test-detail { font-size: 10px; color: var(--text-dim); max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .test-time { font-size: 10px; color: var(--dim); min-width: 50px; text-align: right; }
+
+    /* Fault finder section */
+    .faults { margin-top: 24px; }
+    .fault-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; }
+    .fault-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+    .fault-body { flex: 1; }
+    .fault-msg { font-size: 12px; margin-bottom: 4px; }
+    .fault-fix { font-size: 10px; color: var(--text-dim); }
+    .fault-badge { display: inline-block; font-size: 9px; padding: 1px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px; margin-right: 6px; }
+    .fault-badge.critical { background: #2a0505; color: var(--red); }
+    .fault-badge.warning { background: #2a1a05; color: var(--yellow); }
+    .fault-badge.info { background: #05152a; color: var(--accent); }
+
+    /* Capability card */
+    .caps-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 16px; }
+    .cap-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 10px; text-align: center; }
+    .cap-val { font-size: 16px; font-weight: bold; color: var(--accent2); }
+    .cap-label { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+    .cap-val.ok { color: var(--green); } .cap-val.no { color: var(--red); }
+
+    /* Back link */
+    .back-link { display: inline-block; color: var(--accent); text-decoration: none; font-size: 11px; margin-bottom: 16px; }
+    .back-link:hover { color: var(--accent2); }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <a href="../index.html" class="back-link">← Back to Dashboard</a>
+    <h1>AEDI-S SDK DIAGNOSTICS</h1>
+    <div class="subtitle">Runtime self-test, fault finding, and capability analysis</div>
+
+    <!-- Summary -->
+    <div class="summary" id="summary">
+      <div class="stat"><div class="stat-val" id="sTotal">—</div><div class="stat-label">Total</div></div>
+      <div class="stat"><div class="stat-val pass" id="sPass">—</div><div class="stat-label">Passed</div></div>
+      <div class="stat"><div class="stat-val fail" id="sFail">—</div><div class="stat-label">Failed</div></div>
+      <div class="stat"><div class="stat-val warn" id="sWarn">—</div><div class="stat-label">Warnings</div></div>
+      <div class="stat"><div class="stat-val skip" id="sSkip">—</div><div class="stat-label">Skipped</div></div>
+      <div class="timer" id="sTime">—</div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <button class="primary" id="btnRunAll">Run All Diagnostics</button>
+      <button id="btnFaultFind">Fault Finder</button>
+      <button id="btnCaps">Show Capabilities</button>
+    </div>
+
+    <!-- Test results -->
+    <div id="results"></div>
+
+    <!-- Faults -->
+    <div id="faults" class="faults"></div>
+
+    <!-- Capabilities -->
+    <div id="caps"></div>
+  </div>
+
+  <!-- Three.js needed for WebGL tests -->
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <script src="https://unpkg.com/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
+
+  <script type="module">
+    import { sdk } from '../sdk/core.js';
+    import { RuntimeDiagnostics, registerBuiltInDiagnostics, FaultFinder } from '../sdk/diagnostics.js';
+
+    // Initialize SDK
+    await sdk.init();
+
+    // Create diagnostics engine
+    const diag = new RuntimeDiagnostics();
+    registerBuiltInDiagnostics(diag);
+
+    const faultFinder = new FaultFinder();
+
+    // DOM references
+    const btnRunAll = document.getElementById('btnRunAll');
+    const btnFaultFind = document.getElementById('btnFaultFind');
+    const btnCaps = document.getElementById('btnCaps');
+    const resultsDiv = document.getElementById('results');
+    const faultsDiv = document.getElementById('faults');
+    const capsDiv = document.getElementById('caps');
+
+    // Icons
+    const icons = { pass: '✓', fail: '✗', warn: '⚠', skip: '○', pending: '·' };
+
+    // Live update results as tests complete
+    diag.onResult((result) => {
+      updateTestItem(result);
+    });
+
+    // Run all
+    btnRunAll.addEventListener('click', async () => {
+      btnRunAll.disabled = true;
+      btnRunAll.textContent = 'Running...';
+      resultsDiv.innerHTML = '';
+      faultsDiv.innerHTML = '';
+
+      // Pre-build category sections
+      const categories = {};
+      for (const test of diag._tests) {
+        if (!categories[test.category]) categories[test.category] = [];
+        categories[test.category].push(test);
+      }
+
+      for (const [cat, tests] of Object.entries(categories)) {
+        const section = document.createElement('div');
+        section.className = 'category';
+        section.id = `cat-${cat}`;
+
+        const header = document.createElement('div');
+        header.className = 'cat-header';
+        header.innerHTML = `<span class="cat-name">${cat}</span><span class="cat-badge" id="badge-${cat}">${tests.length} tests</span>`;
+        section.appendChild(header);
+
+        const list = document.createElement('div');
+        list.className = 'test-list';
+        list.id = `list-${cat}`;
+
+        for (const test of tests) {
+          const item = document.createElement('div');
+          item.className = 'test-item';
+          item.id = `test-${test.name.replace(/\s+/g, '-')}`;
+          item.innerHTML = `
+            <span class="test-icon pending">${icons.pending}</span>
+            <span class="test-name">${test.name}</span>
+            <span class="test-detail"></span>
+            <span class="test-time">—</span>
+          `;
+          list.appendChild(item);
+        }
+
+        section.appendChild(list);
+        resultsDiv.appendChild(section);
+      }
+
+      const report = await diag.runAll();
+
+      // Update summary
+      document.getElementById('sTotal').textContent = report.total;
+      document.getElementById('sPass').textContent = report.passed;
+      document.getElementById('sFail').textContent = report.failed;
+      document.getElementById('sWarn').textContent = report.warned;
+      document.getElementById('sSkip').textContent = report.skipped;
+      document.getElementById('sTime').textContent = `${report.duration.toFixed(0)}ms`;
+
+      // Update category badges
+      const catResults = diag.getReport();
+      for (const [cat, results] of Object.entries(catResults)) {
+        const badge = document.getElementById(`badge-${cat}`);
+        if (!badge) continue;
+        const fails = results.filter(r => r.status === 'fail').length;
+        const warns = results.filter(r => r.status === 'warn').length;
+        const passes = results.filter(r => r.status === 'pass').length;
+        if (fails > 0) { badge.className = 'cat-badge has-fail'; badge.textContent = `${fails} failed`; }
+        else if (warns > 0) { badge.className = 'cat-badge has-warn'; badge.textContent = `${passes}/${results.length} + ${warns} warn`; }
+        else { badge.className = 'cat-badge all-pass'; badge.textContent = `${passes}/${results.length} passed`; }
+      }
+
+      btnRunAll.disabled = false;
+      btnRunAll.textContent = 'Run All Diagnostics';
+    });
+
+    function updateTestItem(result) {
+      const el = document.getElementById(`test-${result.name.replace(/\s+/g, '-')}`);
+      if (!el) return;
+
+      const iconEl = el.querySelector('.test-icon');
+      const detailEl = el.querySelector('.test-detail');
+      const timeEl = el.querySelector('.test-time');
+
+      iconEl.textContent = icons[result.status] || '?';
+      iconEl.className = `test-icon ${result.status}`;
+      detailEl.textContent = result.error || result.details || '';
+      detailEl.title = result.error || result.details || '';
+      timeEl.textContent = `${result.duration.toFixed(0)}ms`;
+    }
+
+    // Fault finder
+    btnFaultFind.addEventListener('click', async () => {
+      btnFaultFind.disabled = true;
+      btnFaultFind.textContent = 'Analyzing...';
+      faultsDiv.innerHTML = '';
+
+      const issues = await faultFinder.analyze();
+      faultFinder.printReport();
+
+      if (issues.length === 0) {
+        faultsDiv.innerHTML = '<div style="color: var(--green); padding: 12px;">✓ No issues found — system healthy</div>';
+      } else {
+        for (const issue of issues) {
+          const icon = issue.severity === 'critical' ? '🔴' : issue.severity === 'warning' ? '🟡' : '🔵';
+          const div = document.createElement('div');
+          div.className = 'fault-item';
+          div.innerHTML = `
+            <span class="fault-icon">${icon}</span>
+            <div class="fault-body">
+              <div class="fault-msg"><span class="fault-badge ${issue.severity}">${issue.severity}</span>[${issue.module}] ${issue.message}</div>
+              <div class="fault-fix">Fix: ${issue.fix}</div>
+            </div>
+          `;
+          faultsDiv.appendChild(div);
+        }
+      }
+
+      btnFaultFind.disabled = false;
+      btnFaultFind.textContent = 'Fault Finder';
+    });
+
+    // Capabilities
+    btnCaps.addEventListener('click', async () => {
+      const caps = await sdk.capabilities.detect();
+      capsDiv.innerHTML = `
+        <h2 style="font-size: 14px; color: var(--accent2); margin-top: 24px; margin-bottom: 12px;">GPU CAPABILITIES</h2>
+        <div class="caps-grid">
+          <div class="cap-card"><div class="cap-val ${caps.tier === 'compute' ? 'ok' : ''}">${caps.tier.toUpperCase()}</div><div class="cap-label">GPU Tier</div></div>
+          <div class="cap-card"><div class="cap-val ${caps.webgl2 ? 'ok' : 'no'}">${caps.webgl2 ? 'YES' : 'NO'}</div><div class="cap-label">WebGL 2</div></div>
+          <div class="cap-card"><div class="cap-val ${caps.webgpu ? 'ok' : 'no'}">${caps.webgpu ? 'YES' : 'NO'}</div><div class="cap-label">WebGPU</div></div>
+          <div class="cap-card"><div class="cap-val ${caps.extensions.floatTextures ? 'ok' : 'no'}">${caps.extensions.floatTextures ? 'YES' : 'NO'}</div><div class="cap-label">Float Tex</div></div>
+          <div class="cap-card"><div class="cap-val ${caps.extensions.instancedArrays ? 'ok' : 'no'}">${caps.extensions.instancedArrays ? 'YES' : 'NO'}</div><div class="cap-label">Instanced</div></div>
+          <div class="cap-card"><div class="cap-val">${caps.extensions.maxTextureSize || '—'}</div><div class="cap-label">Max Tex Size</div></div>
+          <div class="cap-card"><div class="cap-val">${caps.platform.hardwareConcurrency}</div><div class="cap-label">CPU Cores</div></div>
+          <div class="cap-card"><div class="cap-val">${caps.platform.deviceMemory || '?'} GB</div><div class="cap-label">Device RAM</div></div>
+          <div class="cap-card"><div class="cap-val">${caps.platform.devicePixelRatio}x</div><div class="cap-label">Pixel Ratio</div></div>
+          <div class="cap-card"><div class="cap-val">${caps.extensions.unmaskedRenderer ? caps.extensions.unmaskedRenderer.substring(0, 20) : '—'}</div><div class="cap-label">GPU</div></div>
+        </div>
+      `;
+    });
+
+    // Auto-run on load
+    btnRunAll.click();
+  </script>
+</body>
+</html>

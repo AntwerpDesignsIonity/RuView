@@ -7,7 +7,7 @@ tick and broadcasts JSON frames to all connected WebSocket clients on
 ``ws://localhost:8765``.
 
 Now also persists every tick into the SQLite sensing database
-(data/db/ruview_sensing.sqlite3) for ML training and historical analysis.
+(data/db/aedi-s_sensing.sqlite3) for ML training and historical analysis.
 
 Usage
 -----

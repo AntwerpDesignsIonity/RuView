@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-#  RuView — ESP32-S3 Node Flash + Provision Script
+#  AEDI-S — ESP32-S3 Node Flash + Provision Script
 #
 #  Run this script ON the Antwerp-Pi hub when you connect
 #  each ESP32-S3 node via USB.
@@ -52,7 +52,7 @@ else
 fi
 
 # ── Requirements check ───────────────────────────────────────
-echo -e "\n${BOLD}=== RuView Node Flash ===${RESET}"
+echo -e "\n${BOLD}=== AEDI-S Node Flash ===${RESET}"
 echo -e "  Port     : ${PORT}"
 echo -e "  SSID     : ${SSID:-<not set — will prompt>}"
 echo -e "  Node ID  : ${NODE_ID}"

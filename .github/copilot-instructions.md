@@ -1,4 +1,4 @@
-# Copilot Workspace Instructions — π RuView
+# Copilot Workspace Instructions — AEDI-S
 
 > **Ionity Global (Pty) Ltd** | ai@ionity.today | [www.ionity.today](https://www.ionity.today)
 > WiFi-based human sensing platform: CSI → presence, vitals, pose estimation, activity recognition.

@@ -1,4 +1,4 @@
-# RuView: Viewpoint-Integrated Enhancement for WiFi DensePose Fidelity
+# AEDI-S: Viewpoint-Integrated Enhancement for WiFi DensePose Fidelity
 
 **Date:** 2026-03-02
 **Scope:** Sensing-first RF mode design, multistatic geometry, ESP32 mesh architecture, Cognitum v1 integration, IEEE 802.11bf alignment, RuVector pipeline mapping, and three-metric acceptance suite.
@@ -15,11 +15,11 @@ WiFi-based dense human pose estimation faces three persistent fidelity bottlenec
 
 3. **Vital sign noise floor.** Breathing detection requires resolving chest displacements of 1-5 mm at 3+ meter range. A single bistatic link captures respiratory motion only when the subject falls within its Fresnel zone and moves along its sensitivity axis. Off-axis breathing is invisible.
 
-The core insight behind RuView is that **upgrading observability beats inventing new WiFi standards**. Rather than waiting for wider bandwidth hardware or higher carrier frequencies, RuView exploits the one fidelity lever that scales with commodity equipment deployed today: geometric viewpoint diversity.
+The core insight behind AEDI-S is that **upgrading observability beats inventing new WiFi standards**. Rather than waiting for wider bandwidth hardware or higher carrier frequencies, AEDI-S exploits the one fidelity lever that scales with commodity equipment deployed today: geometric viewpoint diversity.
 
-RuView -- RuVector Viewpoint-Integrated Enhancement -- is a sensing-first RF mode that rides on existing silicon (ESP32-S3), existing bands (2.4/5 GHz), and existing regulations (Part 15 unlicensed). Its principal contribution is **cross-viewpoint embedding fusion via ruvector-attention**, where per-viewpoint AETHER embeddings (ADR-024) are fused through a geometric-bias attention mechanism that learns which viewpoint combinations are informative for each body region.
+AEDI-S -- RuVector Viewpoint-Integrated Enhancement -- is a sensing-first RF mode that rides on existing silicon (ESP32-S3), existing bands (2.4/5 GHz), and existing regulations (Part 15 unlicensed). Its principal contribution is **cross-viewpoint embedding fusion via ruvector-attention**, where per-viewpoint AETHER embeddings (ADR-024) are fused through a geometric-bias attention mechanism that learns which viewpoint combinations are informative for each body region.
 
-Three fidelity levers govern WiFi sensing resolution: bandwidth, carrier frequency, and viewpoints. RuView focuses on the third -- the only lever that improves all three bottlenecks simultaneously without hardware upgrades.
+Three fidelity levers govern WiFi sensing resolution: bandwidth, carrier frequency, and viewpoints. AEDI-S focuses on the third -- the only lever that improves all three bottlenecks simultaneously without hardware upgrades.
 
 ---
 
@@ -40,7 +40,7 @@ Channel impulse response (CIR) features separate multipath components by time-of
 
 Wider channels push the optimal feature domain from frequency (raw subcarrier CSI) toward time (CIR peaks), because multipath components become individually resolvable. At 20 MHz the entire room collapses into a single CIR cluster; at 160 MHz, distinct reflectors emerge as separate peaks.
 
-ESP32-S3 operates at 20 MHz (HT20). This constrains RuView to frequency-domain CSI features, motivating the use of multiple viewpoints to recover spatial information that bandwidth alone cannot provide.
+ESP32-S3 operates at 20 MHz (HT20). This constrains AEDI-S to frequency-domain CSI features, motivating the use of multiple viewpoints to recover spatial information that bandwidth alone cannot provide.
 
 **References:** SpotFi (Kotaru et al., SIGCOMM 2015); IEEE 802.11bf sensing mode (2024).
 
@@ -64,11 +64,11 @@ Fresnel zone radius at each band governs the sensing-sensitive region:
 
 At 2.4 GHz with 3m link distance, the first Fresnel zone radius is 0.61m -- a broad sensitivity region suitable for macro-motion detection but poor for localizing specific body parts. At 5 GHz the radius shrinks to 0.42m, improving localization at the cost of coverage.
 
-RuView currently targets 2.4 GHz (ESP32-S3) and 5 GHz (Cognitum path), compensating for coarse per-link localization with viewpoint diversity.
+AEDI-S currently targets 2.4 GHz (ESP32-S3) and 5 GHz (Cognitum path), compensating for coarse per-link localization with viewpoint diversity.
 
 **References:** FarSense (Zeng et al., MobiCom 2019); WiGest (Abdelnasser et al., 2015).
 
-### 2.3 Viewpoints (RuView Core Contribution)
+### 2.3 Viewpoints (AEDI-S Core Contribution)
 
 A single-viewpoint system suffers from a fundamental geometric limitation: body self-occlusion removes information that no amount of signal processing can recover. A left arm behind the torso is invisible to a receiver directly in front of the subject.
 
@@ -118,7 +118,7 @@ TDM assigns each node an exclusive transmit slot while all other nodes receive. 
 
 At 120 Hz aggregate TDM cycle rate with 6 nodes: 20 Hz per bistatic pair.
 
-**Synchronization.** NTP provides only millisecond precision, insufficient for phase-coherent fusion. RuView uses beacon-based synchronization:
+**Synchronization.** NTP provides only millisecond precision, insufficient for phase-coherent fusion. AEDI-S uses beacon-based synchronization:
 
 - Coordinator node broadcasts a sync beacon at the start of each TDM cycle
 - Peripheral nodes align their slot timing to the beacon with crystal precision (~20-50 ppm)
@@ -131,9 +131,9 @@ At 120 Hz aggregate TDM cycle rate with 6 nodes: 20 Hz per bistatic pair.
 |------|-------------|----------|---------|----------------|
 | 1 | Decision-level | Labels only | Majority vote on pose predictions | Yes |
 | 2 | Feature-level | Aligned features | Better than any single viewpoint | Yes (ADR-012) |
-| 3 | **Embedding-level** | AETHER embeddings | **Learns what to fuse per body region** | **Yes (RuView)** |
+| 3 | **Embedding-level** | AETHER embeddings | **Learns what to fuse per body region** | **Yes (AEDI-S)** |
 
-Decision-level fusion (Tier 1) discards information by reducing each viewpoint to a final prediction before combination. Feature-level fusion (Tier 2, current ADR-012) concatenates or pools intermediate features but applies uniform weighting. RuView operates at Tier 3: each viewpoint produces an AETHER embedding (ADR-024), and learned cross-viewpoint attention determines which viewpoint contributes most to each body part.
+Decision-level fusion (Tier 1) discards information by reducing each viewpoint to a final prediction before combination. Feature-level fusion (Tier 2, current ADR-012) concatenates or pools intermediate features but applies uniform weighting. AEDI-S operates at Tier 3: each viewpoint produces an AETHER embedding (ADR-024), and learned cross-viewpoint attention determines which viewpoint contributes most to each body part.
 
 ---
 
@@ -141,10 +141,10 @@ Decision-level fusion (Tier 1) discards information by reducing each viewpoint t
 
 ### 4.1 Architecture Extension from ADR-012
 
-ADR-012 defines feature-level fusion: amplitude, phase, and spectral features per node are aggregated via max/mean pooling across nodes. RuView extends this to embedding-level fusion:
+ADR-012 defines feature-level fusion: amplitude, phase, and spectral features per node are aggregated via max/mean pooling across nodes. AEDI-S extends this to embedding-level fusion:
 
     Per Node:   CSI --> Signal Processing (ADR-014) --> AETHER Embedding (ADR-024)
-    Aggregator: [emb_1, emb_2, ..., emb_N] --> RuView Attention --> Fused Embedding
+    Aggregator: [emb_1, emb_2, ..., emb_N] --> AEDI-S Attention --> Fused Embedding
     Output:     Fused Embedding --> DensePose Head --> 17 Keypoints + UV Maps
 
 Each node runs the signal processing pipeline locally (conjugate multiplication, Hampel filtering, spectrogram extraction) and transmits a 128-dimensional AETHER embedding to the aggregator, rather than raw CSI. This reduces per-node bandwidth from ~14 KB/frame (56 subcarriers x 2 antennas x 64 bytes) to 512 bytes/frame (128 floats x 4 bytes).
@@ -159,13 +159,13 @@ Each slot requires approximately 1.4 ms (one 802.11n LLTF frame plus guard inter
 
 ### 4.3 Central Aggregator Embedding Fusion
 
-The aggregator receives per-viewpoint AETHER embeddings (d=128 each) and applies RuView cross-viewpoint attention:
+The aggregator receives per-viewpoint AETHER embeddings (d=128 each) and applies AEDI-S cross-viewpoint attention:
 
     Q = W_q * [emb_1; ...; emb_N]     (N x d)
     K = W_k * [emb_1; ...; emb_N]     (N x d)
     V = W_v * [emb_1; ...; emb_N]     (N x d)
     A = softmax((Q * K^T + G_bias) / sqrt(d))
-    RuView_out = A * V
+    AEDI-S_out = A * V
 
 G_bias is a learnable geometric bias matrix encoding bistatic pair geometry. Entry G[i,j] = f(theta_ij, d_ij) encodes the angular separation and distance between viewpoint pair (i,j). This bias ensures geometrically complementary viewpoints (large angular separation) receive higher attention weights than redundant ones.
 
@@ -187,7 +187,7 @@ G_bias is a learnable geometric bias matrix encoding bistatic pair geometry. Ent
 
 Cognitum v1 provides a gating kernel for intelligent signal routing, pairable with wider-bandwidth RF front ends (e.g., LimeSDR Mini at ~$200). The architecture:
 
-    RF Front End (20-160 MHz BW) --> Cognitum Baseband --> AETHER Embedding --> RuView Fusion
+    RF Front End (20-160 MHz BW) --> Cognitum Baseband --> AETHER Embedding --> AEDI-S Fusion
 
 This path overcomes the ESP32's 20 MHz bandwidth limitation, enabling CIR-domain features alongside frequency-domain CSI. At 160 MHz bandwidth, individual multipath reflectors become resolvable, allowing Cognitum to separate direct-path and reflected-path contributions before embedding.
 
@@ -207,7 +207,7 @@ The HNSW index (ADR-004) stores environment fingerprints as AETHER embeddings. G
 
 ### 5.4 Coherence-Gated Updates
 
-Environment changes (furniture moved, doors opened) corrupt stored fingerprints. RuView applies coherence gating:
+Environment changes (furniture moved, doors opened) corrupt stored fingerprints. AEDI-S applies coherence gating:
 
     coherence = |E[exp(j * delta_phi_t)]|   over T frames
 
@@ -228,28 +228,28 @@ IEEE 802.11bf (WLAN Sensing, published 2024) defines sensing procedures using ex
 - **Sensing Measurement Report**: Structured CSI feedback with standardized format
 - **Trigger-Based Ranging (TBR)**: Time-of-flight measurement for distance estimation between stations
 
-RuView maps directly onto 802.11bf constructs:
+AEDI-S maps directly onto 802.11bf constructs:
 
-| RuView Component | 802.11bf Equivalent |
+| AEDI-S Component | 802.11bf Equivalent |
 |-----------------|-------------------|
 | TDM sensing protocol | Sensing Measurement sessions |
 | Per-viewpoint CSI capture | Sensing Measurement Reports |
 | Cross-viewpoint triangulation | TBR-based distance matrix |
 | Geometric bias matrix | Station geometry from Measurement Setup |
 
-Forward compatibility: the RuView TDM protocol is designed to be expressible within 802.11bf frame structures. When commodity APs implement 802.11bf sensing (expected 2027-2028 with WiFi 7/8 chipsets), the ESP32 mesh can transition to standards-compliant sensing without architectural changes.
+Forward compatibility: the AEDI-S TDM protocol is designed to be expressible within 802.11bf frame structures. When commodity APs implement 802.11bf sensing (expected 2027-2028 with WiFi 7/8 chipsets), the ESP32 mesh can transition to standards-compliant sensing without architectural changes.
 
 Current gap: no commodity APs implement 802.11bf sensing yet. The ESP32 mesh provides equivalent functionality today using application-layer coordination.
 
 ---
 
-## 7. RuVector Pipeline for RuView
+## 7. RuVector Pipeline for AEDI-S
 
 Each of the five ruvector v2.0.4 crates maps to a new cross-viewpoint operation.
 
 ### 7.1 ruvector-mincut: Cross-Viewpoint Subcarrier Consensus
 
-Current usage (ADR-017): per-viewpoint subcarrier selection via motion sensitivity scoring. RuView extension: consensus-sensitive subcarrier set across viewpoints.
+Current usage (ADR-017): per-viewpoint subcarrier selection via motion sensitivity scoring. AEDI-S extension: consensus-sensitive subcarrier set across viewpoints.
 
 - Build graph: nodes = subcarriers, edges weighted by cross-viewpoint sensitivity correlation
 - Min-cut partitions into three classes: globally sensitive (correlated across all viewpoints), locally sensitive (informative for specific viewpoints), and insensitive (noise-dominated)
@@ -257,7 +257,7 @@ Current usage (ADR-017): per-viewpoint subcarrier selection via motion sensitivi
 
 ### 7.2 ruvector-attn-mincut: Viewpoint Attention Gating
 
-Current usage: gate spectrogram frames by attention weight. RuView extension: gate viewpoints by geometric diversity.
+Current usage: gate spectrogram frames by attention weight. AEDI-S extension: gate viewpoints by geometric diversity.
 
 - Suppress viewpoints that are geometrically redundant (similar angle, short baseline)
 - Apply attn_mincut with viewpoints as tokens and embedding features as the attention dimension
@@ -265,7 +265,7 @@ Current usage: gate spectrogram frames by attention weight. RuView extension: ga
 
 ### 7.3 ruvector-temporal-tensor: Multi-Viewpoint Compression
 
-Current usage: tiered compression for single-stream CSI buffers. RuView extension: independent tier policies per viewpoint.
+Current usage: tiered compression for single-stream CSI buffers. AEDI-S extension: independent tier policies per viewpoint.
 
 | Tier | Bit Depth | Assignment | Latency |
 |------|-----------|------------|---------|
@@ -275,13 +275,13 @@ Current usage: tiered compression for single-stream CSI buffers. RuView extensio
 
 ### 7.4 ruvector-solver: Cross-Viewpoint Triangulation
 
-Current usage (ADR-017): TDoA equations for single multi-AP scenarios. RuView extension: full bistatic geometry system solving.
+Current usage (ADR-017): TDoA equations for single multi-AP scenarios. AEDI-S extension: full bistatic geometry system solving.
 
 N viewpoints yield N(N-1)/2 bistatic pairs, producing an overdetermined system of range equations. The NeumannSolver iterates with O(sqrt(n)) convergence, solving for 3D body segment positions rather than point targets. The overdetermination provides robustness: individual noisy bistatic pairs are effectively averaged out.
 
-### 7.5 ruvector-attention: RuView Core Fusion
+### 7.5 ruvector-attention: AEDI-S Core Fusion
 
-This is the heart of RuView. Cross-viewpoint scaled dot-product attention:
+This is the heart of AEDI-S. Cross-viewpoint scaled dot-product attention:
 
     Input: X = [emb_1, ..., emb_N] in R^{N x d}
     Q = X * W_q,   K = X * W_k,   V = X * W_v
@@ -331,13 +331,13 @@ G_bias is a learnable geometric bias derived from viewpoint pair geometry (angul
 |------|-------------|---------------|
 | **Bronze** | Metric 2 passes | Multi-person tracking works; minimum viable deployment |
 | **Silver** | Metrics 1 + 2 pass | Tracking plus pose quality; production candidate |
-| **Gold** | All three metrics pass | Tracking, pose, and vitals; full RuView deployment |
+| **Gold** | All three metrics pass | Tracking, pose, and vitals; full AEDI-S deployment |
 
 ---
 
-## 9. RuView vs Alternatives
+## 9. AEDI-S vs Alternatives
 
-| Capability | Single ESP32 | Intel 5300 | 6-Node ESP32 + RuView | Cognitum + RF + RuView | Camera DensePose |
+| Capability | Single ESP32 | Intel 5300 | 6-Node ESP32 + AEDI-S | Cognitum + RF + AEDI-S | Camera DensePose |
 |-----------|-------------|------------|----------------------|----------------------|-----------------|
 | PCK@0.2 | ~0.20 | ~0.45 | ~0.70 (target) | ~0.80 (target) | ~0.90 |
 | Multi-person tracking | None | Poor | Good (target) | Excellent (target) | Excellent |
@@ -348,7 +348,7 @@ G_bias is a learnable geometric bias derived from viewpoint pair geometry (angul
 | Deployment time | 30 min | Hours | 1 hour | Hours | Minutes |
 | IEEE 802.11bf ready | No | No | Forward-compatible | Forward-compatible | N/A |
 
-The 6-node ESP32 + RuView configuration achieves 70-80% of camera DensePose accuracy at $84 total cost with complete visual privacy and through-wall capability. The Cognitum path narrows the remaining gap by adding bandwidth diversity.
+The 6-node ESP32 + AEDI-S configuration achieves 70-80% of camera DensePose accuracy at $84 total cost with complete visual privacy and through-wall capability. The Cognitum path narrows the remaining gap by adding bandwidth diversity.
 
 ---
 

@@ -50,7 +50,7 @@ pub mod error;
 pub mod eval;
 pub mod geometry;
 pub mod rapid_adapt;
-pub mod ruview_metrics;
+pub mod aedis_metrics;
 pub mod subcarrier;
 pub mod virtual_aug;
 

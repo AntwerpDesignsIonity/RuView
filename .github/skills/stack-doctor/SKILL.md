@@ -1,11 +1,11 @@
 ---
 name: stack-doctor
-description: 'Automated diagnosis and repair of the RuView sensing stack. Checks all services (Rust server, ESP32 nodes, Python API, UI), identifies failures, and applies fixes. Use when services fail to start, crash, or behave unexpectedly.'
+description: 'Automated diagnosis and repair of the AEDI-S sensing stack. Checks all services (Rust server, ESP32 nodes, Python API, UI), identifies failures, and applies fixes. Use when services fail to start, crash, or behave unexpectedly.'
 ---
 
 # Stack Doctor
 
-Automated health check and repair for the full Ionity RuView sensing platform.
+Automated health check and repair for the full Ionity AEDI-S sensing platform.
 
 ## When to Use
 
