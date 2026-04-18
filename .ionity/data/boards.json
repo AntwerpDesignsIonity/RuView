@@ -1,0 +1,75 @@
+{
+  "$comment": "Ionity board catalog — known ESP32 variants. Keyed by board_id. Used by the provisioner to pick the right PlatformIO env, display driver, and pinout.",
+  "version": 1,
+  "boards": {
+    "esp32s3_n16r8": {
+      "label": "GOOUUU / Generic ESP32-S3-DevKitC-1 (N16R8)",
+      "chip": "esp32s3",
+      "flash_mb": 16,
+      "psram_mb": 8,
+      "pio_env": "esp32s3_n16r8",
+      "display": null,
+      "notes": "Base CSI sensing node. No onboard display."
+    },
+    "esp32s3_lcd_1_47": {
+      "label": "Waveshare ESP32-S3-LCD-1.47 (ST7789V3)",
+      "chip": "esp32s3",
+      "flash_mb": 16,
+      "psram_mb": 8,
+      "pio_env": "esp32s3_lcd_1_47",
+      "display": {
+        "driver": "ST7789V3",
+        "bus": "SPI",
+        "width": 172,
+        "height": 320,
+        "touch": false
+      },
+      "notes": "1.47\" TFT, portrait 172x320."
+    },
+    "esp32s3_touch_amoled_1_64": {
+      "label": "Waveshare ESP32-S3-Touch-AMOLED-1.64 (CO5300)",
+      "chip": "esp32s3",
+      "flash_mb": 16,
+      "psram_mb": 8,
+      "pio_env": "esp32s3_amoled_1_64",
+      "display": {
+        "driver": "CO5300",
+        "bus": "QSPI",
+        "width": 280,
+        "height": 456,
+        "col_offset1": 20,
+        "row_offset1": 0,
+        "col_offset2": 180,
+        "row_offset2": 24,
+        "touch": true,
+        "touch_driver": "CST820",
+        "pins": {
+          "qspi_cs": 9,
+          "qspi_sck": 10,
+          "qspi_d0": 11,
+          "qspi_d1": 12,
+          "qspi_d2": 13,
+          "qspi_d3": 14,
+          "rst": 21
+        }
+      },
+      "notes": "1.64\" rounded-rectangle AMOLED 280x456 (CO5300 QSPI). Pins + offsets verified against Arduino_GFX dev-device table (WAVESHARE_ESP32_S3_TOUCH_AMOLED_1_64). Requires Arduino_GFX >= 1.6.5."
+    },
+    "esp32s3_touch_amoled_1_8": {
+      "label": "Waveshare ESP32-S3-Touch-AMOLED-1.8 (SH8601)",
+      "chip": "esp32s3",
+      "flash_mb": 16,
+      "psram_mb": 8,
+      "pio_env": "esp32s3_n16r8",
+      "display": {
+        "driver": "SH8601",
+        "bus": "QSPI",
+        "width": 368,
+        "height": 448,
+        "touch": true,
+        "touch_driver": "FT3168"
+      },
+      "notes": "Supported by ESP-IDF firmware tree (firmware/esp32-csi-node) via CONFIG_DISPLAY_ENABLE. ADR-045."
+    }
+  }
+}
