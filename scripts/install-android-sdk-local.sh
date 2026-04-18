@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
-# One-shot install: JDK 17 aarch64 + Android cmdline-tools + SDK packages.
-# Writes only under $HOME. Safe to re-run.
+# One-shot install: JDK 17 + Android cmdline-tools + SDK packages under $HOME.
+# Safe to re-run.
+#
+# ⚠ aarch64 Linux caveat: Google ships only x86_64 `aapt2` for Linux, so a
+#   MAUI Android APK CANNOT be built on a Raspberry Pi / aarch64 host — the
+#   resource compiler fails with "Exec format error". JDK + adb still work,
+#   so you can flash APKs built elsewhere and inspect devices.
+#   Use .github/workflows/aedi-maui-android.yml for the actual APK build.
 set -euo pipefail
 
 JDK_DIR="$HOME/.jdks/temurin-17"

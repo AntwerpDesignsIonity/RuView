@@ -1,0 +1,47 @@
+# AEDI-S Node Registry
+# Maps ESP32 MAC addresses to assigned node IDs, board variants and
+# the PlatformIO env to flash. Used by `identify-node.py` to auto-detect
+# a connected board and recommend / re-apply provisioning.
+#
+# Add new boards here. MAC is the lower-case wifi STA MAC printed by
+# `esptool read_mac` (PID 303a:1001). To extend, copy a block.
+#
+# pio_env values must match envs in ionity/platformio.ini.
+# led_role values: edge | hub  (provision.py --led-hub <role>)
+
+nodes:
+  - node_id: 1
+    mac: "98:a3:16:e3:88:e8"
+    board: "ESP32-S3 N16R8 (plain, LED only)"
+    pio_env: "esp32s3_n16r8"
+    led_role: "edge"
+
+  - node_id: 2
+    mac: "98:a3:16:e7:fe:30"
+    board: "ESP32-S3 N16R8 (plain, LED only)"
+    pio_env: "esp32s3_n16r8"
+    led_role: "edge"
+
+  - node_id: 3
+    mac: ""                   # TODO: fill in when next plain node is connected
+    board: "ESP32-S3 N16R8 (plain, LED only)"
+    pio_env: "esp32s3_n16r8"
+    led_role: "edge"
+
+  - node_id: 4
+    mac: "30:ed:a0:2a:2f:34"
+    board: "Waveshare ESP32-S3-Touch-LCD-2 (ST7789 240x320)"
+    pio_env: "esp32s3_touch_lcd_2"
+    led_role: "edge"
+
+  - node_id: 5
+    mac: "10:20:ba:45:68:5c"
+    board: "ESP32-S3 N16R8 (plain, LED only)"
+    pio_env: "esp32s3_n16r8"
+    led_role: "edge"
+
+  - node_id: 6
+    mac: "94:a9:90:15:cd:68"
+    board: "Waveshare ESP32-S3-LCD-1.47 (ST7789V3 172x320)"
+    pio_env: "esp32s3_lcd_1_47"
+    led_role: "edge"

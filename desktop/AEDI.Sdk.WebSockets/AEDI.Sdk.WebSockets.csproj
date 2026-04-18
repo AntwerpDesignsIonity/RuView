@@ -5,17 +5,17 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
-    <PackageId>RuView.Sdk.WebSockets</PackageId>
+    <PackageId>AEDI.Sdk.WebSockets</PackageId>
     <Version>0.1.0</Version>
     <Authors>Ionity Global</Authors>
     <Company>Ionity Global</Company>
-    <Description>WebSocket client SDK for live RuView sensing streams.</Description>
-    <RepositoryUrl>https://github.com/AntwerpDesignsIonity/AEDI-SIGHT-IO-with-RuView</RepositoryUrl>
-    <PackageTags>ruview;aedi;sensing;sdk;websocket</PackageTags>
+    <Description>WebSocket client SDK for live AEDI sensing streams.</Description>
+    <RepositoryUrl>https://github.com/AntwerpDesignsIonity/AEDI-SIGHT-IO</RepositoryUrl>
+    <PackageTags>aedi;ionity;sensing;sdk;websocket</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\RuView.Sdk.Models\RuView.Sdk.Models.csproj" />
+    <ProjectReference Include="..\AEDI.Sdk.Models\AEDI.Sdk.Models.csproj" />
   </ItemGroup>
 
 </Project>

@@ -120,11 +120,34 @@
           <th>Signal</th>
           <th>Motion</th>
           <th>Persons</th>
+          <th>IP</th>
+          <th>Firmware</th>
           <th>Last Seen</th>
         </tr>
       </thead>
       <tbody id="nodes-tbody">
-        <tr><td colspan="7" class="empty-msg loading">Connecting...</td></tr>
+        <tr><td colspan="9" class="empty-msg loading">Connecting...</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Node Registry <span id="registry-status" style="font-size:0.7em;color:var(--text-dim);font-weight:normal"></span></h2>
+    <p style="color:var(--text-dim);margin-top:-8px;font-size:0.9em">
+      MAC↔node-id assignments from <code>firmware/esp32-csi-node/nodes.yaml</code>.
+      Updated on every <code>ionity.sh run</code>.
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th>Node</th>
+          <th>Board</th>
+          <th>MAC</th>
+          <th>Firmware Env</th>
+          <th>Role</th>
+          <th>Live</th>
+        </tr>
+      </thead>
+      <tbody id="registry-tbody">
+        <tr><td colspan="6" class="empty-msg loading">Loading registry…</td></tr>
       </tbody>
     </table>
 
@@ -172,6 +195,8 @@
         const r = await fetch('/api/v1/nodes');
         const data = await r.json();
         const nodes = data.nodes || [];
+        lastLiveNodes = nodes;
+        renderRegistry();
 
         $('total-nodes').textContent = nodes.length;
         const active = nodes.filter(n => n.last_seen_ms < 5000);
@@ -185,7 +210,7 @@
         }
 
         if (nodes.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="7" class="empty-msg">No ESP32 nodes detected. Start the serial bridge.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="9" class="empty-msg">No ESP32 nodes detected. Start the serial bridge.</td></tr>';
           return;
         }
 
@@ -193,6 +218,12 @@
         tbody.innerHTML = nodes.map(n => {
           const pct = rssiPercent(n.rssi_dbm);
           const col = rssiColor(n.rssi_dbm);
+          const fw = n.firmware_status || '—';
+          const fwClass = fw === 'streaming' ? 'badge-active'
+                        : fw === 'csi_only' ? 'badge-active'
+                        : fw === 'stale'    ? 'badge-stale'
+                        : fw === 'offline'  ? 'badge-offline'
+                        : 'badge-stale';
           return `<tr>
             <td><strong>${n.node_id}</strong></td>
             <td>${statusBadge(n)}</td>
@@ -200,21 +231,25 @@
             <td><div class="rssi-bar"><div class="fill" style="width:${pct}%;background:${col}"></div></div></td>
             <td>${n.motion_level || '--'}</td>
             <td>${n.person_count ?? '--'}</td>
+            <td>${n.ip ? `<code style="font-size:0.85em">${n.ip}</code>` : '<span style="color:var(--text-dim)">—</span>'}</td>
+            <td><span class="badge ${fwClass}">${fw}</span></td>
             <td>${lastSeenText(n.last_seen_ms)}</td>
           </tr>`;
         }).join('');
 
       } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="7" class="empty-msg">Connection error: ${e.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="empty-msg">Connection error: ${e.message}</td></tr>`;
       }
     }
 
     async function pollBridge() {
       try {
-        const r = await fetch('/api/v1/bridge-status');
+        // Bridge-controller runs as a separate Python service on port 3002
+        const host = location.hostname || 'localhost';
+        const r = await fetch(`http://${host}:3002/api/bridge/status`, { cache: 'no-store' });
         if (r.ok) {
           const data = await r.json();
-          $('bridge-status').textContent = data.status || 'unknown';
+          $('bridge-status').textContent = data.bridge_running ? (data.mode || 'running') : (data.mode || 'idle');
           if (data.ports && data.ports.length > 0) {
             bridgePorts.innerHTML = data.ports.map(p => {
               const dotColor = p.state === 'active' ? 'var(--green)' :
@@ -283,11 +318,63 @@
       ws.onerror = () => ws.close();
     }
 
+    // Cache live nodes for the registry table to mark online state.
+    let lastLiveNodes = [];
+    let lastRegistry = [];
+
+    function renderRegistry() {
+      const rb = $('registry-tbody');
+      if (!lastRegistry.length) {
+        rb.innerHTML = '<tr><td colspan="6" class="empty-msg">Registry empty or not yet generated. Run <code>ionity.sh run</code>.</td></tr>';
+        return;
+      }
+      const liveIds = new Set(lastLiveNodes.filter(n => n.last_seen_ms < 5000).map(n => n.node_id));
+      const liveMacs = new Set(lastLiveNodes.map(n => (n.mac || '').toLowerCase()).filter(Boolean));
+      let online = 0;
+      rb.innerHTML = lastRegistry.map(n => {
+        const isOnline = liveIds.has(n.node_id);
+        if (isOnline) online++;
+        const macCell = n.mac
+          ? `<code style="font-size:0.85em">${n.mac}</code>`
+          : `<span style="color:var(--yellow)">— unassigned —</span>`;
+        const liveCell = isOnline
+          ? '<span class="badge badge-active">online</span>'
+          : (n.mac ? '<span class="badge badge-offline">offline</span>'
+                   : '<span class="badge badge-stale">empty</span>');
+        return `<tr>
+          <td><strong>${n.node_id}</strong></td>
+          <td>${n.board || '—'}</td>
+          <td>${macCell}</td>
+          <td><code style="font-size:0.85em">${n.pio_env || '—'}</code></td>
+          <td>${n.led_role || '—'}</td>
+          <td>${liveCell}</td>
+        </tr>`;
+      }).join('');
+      $('registry-status').textContent =
+        ` — ${online}/${lastRegistry.filter(n=>n.mac).length} registered nodes online`;
+    }
+
+    async function loadRegistry() {
+      try {
+        let r = await fetch('/api/v1/registry', { cache: 'no-store' });
+        if (!r.ok) r = await fetch('/ui/data/node-registry.json', { cache: 'no-store' });
+        if (!r.ok) throw new Error(r.status);
+        const data = await r.json();
+        lastRegistry = data.nodes || [];
+        renderRegistry();
+      } catch {
+        $('registry-tbody').innerHTML =
+          '<tr><td colspan="6" class="empty-msg">Registry not found. Run <code>ionity.sh run</code> to generate <code>ui/data/node-registry.json</code>.</td></tr>';
+      }
+    }
+
     // Start polling
     pollNodes();
     pollBridge();
+    loadRegistry();
     setInterval(pollNodes, 2000);
     setInterval(pollBridge, 10000);
+    setInterval(loadRegistry, 30000);
     connectWS();
   </script>
 </body>

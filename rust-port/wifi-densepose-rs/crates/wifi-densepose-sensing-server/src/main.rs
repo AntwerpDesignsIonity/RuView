@@ -9,6 +9,7 @@
 //! Replaces both ws_server.py and the Python HTTP server.
 
 mod adaptive_classifier;
+mod aggression;
 mod field_bridge;
 mod multistatic_bridge;
 mod pso;
@@ -62,8 +63,6 @@ use wifi_densepose_wifiscan::parse_netsh_output as parse_netsh_bssid_output;
 // Linux multi-BSSID scanner (ADR-022 Linux path)
 #[cfg(target_os = "linux")]
 use wifi_densepose_wifiscan::LinuxIwScanner;
-#[cfg(target_os = "linux")]
-use wifi_densepose_wifiscan::parse_iw_scan_output;
 
 // Accuracy sprint: Kalman tracker, multistatic fusion, field model
 use wifi_densepose_signal::ruvsense::pose_tracker::PoseTracker;
@@ -238,6 +237,12 @@ struct SensingUpdate {
     /// Estimated person count from CSI feature heuristics (1-3 for single ESP32).
     #[serde(skip_serializing_if = "Option::is_none")]
     estimated_persons: Option<usize>,
+    /// Discrete count votes from independent estimators plus weighted consensus.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    count_evidence: Option<PersonCountEvidence>,
+    /// Spatial anchors extracted from the signal field before skeleton synthesis.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    person_anchors: Option<Vec<PersonAnchor>>,
     /// Per-node feature breakdown for multi-node deployments.
     #[serde(skip_serializing_if = "Option::is_none")]
     node_features: Option<Vec<PerNodeFeatureInfo>>,
@@ -297,6 +302,29 @@ struct PersonDetection {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct CountEstimate {
+    source: String,
+    count: usize,
+    confidence: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersonCountEvidence {
+    consensus_count: usize,
+    consensus_confidence: f64,
+    estimates: Vec<CountEstimate>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersonAnchor {
+    x: f64,
+    y: f64,
+    z: f64,
+    strength: f64,
+    zone: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct BoundingBox {
     x: f64,
     y: f64,
@@ -330,27 +358,28 @@ struct NodeState {
     edge_vitals: Option<Esp32VitalsPacket>,
     /// Latest extracted features for cross-node fusion.
     latest_features: Option<FeatureInfo>,
-    // ── RuVector Phase 2: Temporal smoothing & coherence gating ──
-    /// Previous frame's smoothed keypoint positions for EMA temporal smoothing.
-    prev_keypoints: Option<Vec<[f64; 3]>>,
-    /// Rolling buffer of motion_energy values for coherence scoring (last 20 frames).
-    motion_energy_history: VecDeque<f64>,
-    /// Coherence score [0.0, 1.0]: low variance in motion_energy = high coherence.
-    coherence_score: f64,
+    /// Source IP address of the last UDP frame from this node (for GUI display).
+    pub(crate) peer_ip: Option<std::net::IpAddr>,
 }
 
 /// Default EMA alpha for temporal keypoint smoothing (RuVector Phase 2).
 /// Lower = smoother (more history, less jitter). 0.15 balances responsiveness
 /// with stability for WiFi CSI where per-frame noise is high.
 const TEMPORAL_EMA_ALPHA_DEFAULT: f64 = 0.15;
-/// Reduced EMA alpha when coherence is low (trust measurements less).
-const TEMPORAL_EMA_ALPHA_LOW_COHERENCE: f64 = 0.05;
-/// Coherence threshold below which we reduce EMA alpha.
-const COHERENCE_LOW_THRESHOLD: f64 = 0.3;
 /// Maximum allowed bone-length change ratio between frames (20%).
 const MAX_BONE_CHANGE_RATIO: f64 = 0.20;
-/// Number of motion_energy frames to track for coherence scoring.
-const COHERENCE_WINDOW: usize = 20;
+/// Lower smoothing alpha for uncertain tracked people.
+const TRACK_SMOOTHING_ALPHA_LOW_CONFIDENCE: f64 = 0.08;
+/// Track-confidence threshold that switches to the lower alpha.
+const TRACK_SMOOTHING_LOW_CONFIDENCE_THRESHOLD: f64 = 0.55;
+/// Retain smoothing state for missing tracks for a short grace period.
+const TRACK_SMOOTHING_TTL_TICKS: u64 = 30;
+
+#[derive(Debug, Clone)]
+struct TrackTemporalState {
+    keypoints: Vec<[f64; 3]>,
+    last_seen_tick: u64,
+}
 
 impl NodeState {
     pub(crate) fn new() -> Self {
@@ -376,43 +405,7 @@ impl NodeState {
             last_frame_time: None,
             edge_vitals: None,
             latest_features: None,
-            prev_keypoints: None,
-            motion_energy_history: VecDeque::with_capacity(COHERENCE_WINDOW),
-            coherence_score: 1.0, // assume stable initially
-        }
-    }
-
-    /// Update the coherence score from the latest motion_energy value.
-    ///
-    /// Coherence is computed as 1.0 / (1.0 + running_variance) so that
-    /// low motion-energy variance maps to high coherence ([0, 1]).
-    fn update_coherence(&mut self, motion_energy: f64) {
-        if self.motion_energy_history.len() >= COHERENCE_WINDOW {
-            self.motion_energy_history.pop_front();
-        }
-        self.motion_energy_history.push_back(motion_energy);
-
-        let n = self.motion_energy_history.len();
-        if n < 2 {
-            self.coherence_score = 1.0;
-            return;
-        }
-
-        let mean: f64 = self.motion_energy_history.iter().sum::<f64>() / n as f64;
-        let variance: f64 = self.motion_energy_history.iter()
-            .map(|v| (v - mean) * (v - mean))
-            .sum::<f64>() / (n - 1) as f64;
-
-        // Map variance to [0, 1] coherence: higher variance = lower coherence.
-        self.coherence_score = (1.0 / (1.0 + variance)).clamp(0.0, 1.0);
-    }
-
-    /// Choose the EMA alpha based on current coherence score.
-    fn ema_alpha(&self) -> f64 {
-        if self.coherence_score < COHERENCE_LOW_THRESHOLD {
-            TEMPORAL_EMA_ALPHA_LOW_COHERENCE
-        } else {
-            TEMPORAL_EMA_ALPHA_DEFAULT
+            peer_ip: None,
         }
     }
 }
@@ -527,6 +520,8 @@ struct AppStateInner {
     pose_tracker: PoseTracker,
     /// Instant of last tracker update (for computing dt).
     last_tracker_instant: Option<std::time::Instant>,
+    /// Per-track temporal smoother layered on top of tracker output.
+    track_temporal_state: HashMap<u32, TrackTemporalState>,
     /// Attention-weighted multi-node CSI fusion engine.
     multistatic_fuser: MultistaticFuser,
     /// SVD-based room field model for eigenvalue person counting (None until calibration).
@@ -1614,14 +1609,22 @@ async fn linux_wifi_task(state: SharedState, tick_ms: u64, iface: String) {
         let feat_variance = features.variance;
         let raw_score = compute_person_score(&features);
         s.smoothed_person_score = s.smoothed_person_score * 0.90 + raw_score * 0.10;
-        let est_persons = if classification.presence {
-            let count = s.person_count();
+        let count_evidence = if classification.presence {
+            let evidence = build_single_link_count_evidence(
+                &s.frame_history,
+                s.field_model.as_ref(),
+                classification.confidence,
+                s.smoothed_person_score,
+                s.prev_person_count,
+            );
+            let count = evidence.as_ref().map(|item| item.consensus_count).unwrap_or(1);
             s.prev_person_count = count;
-            count
+            evidence
         } else {
             s.prev_person_count = 0;
-            0
+            None
         };
+        let est_persons = count_evidence.as_ref().map(|item| item.consensus_count).unwrap_or(0);
 
         let mut update = SensingUpdate {
             msg_type: "sensing_update".to_string(),
@@ -1652,17 +1655,19 @@ async fn linux_wifi_task(state: SharedState, tick_ms: u64, iface: String) {
             model_status: None,
             persons: None,
             estimated_persons: if est_persons > 0 { Some(est_persons) } else { None },
+            count_evidence,
+            person_anchors: None,
             node_features: None,
         };
 
-        let raw_persons = derive_pose_from_sensing(&update);
-        let tracked = {
+        {
             let s_ref = &mut *s;
-            let (tracker, instant) = (&mut s_ref.pose_tracker, &mut s_ref.last_tracker_instant);
-            tracker_bridge::tracker_update(tracker, instant, raw_persons)
-        };
-        if !tracked.is_empty() {
-            update.persons = Some(tracked);
+            finalize_people_for_update(
+                &mut update,
+                &mut s_ref.pose_tracker,
+                &mut s_ref.last_tracker_instant,
+                &mut s_ref.track_temporal_state,
+            );
         }
 
         if let Ok(json) = serde_json::to_string(&update) {
@@ -1835,14 +1840,22 @@ async fn windows_wifi_task(state: SharedState, tick_ms: u64) {
         // Multi-person estimation with temporal smoothing (EMA α=0.10).
         let raw_score = compute_person_score(&features);
         s.smoothed_person_score = s.smoothed_person_score * 0.90 + raw_score * 0.10;
-        let est_persons = if classification.presence {
-            let count = s.person_count();
+        let count_evidence = if classification.presence {
+            let evidence = build_single_link_count_evidence(
+                &s.frame_history,
+                s.field_model.as_ref(),
+                classification.confidence,
+                s.smoothed_person_score,
+                s.prev_person_count,
+            );
+            let count = evidence.as_ref().map(|item| item.consensus_count).unwrap_or(1);
             s.prev_person_count = count;
-            count
+            evidence
         } else {
             s.prev_person_count = 0;
-            0
+            None
         };
+        let est_persons = count_evidence.as_ref().map(|item| item.consensus_count).unwrap_or(0);
 
         let mut update = SensingUpdate {
             msg_type: "sensing_update".to_string(),
@@ -1873,17 +1886,19 @@ async fn windows_wifi_task(state: SharedState, tick_ms: u64) {
             model_status: None,
             persons: None,
             estimated_persons: if est_persons > 0 { Some(est_persons) } else { None },
+            count_evidence,
+            person_anchors: None,
             node_features: None,
         };
 
-        // Populate persons from the sensing update (Kalman-smoothed via tracker).
-        let raw_persons = derive_pose_from_sensing(&update);
-        let tracked = {
-            let s_ref = &mut *s; let (tracker, instant) = (&mut s_ref.pose_tracker, &mut s_ref.last_tracker_instant);
-            tracker_bridge::tracker_update(tracker, instant, raw_persons)
-        };
-        if !tracked.is_empty() {
-            update.persons = Some(tracked);
+        {
+            let s_ref = &mut *s;
+            finalize_people_for_update(
+                &mut update,
+                &mut s_ref.pose_tracker,
+                &mut s_ref.last_tracker_instant,
+                &mut s_ref.track_temporal_state,
+            );
         }
 
         if let Ok(json) = serde_json::to_string(&update) {
@@ -1973,14 +1988,22 @@ async fn windows_wifi_fallback_tick(state: &SharedState, seq: u32) {
     // Multi-person estimation with temporal smoothing (EMA α=0.10).
     let raw_score = compute_person_score(&features);
     s.smoothed_person_score = s.smoothed_person_score * 0.90 + raw_score * 0.10;
-    let est_persons = if classification.presence {
-        let count = s.person_count();
+    let count_evidence = if classification.presence {
+        let evidence = build_single_link_count_evidence(
+            &s.frame_history,
+            s.field_model.as_ref(),
+            classification.confidence,
+            s.smoothed_person_score,
+            s.prev_person_count,
+        );
+        let count = evidence.as_ref().map(|item| item.consensus_count).unwrap_or(1);
         s.prev_person_count = count;
-        count
+        evidence
     } else {
         s.prev_person_count = 0;
-        0
+        None
     };
+    let est_persons = count_evidence.as_ref().map(|item| item.consensus_count).unwrap_or(0);
 
     let mut update = SensingUpdate {
         msg_type: "sensing_update".to_string(),
@@ -2011,16 +2034,19 @@ async fn windows_wifi_fallback_tick(state: &SharedState, seq: u32) {
         model_status: None,
         persons: None,
         estimated_persons: if est_persons > 0 { Some(est_persons) } else { None },
+        count_evidence,
+        person_anchors: None,
         node_features: None,
     };
 
-    let raw_persons = derive_pose_from_sensing(&update);
-    let tracked = {
-        let s_ref = &mut *s; let (tracker, instant) = (&mut s_ref.pose_tracker, &mut s_ref.last_tracker_instant);
-        tracker_bridge::tracker_update(tracker, instant, raw_persons)
-    };
-    if !tracked.is_empty() {
-        update.persons = Some(tracked);
+    {
+        let s_ref = &mut *s;
+        finalize_people_for_update(
+            &mut update,
+            &mut s_ref.pose_tracker,
+            &mut s_ref.last_tracker_instant,
+            &mut s_ref.track_temporal_state,
+        );
     }
 
     if let Ok(json) = serde_json::to_string(&update) {
@@ -2224,6 +2250,28 @@ async fn handle_ws_pose_client(mut socket: WebSocket, state: SharedState) {
                                     sensing.persons.clone().unwrap_or_else(|| derive_pose_from_sensing(&sensing))
                                 };
 
+                                // TinyML anomaly + aggression: feed every node's
+                                // motion_band_power into the rolling baseline.
+                                // observe() is idempotent on (node_id, tick) so
+                                // running it per-WS-client is safe.
+                                let agg_score = if let Some(per_node) = sensing.node_features.as_ref() {
+                                    for nf in per_node {
+                                        let _ = aggression::observe(
+                                            nf.node_id,
+                                            nf.features.motion_band_power,
+                                            sensing.tick,
+                                        );
+                                    }
+                                    aggression::snapshot()
+                                } else {
+                                    let _ = aggression::observe(
+                                        0,
+                                        sensing.features.motion_band_power,
+                                        sensing.tick,
+                                    );
+                                    aggression::snapshot()
+                                };
+
                                 let pose_msg = serde_json::json!({
                                     "type": "pose_data",
                                     "zone_id": "zone_1",
@@ -2236,6 +2284,8 @@ async fn handle_ws_pose_client(mut socket: WebSocket, state: SharedState) {
                                         "activity": sensing.classification.motion_level,
                                         // pose_source tells the UI which estimation mode is active.
                                         "pose_source": pose_source,
+                                        // TinyML environment-trained anomaly + aggression scores.
+                                        "aggression": agg_score,
                                         "metadata": {
                                             "frame_id": format!("rust_frame_{}", sensing.tick),
                                             "processing_time_ms": 1,
@@ -2403,16 +2453,18 @@ fn compute_person_score(feat: &FeatureInfo) -> f64 {
 /// - Low min-cut → two loosely coupled groups → 2 persons
 ///
 /// Uses `ruvector_mincut::DynamicMinCut` for O(V²E) exact max-flow.
-fn estimate_persons_from_correlation(frame_history: &VecDeque<Vec<f64>>) -> usize {
+fn estimate_persons_from_correlation_evidence(
+    frame_history: &VecDeque<Vec<f64>>,
+) -> Option<CountEstimate> {
     let n_frames = frame_history.len();
     if n_frames < 10 {
-        return 1;
+        return None;
     }
 
     let window: Vec<&Vec<f64>> = frame_history.iter().rev().take(20).collect();
     let n_sub = window[0].len().min(56);
     if n_sub < 4 {
-        return 1;
+        return None;
     }
     let k = window.len() as f64;
 
@@ -2435,7 +2487,7 @@ fn estimate_persons_from_correlation(frame_history: &VecDeque<Vec<f64>>) -> usiz
     let active: Vec<usize> = (0..n_sub).filter(|&sc| variances[sc] > noise_floor).collect();
     let m = active.len();
     if m < 3 {
-        return if m == 0 { 0 } else { 1 };
+        return None;
     }
 
     // Build correlation graph edges between active subcarriers.
@@ -2477,7 +2529,11 @@ fn estimate_persons_from_correlation(frame_history: &VecDeque<Vec<f64>>) -> usiz
         .unwrap_or((0, &0));
 
     if max_var_idx == min_var_idx {
-        return 1;
+        return Some(CountEstimate {
+            source: "correlation".to_string(),
+            count: 1,
+            confidence: 0.40,
+        });
     }
 
     edges.push((source, max_var_idx as u64, 100.0));
@@ -2486,7 +2542,7 @@ fn estimate_persons_from_correlation(frame_history: &VecDeque<Vec<f64>>) -> usiz
     // Run min-cut
     let mc: DynamicMinCut = match MinCutBuilder::new().exact().with_edges(edges.clone()).build() {
         Ok(mc) => mc,
-        Err(_) => return 1,
+        Err(_) => return None,
     };
 
     let cut_value = mc.min_cut_value();
@@ -2496,7 +2552,7 @@ fn estimate_persons_from_correlation(frame_history: &VecDeque<Vec<f64>>) -> usiz
         .sum::<f64>() / 2.0; // bidirectional → halve
 
     if total_edge_weight < 1e-9 {
-        return 1;
+        return None;
     }
 
     // Normalized cut ratio: low = easy to split = multiple people
@@ -2525,7 +2581,29 @@ fn estimate_persons_from_correlation(frame_history: &VecDeque<Vec<f64>>) -> usiz
         else if cut_ratio > cr_3 { 3 }
         else if cut_ratio > cr_4 { 4 }
         else { 5 };
-    raw.min(max_persons)
+    let threshold_margin = [cr_1, cr_2, cr_3, cr_4]
+        .iter()
+        .map(|thr| (cut_ratio - *thr).abs())
+        .fold(1.0, f64::min);
+    let support = (m as f64 / 24.0).clamp(0.0, 1.0);
+    let connectivity = (total_edge_weight / (m as f64 * 8.0)).clamp(0.0, 1.0);
+    let confidence = (0.28
+        + 0.24 * support
+        + 0.24 * connectivity
+        + 0.24 * (threshold_margin * 2.0).clamp(0.0, 1.0))
+        .clamp(0.18, 0.95);
+
+    Some(CountEstimate {
+        source: "correlation".to_string(),
+        count: raw.min(max_persons),
+        confidence,
+    })
+}
+
+fn estimate_persons_from_correlation(frame_history: &VecDeque<Vec<f64>>) -> usize {
+    estimate_persons_from_correlation_evidence(frame_history)
+        .map(|estimate| estimate.count)
+        .unwrap_or(1)
 }
 
 /// Estimate person count from channel impulse response (CIR) delay taps.
@@ -2549,15 +2627,17 @@ fn estimate_persons_from_correlation(frame_history: &VecDeque<Vec<f64>>) -> usiz
 /// Env override:
 ///   AEDIS_TOF_THRESHOLD  relative peak threshold (default 0.35)
 ///   AEDIS_TOF_MIN_GAP    minimum tap gap between peaks (default 2)
-fn estimate_persons_from_delay_taps(frame_history: &VecDeque<Vec<f64>>) -> usize {
+fn estimate_persons_from_delay_taps_evidence(
+    frame_history: &VecDeque<Vec<f64>>,
+) -> Option<CountEstimate> {
     let n_frames = frame_history.len();
     if n_frames < 10 {
-        return 0;
+        return None;
     }
     let window: Vec<&Vec<f64>> = frame_history.iter().rev().take(32).collect();
     let n_sub = window.iter().map(|f| f.len()).min().unwrap_or(0).min(64);
     if n_sub < 8 {
-        return 0;
+        return None;
     }
     let k = window.len() as f64;
 
@@ -2579,7 +2659,7 @@ fn estimate_persons_from_delay_taps(frame_history: &VecDeque<Vec<f64>>) -> usize
     // Noise gate — if no subcarrier has meaningful dynamic power, no bodies.
     let max_power = dyn_power.iter().cloned().fold(0.0f64, f64::max);
     if max_power < 1e-3 {
-        return 0;
+        return None;
     }
 
     // (4) Treat dyn_power as a real, symmetric frequency-domain magnitude and
@@ -2605,7 +2685,7 @@ fn estimate_persons_from_delay_taps(frame_history: &VecDeque<Vec<f64>>) -> usize
         .ok().and_then(|v| v.parse().ok()).unwrap_or(2);
     let pdp_max = pdp.iter().cloned().fold(0.0f64, f64::max);
     if pdp_max < 1e-9 {
-        return 0;
+        return None;
     }
     let gate = pdp_max * thresh_rel;
     let mut peaks: Vec<usize> = Vec::new();
@@ -2621,7 +2701,20 @@ fn estimate_persons_from_delay_taps(frame_history: &VecDeque<Vec<f64>>) -> usize
     let movers = peaks.len().saturating_sub(1);
     let max_persons: usize = std::env::var("AEDIS_MAX_PERSONS")
         .ok().and_then(|v| v.parse().ok()).unwrap_or(5).clamp(1, 16);
-    movers.min(max_persons)
+    let mean_pdp = pdp.iter().sum::<f64>() / pdp.len().max(1) as f64;
+    let contrast = (pdp_max / mean_pdp.max(1e-9)).clamp(1.0, 10.0);
+    let confidence = (0.22
+        + 0.22 * (window.len() as f64 / 32.0).clamp(0.0, 1.0)
+        + 0.28 * ((contrast - 1.0) / 4.0).clamp(0.0, 1.0)
+        + 0.18 * (peaks.len() as f64 / 4.0).clamp(0.0, 1.0)
+        + 0.10 * (1.0 - thresh_rel).clamp(0.0, 1.0))
+        .clamp(0.15, 0.90);
+
+    Some(CountEstimate {
+        source: "delay_taps".to_string(),
+        count: movers.min(max_persons),
+        confidence,
+    })
 }
 
 /// Convert smoothed person score to discrete count with hysteresis.
@@ -2665,24 +2758,300 @@ fn score_to_person_count(smoothed_score: f64, prev_count: usize) -> usize {
     }
 }
 
-/// Generate a single person's skeleton with per-person spatial offset and phase stagger.
+fn score_count_estimate(smoothed_score: f64, prev_count: usize) -> CountEstimate {
+    let count = score_to_person_count(smoothed_score, prev_count);
+    let thresholds = [0.55, 0.70, 0.73, 0.82, 0.85, 0.90, 0.92, 0.95];
+    let margin = thresholds
+        .iter()
+        .map(|thr| (smoothed_score - *thr).abs())
+        .fold(1.0, f64::min);
+    let confidence = (0.46 + 0.42 * (margin * 2.0).clamp(0.0, 1.0)).clamp(0.22, 0.95);
+
+    CountEstimate {
+        source: "score".to_string(),
+        count,
+        confidence,
+    }
+}
+
+fn field_model_count_estimate(
+    field_model: Option<&FieldModel>,
+    frame_history: &VecDeque<Vec<f64>>,
+) -> Option<CountEstimate> {
+    let field_model = field_model?;
+    let status = field_model.status();
+    let count = field_bridge::occupancy_estimate(field_model, frame_history)?;
+    let confidence = match status {
+        CalibrationStatus::Fresh => 0.88,
+        CalibrationStatus::Stale => 0.72,
+        _ => return None,
+    };
+
+    Some(CountEstimate {
+        source: "field_model".to_string(),
+        count,
+        confidence,
+    })
+}
+
+fn weighted_count_consensus(estimates: Vec<CountEstimate>) -> Option<PersonCountEvidence> {
+    let estimates: Vec<CountEstimate> = estimates
+        .into_iter()
+        .filter(|estimate| estimate.confidence.is_finite() && estimate.confidence > 0.0)
+        .collect();
+    if estimates.is_empty() {
+        return None;
+    }
+
+    let total_weight = estimates.iter().map(|estimate| estimate.confidence).sum::<f64>().max(1e-9);
+    let weighted_mean = estimates
+        .iter()
+        .map(|estimate| estimate.count as f64 * estimate.confidence)
+        .sum::<f64>()
+        / total_weight;
+
+    let mut scores: HashMap<usize, f64> = HashMap::new();
+    for estimate in &estimates {
+        *scores.entry(estimate.count).or_insert(0.0) += estimate.confidence;
+    }
+
+    let mut best_count = estimates[0].count;
+    let mut best_weight = -1.0f64;
+    let mut best_distance = f64::MAX;
+    for (count, weight) in scores {
+        let distance = (count as f64 - weighted_mean).abs();
+        let better = weight > best_weight
+            || ((weight - best_weight).abs() < 1e-6 && distance < best_distance)
+            || ((weight - best_weight).abs() < 1e-6
+                && (distance - best_distance).abs() < 1e-6
+                && count > best_count);
+        if better {
+            best_count = count;
+            best_weight = weight;
+            best_distance = distance;
+        }
+    }
+
+    Some(PersonCountEvidence {
+        consensus_count: best_count,
+        consensus_confidence: (best_weight / total_weight).clamp(0.0, 1.0),
+        estimates,
+    })
+}
+
+fn build_single_link_count_evidence(
+    frame_history: &VecDeque<Vec<f64>>,
+    field_model: Option<&FieldModel>,
+    classification_confidence: f64,
+    smoothed_score: f64,
+    prev_count: usize,
+) -> Option<PersonCountEvidence> {
+    let confidence_scale = (0.70 + 0.30 * classification_confidence.clamp(0.0, 1.0)).clamp(0.70, 1.0);
+
+    let mut estimates = Vec::new();
+
+    let mut score = score_count_estimate(smoothed_score, prev_count);
+    score.confidence = (score.confidence * confidence_scale).clamp(0.0, 0.95);
+    estimates.push(score);
+
+    if let Some(mut corr) = estimate_persons_from_correlation_evidence(frame_history) {
+        corr.count = corr.count.max(1);
+        corr.confidence = (corr.confidence * confidence_scale).clamp(0.0, 0.95);
+        estimates.push(corr);
+    }
+
+    if let Some(mut delay) = estimate_persons_from_delay_taps_evidence(frame_history) {
+        delay.count = delay.count.max(1);
+        delay.confidence = (delay.confidence * confidence_scale).clamp(0.0, 0.95);
+        estimates.push(delay);
+    }
+
+    if let Some(mut field) = field_model_count_estimate(field_model, frame_history) {
+        field.count = field.count.max(1);
+        field.confidence = (field.confidence * confidence_scale).clamp(0.0, 0.95);
+        estimates.push(field);
+    }
+
+    weighted_count_consensus(estimates)
+}
+
+fn best_active_node_estimate(
+    node_states: &HashMap<u8, NodeState>,
+    now: std::time::Instant,
+    source: &str,
+    estimator: fn(&VecDeque<Vec<f64>>) -> Option<CountEstimate>,
+) -> Option<CountEstimate> {
+    node_states
+        .values()
+        .filter(|node| node.last_frame_time.map_or(false, |t| now.duration_since(t).as_secs() < 5))
+        .filter_map(|node| estimator(&node.frame_history))
+        .max_by(|a, b| a.confidence.total_cmp(&b.confidence))
+        .map(|mut estimate| {
+            estimate.source = source.to_string();
+            estimate.count = estimate.count.max(1);
+            estimate
+        })
+}
+
+fn room_dimensions_m() -> (f64, f64, f64) {
+    (
+        env_f64("AEDIS_ROOM_WIDTH_M", 8.0).max(1.0),
+        env_f64("AEDIS_ROOM_DEPTH_M", 6.0).max(1.0),
+        env_f64("AEDIS_ROOM_HEIGHT_M", 3.0).max(1.0),
+    )
+}
+
+fn fallback_person_anchors(person_count: usize) -> Vec<PersonAnchor> {
+    let (room_width, room_depth, _) = room_dimensions_m();
+    let half = (person_count as f64 - 1.0) / 2.0;
+    let spacing = (room_width / 6.0).clamp(0.8, 1.4);
+
+    (0..person_count)
+        .map(|index| PersonAnchor {
+            x: (room_width * 0.5 + (index as f64 - half) * spacing)
+                .clamp(room_width * 0.15, room_width * 0.85),
+            y: 0.95,
+            z: room_depth * 0.55,
+            strength: 0.35,
+            zone: format!("zone_{}", index + 1),
+        })
+        .collect()
+}
+
+fn extract_person_anchors(update: &SensingUpdate) -> Vec<PersonAnchor> {
+    let person_count = update.estimated_persons.unwrap_or(1).max(1);
+    let grid_x = update.signal_field.grid_size[0].max(1);
+    let grid_z = update.signal_field.grid_size[2].max(1);
+    let cell_count = grid_x * grid_z;
+    if person_count == 0 || update.signal_field.values.len() < cell_count {
+        return fallback_person_anchors(person_count);
+    }
+
+    let max_value = update.signal_field.values.iter().cloned().fold(0.0, f64::max);
+    if max_value < 1e-6 {
+        return fallback_person_anchors(person_count);
+    }
+
+    let primary_gate = max_value * 0.55;
+    let secondary_gate = max_value * 0.35;
+    let min_sep_cells = ((grid_x.min(grid_z) as f64) * 0.18).round().max(2.0) as usize;
+
+    let mut candidates: Vec<(usize, usize, f64)> = Vec::new();
+    for z in 0..grid_z {
+        for x in 0..grid_x {
+            let idx = z * grid_x + x;
+            let value = update.signal_field.values[idx];
+            if value < primary_gate {
+                continue;
+            }
+
+            let mut is_peak = true;
+            for dz in -1isize..=1 {
+                for dx in -1isize..=1 {
+                    if dx == 0 && dz == 0 {
+                        continue;
+                    }
+                    let nx = x as isize + dx;
+                    let nz = z as isize + dz;
+                    if nx < 0 || nz < 0 || nx >= grid_x as isize || nz >= grid_z as isize {
+                        continue;
+                    }
+                    let neighbor_idx = nz as usize * grid_x + nx as usize;
+                    if update.signal_field.values[neighbor_idx] > value {
+                        is_peak = false;
+                        break;
+                    }
+                }
+                if !is_peak {
+                    break;
+                }
+            }
+
+            if is_peak {
+                candidates.push((x, z, value));
+            }
+        }
+    }
+
+    if candidates.len() < person_count {
+        for z in 0..grid_z {
+            for x in 0..grid_x {
+                let idx = z * grid_x + x;
+                let value = update.signal_field.values[idx];
+                if value >= secondary_gate {
+                    candidates.push((x, z, value));
+                }
+            }
+        }
+    }
+
+    candidates.sort_by(|a, b| b.2.total_cmp(&a.2));
+    candidates.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1);
+
+    let (room_width, room_depth, room_height) = room_dimensions_m();
+    let mut anchors = Vec::new();
+    for (x, z, value) in candidates {
+        if anchors.len() >= person_count {
+            break;
+        }
+        let too_close = anchors.iter().any(|anchor: &PersonAnchor| {
+            let anchor_x = ((anchor.x / room_width) * grid_x as f64).round().clamp(0.0, grid_x as f64 - 1.0) as isize;
+            let anchor_z = ((anchor.z / room_depth) * grid_z as f64).round().clamp(0.0, grid_z as f64 - 1.0) as isize;
+            let dx = anchor_x - x as isize;
+            let dz = anchor_z - z as isize;
+            ((dx * dx + dz * dz) as f64).sqrt() < min_sep_cells as f64
+        });
+        if too_close {
+            continue;
+        }
+
+        let strength = (value / max_value).clamp(0.10, 1.0);
+        anchors.push(PersonAnchor {
+            x: ((x as f64 + 0.5) / grid_x as f64) * room_width,
+            y: (0.90 + 0.35 * strength).clamp(0.75, room_height * 0.7),
+            z: ((z as f64 + 0.5) / grid_z as f64) * room_depth,
+            strength,
+            zone: String::new(),
+        });
+    }
+
+    if anchors.len() < person_count {
+        for fallback in fallback_person_anchors(person_count) {
+            if anchors.len() >= person_count {
+                break;
+            }
+            let too_close = anchors.iter().any(|anchor| {
+                let dx = anchor.x - fallback.x;
+                let dz = anchor.z - fallback.z;
+                (dx * dx + dz * dz).sqrt() < room_width.min(room_depth) * 0.12
+            });
+            if !too_close {
+                anchors.push(fallback);
+            }
+        }
+    }
+
+    anchors.sort_by(|a, b| a.x.total_cmp(&b.x));
+    for (index, anchor) in anchors.iter_mut().enumerate() {
+        anchor.zone = format!("zone_{}", index + 1);
+    }
+    anchors.truncate(person_count);
+    anchors
+}
+
+/// Generate a single person's skeleton anchored to a signal-field peak.
 ///
 /// `person_idx`: 0-based index of this person.
-/// `total_persons`: total number of detected persons (for spacing calculation).
 fn derive_single_person_pose(
     update: &SensingUpdate,
     person_idx: usize,
-    total_persons: usize,
+    anchor: &PersonAnchor,
 ) -> PersonDetection {
     let cls = &update.classification;
     let feat = &update.features;
 
     // Per-person phase offset: ~120 degrees apart so they don't move in sync.
     let phase_offset = person_idx as f64 * 2.094;
-
-    // Spatial spread: persons distributed symmetrically around center.
-    let half = (total_persons as f64 - 1.0) / 2.0;
-    let person_x_offset = (person_idx as f64 - half) * 120.0; // 120px spacing
 
     // Confidence decays for additional persons (less certain about person 2, 3).
     let conf_decay = 1.0 - person_idx as f64 * 0.15;
@@ -2720,12 +3089,16 @@ fn derive_single_person_pose(
     let noise_val = (noise_seed.sin() * 43758.545).fract();
 
     let snr_factor = ((feat.variance - 0.5) / 10.0).clamp(0.0, 1.0);
-    let base_confidence = cls.confidence * (0.6 + 0.4 * snr_factor) * conf_decay;
+    let anchor_confidence = 0.70 + 0.30 * anchor.strength.clamp(0.0, 1.0);
+    let base_confidence = cls.confidence * anchor_confidence * (0.55 + 0.45 * snr_factor) * conf_decay;
 
     // ── Skeleton base position ────────────────────────────────────────────────
 
-    let base_x = 320.0 + stride_x + lean_x * 0.5 + person_x_offset;
-    let base_y = 240.0 - motion_score * 8.0;
+    let (room_width, room_depth, _) = room_dimensions_m();
+    let anchor_x_norm = (anchor.x / room_width).clamp(0.0, 1.0);
+    let anchor_z_norm = (anchor.z / room_depth).clamp(0.0, 1.0);
+    let base_x = 90.0 + anchor_x_norm * 460.0 + stride_x + lean_x * 0.5;
+    let base_y = 170.0 + anchor_z_norm * 150.0 - motion_score * 8.0;
 
     // ── COCO 17-keypoint offsets from hip-center ──────────────────────────────
 
@@ -2818,7 +3191,7 @@ fn derive_single_person_pose(
                 name: name.to_string(),
                 x: final_x,
                 y: final_y,
-                z: lean_x * 0.02,
+                z: (anchor_z_norm + lean_x * 0.005).clamp(0.0, 1.2),
                 confidence: kp_conf.clamp(0.1, 1.0),
             }
         })
@@ -2833,7 +3206,7 @@ fn derive_single_person_pose(
 
     PersonDetection {
         id: (person_idx + 1) as u32,
-        confidence: cls.confidence * conf_decay,
+        confidence: (cls.confidence * conf_decay * anchor_confidence).clamp(0.1, 1.0),
         keypoints,
         bbox: BoundingBox {
             x: min_x,
@@ -2841,7 +3214,7 @@ fn derive_single_person_pose(
             width: (max_x - min_x).max(80.0),
             height: (max_y - min_y).max(160.0),
         },
-        zone: format!("zone_{}", person_idx + 1),
+        zone: anchor.zone.clone(),
     }
 }
 
@@ -2851,11 +3224,15 @@ fn derive_pose_from_sensing(update: &SensingUpdate) -> Vec<PersonDetection> {
         return vec![];
     }
 
-    // Use estimated_persons if set by the tick loop; otherwise default to 1.
-    let person_count = update.estimated_persons.unwrap_or(1).max(1);
+    let anchors = update
+        .person_anchors
+        .clone()
+        .unwrap_or_else(|| extract_person_anchors(update));
 
-    (0..person_count)
-        .map(|idx| derive_single_person_pose(update, idx, person_count))
+    anchors
+        .iter()
+        .enumerate()
+        .map(|(idx, anchor)| derive_single_person_pose(update, idx, anchor))
         .collect()
 }
 
@@ -2870,46 +3247,107 @@ const POSE_BONE_PAIRS: &[(usize, usize)] = &[
     (5, 6), (11, 12),                     // shoulders, hips
 ];
 
-/// Apply temporal EMA smoothing and bone-length clamping to person detections.
-///
-/// For the *first* person (index 0) this uses the per-node `prev_keypoints`
-/// state. Multi-person smoothing is left for a future phase.
-fn apply_temporal_smoothing(persons: &mut [PersonDetection], ns: &mut NodeState) {
-    if persons.is_empty() {
+fn recompute_person_bbox(person: &mut PersonDetection) {
+    if person.keypoints.is_empty() {
         return;
     }
 
-    let alpha = ns.ema_alpha();
-    let person = &mut persons[0]; // smooth primary person only
+    let xs: Vec<f64> = person.keypoints.iter().map(|kp| kp.x).collect();
+    let ys: Vec<f64> = person.keypoints.iter().map(|kp| kp.y).collect();
+    let min_x = xs.iter().cloned().fold(f64::MAX, f64::min) - 10.0;
+    let min_y = ys.iter().cloned().fold(f64::MAX, f64::min) - 10.0;
+    let max_x = xs.iter().cloned().fold(f64::MIN, f64::max) + 10.0;
+    let max_y = ys.iter().cloned().fold(f64::MIN, f64::max) + 10.0;
 
-    let current_kps: Vec<[f64; 3]> = person.keypoints.iter()
-        .map(|kp| [kp.x, kp.y, kp.z])
-        .collect();
-
-    let smoothed = if let Some(ref prev) = ns.prev_keypoints {
-        let mut out = Vec::with_capacity(current_kps.len());
-        for (cur, prv) in current_kps.iter().zip(prev.iter()) {
-            out.push([
-                alpha * cur[0] + (1.0 - alpha) * prv[0],
-                alpha * cur[1] + (1.0 - alpha) * prv[1],
-                alpha * cur[2] + (1.0 - alpha) * prv[2],
-            ]);
-        }
-        // Clamp bone lengths to ±20% of previous frame.
-        clamp_bone_lengths_f64(&mut out, prev);
-        out
-    } else {
-        current_kps.clone()
+    person.bbox = BoundingBox {
+        x: min_x,
+        y: min_y,
+        width: (max_x - min_x).max(80.0),
+        height: (max_y - min_y).max(160.0),
     };
+}
 
-    // Write smoothed keypoints back into the person detection.
-    for (kp, s) in person.keypoints.iter_mut().zip(smoothed.iter()) {
-        kp.x = s[0];
-        kp.y = s[1];
-        kp.z = s[2];
+fn apply_track_smoothing(
+    persons: &mut [PersonDetection],
+    track_temporal_state: &mut HashMap<u32, TrackTemporalState>,
+    tick: u64,
+) {
+    for person in persons.iter_mut() {
+        let current_keypoints: Vec<[f64; 3]> = person.keypoints.iter()
+            .map(|kp| [kp.x, kp.y, kp.z])
+            .collect();
+        let alpha = if person.confidence < TRACK_SMOOTHING_LOW_CONFIDENCE_THRESHOLD {
+            TRACK_SMOOTHING_ALPHA_LOW_CONFIDENCE
+        } else {
+            TEMPORAL_EMA_ALPHA_DEFAULT
+        };
+
+        let smoothed = if let Some(previous) = track_temporal_state.get(&person.id) {
+            if previous.keypoints.len() == current_keypoints.len() {
+                let mut out = Vec::with_capacity(current_keypoints.len());
+                for (current, prev) in current_keypoints.iter().zip(previous.keypoints.iter()) {
+                    out.push([
+                        alpha * current[0] + (1.0 - alpha) * prev[0],
+                        alpha * current[1] + (1.0 - alpha) * prev[1],
+                        alpha * current[2] + (1.0 - alpha) * prev[2],
+                    ]);
+                }
+                clamp_bone_lengths_f64(&mut out, &previous.keypoints);
+                out
+            } else {
+                current_keypoints.clone()
+            }
+        } else {
+            current_keypoints.clone()
+        };
+
+        for (kp, coords) in person.keypoints.iter_mut().zip(smoothed.iter()) {
+            kp.x = coords[0];
+            kp.y = coords[1];
+            kp.z = coords[2];
+        }
+        recompute_person_bbox(person);
+
+        track_temporal_state.insert(person.id, TrackTemporalState {
+            keypoints: smoothed,
+            last_seen_tick: tick,
+        });
     }
 
-    ns.prev_keypoints = Some(smoothed);
+    track_temporal_state.retain(|track_id, state| {
+        persons.iter().any(|person| person.id == *track_id)
+            || tick.saturating_sub(state.last_seen_tick) <= TRACK_SMOOTHING_TTL_TICKS
+    });
+}
+
+fn finalize_people_for_update(
+    update: &mut SensingUpdate,
+    tracker: &mut PoseTracker,
+    last_tracker_instant: &mut Option<std::time::Instant>,
+    track_temporal_state: &mut HashMap<u32, TrackTemporalState>,
+) {
+    if !update.classification.presence {
+        update.persons = None;
+        update.person_anchors = None;
+        return;
+    }
+
+    let anchors = extract_person_anchors(update);
+    if anchors.is_empty() {
+        update.persons = None;
+        update.person_anchors = None;
+        return;
+    }
+    update.person_anchors = Some(anchors);
+
+    let raw_persons = derive_pose_from_sensing(update);
+    let mut tracked = tracker_bridge::tracker_update(tracker, last_tracker_instant, raw_persons);
+    apply_track_smoothing(&mut tracked, track_temporal_state, update.tick);
+    if tracked.is_empty() {
+        update.persons = None;
+    } else {
+        update.persons = Some(tracked);
+    }
 }
 
 /// Clamp bone lengths so no bone changes by more than MAX_BONE_CHANGE_RATIO
@@ -3858,21 +4296,52 @@ async fn sona_activate(
 async fn nodes_endpoint(State(state): State<SharedState>) -> Json<serde_json::Value> {
     let s = state.read().await;
     let now = std::time::Instant::now();
+    // Pull TinyML adaptive baseline snapshot once; map node_id → trained_pct/anomaly.
+    let agg_snap = aggression::snapshot();
+    let agg_by_node: std::collections::HashMap<u8, &aggression::AggressionScore> = agg_snap
+        .as_ref()
+        .map(|s| s.nodes.iter().map(|n| (n.node_id, n)).collect())
+        .unwrap_or_default();
     let nodes: Vec<serde_json::Value> = s.node_states.iter()
         .map(|(&id, ns)| {
             let elapsed_ms = ns.last_frame_time
                 .map(|t| now.duration_since(t).as_millis() as u64)
-                .unwrap_or(999999);
+                .unwrap_or(999_999);
             let stale = elapsed_ms > 5000;
-            let status = if stale { "stale" } else { "active" };
+            let offline = elapsed_ms > 30_000;
+            let status = if offline { "offline" }
+                else if stale { "stale" }
+                else { "active" };
+            // Firmware status is derived from liveness + edge-vitals presence.
+            // - "streaming"   : recent frames AND we've seen edge_vitals at least once
+            //                   (means real ESP-IDF firmware with edge DSP is running)
+            // - "csi_only"    : recent frames but no edge_vitals (PlatformIO/Arduino
+            //                   firmware OR edge tier=0)
+            // - "stale"       : last frame 5–30 s ago
+            // - "offline"     : > 30 s
+            let firmware_status = if offline { "offline" }
+                else if stale { "stale" }
+                else if ns.edge_vitals.is_some() { "streaming" }
+                else { "csi_only" };
             let rssi = ns.rssi_history.back().copied().unwrap_or(-90.0);
+            let ml = agg_by_node.get(&id);
             serde_json::json!({
                 "node_id": id,
                 "status": status,
+                "firmware_status": firmware_status,
+                "ip": ns.peer_ip.map(|ip| ip.to_string()),
                 "last_seen_ms": elapsed_ms,
                 "rssi_dbm": rssi,
                 "motion_level": &ns.current_motion_level,
                 "person_count": ns.prev_person_count,
+                // Adaptive ML calibration (TinyML aggression detector). These
+                // numbers are learnt online per node and are independent of
+                // physical placement — the baseline retrains itself for
+                // whatever RF environment each node sits in.
+                "ml_trained_pct": ml.map(|m| m.trained_pct).unwrap_or(0.0),
+                "ml_anomaly": ml.map(|m| m.anomaly).unwrap_or(0.0),
+                "ml_aggression": ml.map(|m| m.aggression).unwrap_or(0.0),
+                "ml_samples": ml.map(|m| m.samples).unwrap_or(0),
             })
         })
         .collect();
@@ -3880,6 +4349,27 @@ async fn nodes_endpoint(State(state): State<SharedState>) -> Json<serde_json::Va
         "nodes": nodes,
         "total": nodes.len(),
     }))
+}
+
+/// GET /api/v1/aggression — TinyML environment-trained anomaly + aggression
+/// scores. Returns the live aggregate (max anomaly across nodes, max
+/// aggression, average trained_pct) plus per-node detail. The baseline is
+/// learned online from `motion_band_power` and persists to
+/// `data/aggression_baseline.json`.
+async fn aggression_endpoint() -> Json<serde_json::Value> {
+    match aggression::snapshot() {
+        Some(s) => Json(serde_json::json!({
+            "ok": true,
+            "anomaly": s.anomaly,
+            "aggression": s.aggression,
+            "trained_pct": s.trained_pct,
+            "nodes": s.nodes,
+        })),
+        None => Json(serde_json::json!({
+            "ok": false,
+            "error": "aggression detector not initialised",
+        })),
+    }
 }
 
 /// GET /api/v1/room — room dimensions + node positions for 3D visualization.
@@ -4015,6 +4505,108 @@ fn env_usize(key: &str, default: usize) -> usize {
     std::env::var(key).ok().and_then(|s| s.parse().ok()).unwrap_or(default)
 }
 
+fn env_flag(key: &str) -> bool {
+    matches!(
+        std::env::var(key).ok().as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("on")
+    )
+}
+
+/// GET /api/v1/preprocessing/stats — CSI preprocessing pipeline status (ADR-083).
+///
+/// Reports which optional preprocessing stages are enabled via env flags.
+/// Stages are wired into the per-node pipeline in a future patch; this endpoint
+/// exists today so the UI can show the user what *would* be applied.
+async fn preprocessing_stats_endpoint() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "stages": [
+            { "name": "hampel",                "enabled": env_flag("IONITY_HAMPEL"),                "env": "IONITY_HAMPEL",                "purpose": "Outlier suppression on amplitude" },
+            { "name": "phase_sanitizer",       "enabled": env_flag("IONITY_PHASE_SANITIZER"),       "env": "IONITY_PHASE_SANITIZER",       "purpose": "Per-frame phase unwrap + STO/SFO removal" },
+            { "name": "adaptive_denoise",      "enabled": env_flag("IONITY_ADAPTIVE_DENOISE"),      "env": "IONITY_ADAPTIVE_DENOISE",      "purpose": "Adaptive amplitude denoising" },
+            { "name": "csi_ratio",             "enabled": env_flag("IONITY_CSI_RATIO"),             "env": "IONITY_CSI_RATIO",             "purpose": "Conjugate-multiply ratio (cancels CFO across antennas)" },
+            { "name": "subcarrier_selection",  "enabled": env_flag("IONITY_SUBCARRIER_SELECTION"),  "env": "IONITY_SUBCARRIER_SELECTION",  "purpose": "Variance-driven subcarrier sensitivity selection" }
+        ],
+        "note": "Stages execute in declared order pre-MultistaticFuser. Disabled by default to preserve verify hash."
+    }))
+}
+
+/// GET /api/v1/registry — node registry (firmware/esp32-csi-node/nodes.yaml as JSON).
+///
+/// Falls back to ui/data/node-registry.json (regenerated by `ionity scan`),
+/// then to a minimal stub if neither is present.
+async fn registry_endpoint() -> Json<serde_json::Value> {
+    // Search a few known locations relative to CWD; first hit wins.
+    let candidates = [
+        "firmware/esp32-csi-node/nodes.yaml",
+        "../../firmware/esp32-csi-node/nodes.yaml",
+        "../../../firmware/esp32-csi-node/nodes.yaml",
+        "ui/data/node-registry.json",
+        "../../ui/data/node-registry.json",
+    ];
+    for path in candidates.iter() {
+        let p = std::path::Path::new(path);
+        if !p.exists() { continue; }
+        let body = match std::fs::read_to_string(p) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        // JSON?
+        if path.ends_with(".json") {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) {
+                return Json(serde_json::json!({
+                    "source": path,
+                    "nodes": v,
+                }));
+            }
+        }
+        // YAML — light parser: extract id/mac/board lines without pulling serde_yaml.
+        let nodes = parse_nodes_yaml_lite(&body);
+        return Json(serde_json::json!({
+            "source": path,
+            "nodes": nodes,
+        }));
+    }
+    Json(serde_json::json!({
+        "source": "none",
+        "nodes": [],
+        "warning": "no nodes.yaml or node-registry.json found",
+    }))
+}
+
+/// Minimal YAML parser for the nodes.yaml shape we control.
+/// Recognises top-level `nodes:` list with `- id: N` blocks containing
+/// `mac:`, `board:`, `role:`, `notes:` keys. Unknown keys are passed through.
+fn parse_nodes_yaml_lite(yaml: &str) -> Vec<serde_json::Value> {
+    let mut out: Vec<serde_json::Value> = Vec::new();
+    let mut current: Option<serde_json::Map<String, serde_json::Value>> = None;
+    for raw in yaml.lines() {
+        let line = raw.trim_end();
+        if line.trim().is_empty() || line.trim_start().starts_with('#') { continue; }
+        // New list item?
+        if let Some(rest) = line.strip_prefix("  - ") {
+            if let Some(prev) = current.take() { out.push(serde_json::Value::Object(prev)); }
+            let mut m = serde_json::Map::new();
+            if let Some((k, v)) = rest.split_once(':') {
+                m.insert(k.trim().to_string(), serde_json::Value::String(v.trim().trim_matches('"').to_string()));
+            }
+            current = Some(m);
+            continue;
+        }
+        // Continuation key inside a node block (4-space indent).
+        if line.starts_with("    ") {
+            let trimmed = line.trim();
+            if let Some((k, v)) = trimmed.split_once(':') {
+                if let Some(m) = current.as_mut() {
+                    let val = v.trim().trim_matches('"');
+                    m.insert(k.trim().to_string(), serde_json::Value::String(val.to_string()));
+                }
+            }
+        }
+    }
+    if let Some(prev) = current { out.push(serde_json::Value::Object(prev)); }
+    out
+}
+
 /// POST /api/v1/nodes/positions — update node positions at runtime.
 async fn update_node_positions(
     State(state): State<SharedState>,
@@ -4134,6 +4726,7 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                     let node_id = vitals.node_id;
                     let ns = s.node_states.entry(node_id).or_insert_with(NodeState::new);
                     ns.last_frame_time = Some(std::time::Instant::now());
+                    ns.peer_ip = Some(src.ip());
                     ns.edge_vitals = Some(vitals.clone());
                     ns.rssi_history.push_back(vitals.rssi as f64);
                     if ns.rssi_history.len() > 60 { ns.rssi_history.pop_front(); }
@@ -4158,23 +4751,79 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
 
                     // Aggregate person count: gate on presence first (matching WiFi path).
                     let now = std::time::Instant::now();
-                    let total_persons = if vitals.presence {
+                    let n_active_for_count = s.node_states.values()
+                        .filter(|ns| ns.last_frame_time.map_or(false, |t| now.duration_since(t).as_secs() < 10))
+                        .count();
+                    let (count_evidence, total_persons) = if vitals.presence {
                         let (fused, fallback_count) = multistatic_bridge::fuse_or_fallback(
                             &s.multistatic_fuser, &s.node_states,
                         );
+                        let mut estimates = Vec::new();
+
                         match fused {
                             Some(ref f) => {
                                 let score = multistatic_bridge::compute_person_score_from_amplitudes(&f.fused_amplitude);
                                 s.smoothed_person_score = s.smoothed_person_score * 0.90 + score * 0.10;
                                 let count = s.person_count();
-                                s.prev_person_count = count;
-                                count.max(1) // presence=true => at least 1
+                                estimates.push(CountEstimate {
+                                    source: "multistatic_fusion".to_string(),
+                                    count: count.max(1),
+                                    confidence: (0.55 + 0.12 * n_active_for_count.saturating_sub(1) as f64)
+                                        .clamp(0.55, 0.92),
+                                });
                             }
-                            None => fallback_count.unwrap_or(0).max(1),
+                            None => {
+                                if let Some(count) = fallback_count {
+                                    estimates.push(CountEstimate {
+                                        source: "fallback_fusion".to_string(),
+                                        count: count.max(1),
+                                        confidence: 0.40,
+                                    });
+                                }
+                            }
                         }
+
+                        if let Some(mut corr) = best_active_node_estimate(
+                            &s.node_states,
+                            now,
+                            "correlation",
+                            estimate_persons_from_correlation_evidence,
+                        ) {
+                            corr.confidence = (corr.confidence
+                                + 0.05 * n_active_for_count.saturating_sub(1) as f64)
+                                .clamp(0.0, 0.95);
+                            estimates.push(corr);
+                        }
+
+                        if let Some(mut delay) = best_active_node_estimate(
+                            &s.node_states,
+                            now,
+                            "delay_taps",
+                            estimate_persons_from_delay_taps_evidence,
+                        ) {
+                            delay.confidence = (delay.confidence
+                                + 0.04 * n_active_for_count.saturating_sub(1) as f64)
+                                .clamp(0.0, 0.95);
+                            estimates.push(delay);
+                        }
+
+                        let presence_scale = (0.70 + 0.30 * (vitals.presence_score as f64).clamp(0.0, 1.0))
+                            .clamp(0.70, 1.0);
+                        for estimate in &mut estimates {
+                            estimate.confidence = (estimate.confidence * presence_scale).clamp(0.0, 0.95);
+                        }
+
+                        let evidence = weighted_count_consensus(estimates);
+                        let count = evidence
+                            .as_ref()
+                            .map(|item| item.consensus_count)
+                            .or_else(|| fallback_count.map(|value| value.max(1)))
+                            .unwrap_or(1);
+                        s.prev_person_count = count;
+                        (evidence, count)
                     } else {
                         s.prev_person_count = 0;
-                        0
+                        (None, 0)
                     };
 
                     // Feed field model calibration if active (use per-node history for ESP32).
@@ -4262,16 +4911,19 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                         model_status: None,
                         persons: None,
                         estimated_persons: if total_persons > 0 { Some(total_persons) } else { None },
+                        count_evidence,
+                        person_anchors: None,
                         node_features: None,
                     };
 
-                    let raw_persons = derive_pose_from_sensing(&update);
-                    let tracked = {
-                        let s_ref = &mut *s; let (tracker, instant) = (&mut s_ref.pose_tracker, &mut s_ref.last_tracker_instant);
-                        tracker_bridge::tracker_update(tracker, instant, raw_persons)
-                    };
-                    if !tracked.is_empty() {
-                        update.persons = Some(tracked);
+                    {
+                        let s_ref = &mut *s;
+                        finalize_people_for_update(
+                            &mut update,
+                            &mut s_ref.pose_tracker,
+                            &mut s_ref.last_tracker_instant,
+                            &mut s_ref.track_temporal_state,
+                        );
                     }
 
                     if let Ok(json) = serde_json::to_string(&update) {
@@ -4328,6 +4980,7 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
 
                     let ns = s.node_states.entry(node_id).or_insert_with(NodeState::new);
                     ns.last_frame_time = Some(std::time::Instant::now());
+                    ns.peer_ip = Some(src.ip());
 
                     ns.frame_history.push_back(frame.amplitudes.clone());
                     if ns.frame_history.len() > FRAME_HISTORY_CAPACITY {
@@ -4410,48 +5063,89 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
 
                     // Aggregate person count: gate on presence first (matching WiFi path).
                     let now = std::time::Instant::now();
-                    let total_persons = if classification.presence {
+                    let n_active_for_count = s.node_states.values()
+                        .filter(|ns| ns.last_frame_time.map_or(false, |t| now.duration_since(t).as_secs() < 10))
+                        .count();
+                    let (count_evidence, total_persons) = if classification.presence {
                         let (fused, fallback_count) = multistatic_bridge::fuse_or_fallback(
                             &s.multistatic_fuser, &s.node_states,
                         );
-                        let fused_count = match fused {
+                        let mut estimates = Vec::new();
+
+                        let fallback_seed = match fused {
                             Some(ref f) => {
                                 let score = multistatic_bridge::compute_person_score_from_amplitudes(&f.fused_amplitude);
                                 s.smoothed_person_score = s.smoothed_person_score * 0.90 + score * 0.10;
                                 let count = s.person_count();
-                                s.prev_person_count = count;
+                                estimates.push(CountEstimate {
+                                    source: "multistatic_fusion".to_string(),
+                                    count: count.max(1),
+                                    confidence: (0.55 + 0.12 * n_active_for_count.saturating_sub(1) as f64)
+                                        .clamp(0.55, 0.92),
+                                });
                                 count.max(1)
                             }
-                            None => fallback_count.unwrap_or(0).max(1),
+                            None => {
+                                if let Some(count) = fallback_count {
+                                    estimates.push(CountEstimate {
+                                        source: "fallback_fusion".to_string(),
+                                        count: count.max(1),
+                                        confidence: 0.40,
+                                    });
+                                }
+                                fallback_count.unwrap_or(0).max(1)
+                            }
                         };
 
-                        // Multistatic boost: combine the amplitude-variance fused count
-                        // with the DynamicMinCut correlation estimate per node.
-                        // Take the max across active nodes — an independent motion
-                        // cluster visible to ANY single node counts as a person.
-                        // (Fixes "always reports 1 person" when the amplitude
-                        //  variance score stays below the 0.70 hysteresis
-                        //  threshold despite clear multi-person motion.)
-                        let corr_max = s.node_states.values()
-                            .filter(|n| n.last_frame_time.map_or(false, |t| now.duration_since(t).as_secs() < 5))
-                            .map(|n| estimate_persons_from_correlation(&n.frame_history))
-                            .max()
-                            .unwrap_or(0);
-                        // Time-of-flight: count distinct multipath delay taps
-                        // per node. Independent signal from correlation graph.
-                        let tof_max = s.node_states.values()
-                            .filter(|n| n.last_frame_time.map_or(false, |t| now.duration_since(t).as_secs() < 5))
-                            .map(|n| estimate_persons_from_delay_taps(&n.frame_history))
-                            .max()
-                            .unwrap_or(0);
+                        if let Some(mut corr) = best_active_node_estimate(
+                            &s.node_states,
+                            now,
+                            "correlation",
+                            estimate_persons_from_correlation_evidence,
+                        ) {
+                            corr.confidence = (corr.confidence
+                                + 0.05 * n_active_for_count.saturating_sub(1) as f64)
+                                .clamp(0.0, 0.95);
+                            estimates.push(corr);
+                        }
+
+                        if let Some(mut delay) = best_active_node_estimate(
+                            &s.node_states,
+                            now,
+                            "delay_taps",
+                            estimate_persons_from_delay_taps_evidence,
+                        ) {
+                            delay.confidence = (delay.confidence
+                                + 0.04 * n_active_for_count.saturating_sub(1) as f64)
+                                .clamp(0.0, 0.95);
+                            estimates.push(delay);
+                        }
+
                         // AEDIS_MIN_PERSONS: optional floor (e.g. set to 2 during
                         // multi-person calibration); defaults to 1.
                         let min_floor: usize = std::env::var("AEDIS_MIN_PERSONS")
                             .ok().and_then(|v| v.parse().ok()).unwrap_or(1);
-                        fused_count.max(corr_max).max(tof_max).max(min_floor)
+
+                        let confidence_scale = (0.70 + 0.30 * classification.confidence.clamp(0.0, 1.0))
+                            .clamp(0.70, 1.0);
+                        for estimate in &mut estimates {
+                            estimate.confidence = (estimate.confidence * confidence_scale).clamp(0.0, 0.95);
+                        }
+
+                        let mut evidence = weighted_count_consensus(estimates);
+                        let count = evidence
+                            .as_ref()
+                            .map(|item| item.consensus_count)
+                            .unwrap_or(fallback_seed)
+                            .max(min_floor);
+                        if let Some(ref mut item) = evidence {
+                            item.consensus_count = item.consensus_count.max(min_floor);
+                        }
+                        s.prev_person_count = count;
+                        (evidence, count)
                     } else {
                         s.prev_person_count = 0;
-                        0
+                        (None, 0)
                     };
 
                     // Feed field model calibration if active (use per-node history for ESP32).
@@ -4501,16 +5195,19 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                         model_status: None,
                         persons: None,
                         estimated_persons: if total_persons > 0 { Some(total_persons) } else { None },
+                        count_evidence,
+                        person_anchors: None,
                         node_features: None,
                     };
 
-                    let raw_persons = derive_pose_from_sensing(&update);
-                    let tracked = {
-                        let s_ref = &mut *s; let (tracker, instant) = (&mut s_ref.pose_tracker, &mut s_ref.last_tracker_instant);
-                        tracker_bridge::tracker_update(tracker, instant, raw_persons)
-                    };
-                    if !tracked.is_empty() {
-                        update.persons = Some(tracked);
+                    {
+                        let s_ref = &mut *s;
+                        finalize_people_for_update(
+                            &mut update,
+                            &mut s_ref.pose_tracker,
+                            &mut s_ref.last_tracker_instant,
+                            &mut s_ref.track_temporal_state,
+                        );
                     }
 
                     if let Ok(json) = serde_json::to_string(&update) {
@@ -4589,14 +5286,22 @@ async fn simulated_data_task(state: SharedState, tick_ms: u64) {
         // Multi-person estimation with temporal smoothing (EMA α=0.10).
         let raw_score = compute_person_score(&features);
         s.smoothed_person_score = s.smoothed_person_score * 0.90 + raw_score * 0.10;
-        let est_persons = if classification.presence {
-            let count = s.person_count();
+        let count_evidence = if classification.presence {
+            let evidence = build_single_link_count_evidence(
+                &s.frame_history,
+                s.field_model.as_ref(),
+                classification.confidence,
+                s.smoothed_person_score,
+                s.prev_person_count,
+            );
+            let count = evidence.as_ref().map(|item| item.consensus_count).unwrap_or(1);
             s.prev_person_count = count;
-            count
+            evidence
         } else {
             s.prev_person_count = 0;
-            0
+            None
         };
+        let est_persons = count_evidence.as_ref().map(|item| item.consensus_count).unwrap_or(0);
 
         let mut update = SensingUpdate {
             msg_type: "sensing_update".to_string(),
@@ -4637,17 +5342,19 @@ async fn simulated_data_task(state: SharedState, tick_ms: u64) {
             },
             persons: None,
             estimated_persons: if est_persons > 0 { Some(est_persons) } else { None },
+            count_evidence,
+            person_anchors: None,
             node_features: None,
         };
 
-        // Populate persons from the sensing update (Kalman-smoothed via tracker).
-        let raw_persons = derive_pose_from_sensing(&update);
-        let tracked = {
-            let s_ref = &mut *s; let (tracker, instant) = (&mut s_ref.pose_tracker, &mut s_ref.last_tracker_instant);
-            tracker_bridge::tracker_update(tracker, instant, raw_persons)
-        };
-        if !tracked.is_empty() {
-            update.persons = Some(tracked);
+        {
+            let s_ref = &mut *s;
+            finalize_people_for_update(
+                &mut update,
+                &mut s_ref.pose_tracker,
+                &mut s_ref.last_tracker_instant,
+                &mut s_ref.track_temporal_state,
+            );
         }
 
         if update.classification.presence {
@@ -4724,6 +5431,8 @@ async fn broadcast_tick_task(state: SharedState, tick_ms: u64) {
                 model_status: None,
                 persons: None,
                 estimated_persons: None,
+                count_evidence: None,
+                person_anchors: None,
                 node_features: None,
             };
 
@@ -4933,9 +5642,31 @@ fn init_tracing() {
     info!(trace_format, "Tracing initialised");
 }
 
+/// One-shot rebrand migration: rename legacy `ruview_logs.sqlite3` (and -wal/-shm
+/// siblings) to `aedi_logs.sqlite3` if the old file exists and the new one does
+/// not. Idempotent — safe to call on every startup.
+fn migrate_legacy_log_db() {
+    let candidates = [
+        ("logs/ruview_logs.sqlite3",     "logs/aedi_logs.sqlite3"),
+        ("logs/ruview_logs.sqlite3-wal", "logs/aedi_logs.sqlite3-wal"),
+        ("logs/ruview_logs.sqlite3-shm", "logs/aedi_logs.sqlite3-shm"),
+    ];
+    for (old, new) in candidates.iter() {
+        let old_p = std::path::Path::new(old);
+        let new_p = std::path::Path::new(new);
+        if old_p.exists() && !new_p.exists() {
+            match std::fs::rename(old_p, new_p) {
+                Ok(_) => info!(old, new, "Migrated legacy log database (RuView -> AEDI rebrand)"),
+                Err(e) => warn!(old, new, error = %e, "Failed to migrate legacy log database"),
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     init_tracing();
+    migrate_legacy_log_db();
 
     let args = Args::parse();
 
@@ -5368,6 +6099,15 @@ async fn main() {
     info!("  UI path:   {}", args.ui_path.display());
     info!("  Source:    {}", args.source);
 
+    // Initialise the on-line anomaly + aggression detector. Baseline persists
+    // to data/aggression_baseline.json so the trained environment survives
+    // restarts; loading is best-effort (returns empty on first run).
+    {
+        let baseline_path = PathBuf::from("data").join("aggression_baseline.json");
+        aggression::init(baseline_path.clone());
+        info!("  Aggression baseline: {} (loaded if present)", baseline_path.display());
+    }
+
     // Auto-detect data source
     let source = match args.source.as_str() {
         "auto" => {
@@ -5527,6 +6267,7 @@ async fn main() {
         // Accuracy sprint
         pose_tracker: PoseTracker::new(),
         last_tracker_instant: None,
+        track_temporal_state: HashMap::new(),
         multistatic_fuser: {
             let mut fuser = MultistaticFuser::with_config(MultistaticConfig {
                 min_nodes: 1, // single-node passthrough
@@ -5623,6 +6364,10 @@ async fn main() {
         .route("/api/v1/sensing/latest", get(latest))
         // Per-node health endpoint
         .route("/api/v1/nodes", get(nodes_endpoint))
+        .route("/api/v1/registry", get(registry_endpoint))
+        .route("/api/v1/preprocessing/stats", get(preprocessing_stats_endpoint))
+        // TinyML environment-trained anomaly + aggression scores
+        .route("/api/v1/aggression", get(aggression_endpoint))
         // Room config + node positions for XYZ Segment 3D page
         .route("/api/v1/room", get(room_endpoint))
         .route("/api/v1/nodes/positions", post(update_node_positions))

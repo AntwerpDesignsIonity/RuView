@@ -3,7 +3,8 @@
 
 .PHONY: verify verify-verbose verify-audit install install-verify install-python \
         install-rust install-browser install-docker install-field install-full \
-        check build-rust build-wasm test-rust bench run-api run-viz clean help
+        check build-rust build-wasm test-rust bench run-api run-viz clean clean-pio \
+        desktop desktop-clean help
 
 # ─── Installation ────────────────────────────────────────────
 # Guided interactive installer
@@ -83,6 +84,17 @@ clean:
 	rm -f .install.log
 	cd rust-port/wifi-densepose-rs && cargo clean 2>/dev/null || true
 
+# Reclaim disk by removing PlatformIO caches, duplicate riscv32 toolchains,
+# and per-env build trees. Safe to run any time; next build re-fetches.
+clean-pio:
+	@echo "Before:" && df -h / | awk 'NR==2 {print "  /  " $$3 " used / " $$2 " total (" $$5 " full)"}'
+	@rm -rf $$HOME/.platformio/.cache/* 2>/dev/null || true
+	@find $$HOME/.platformio/packages -maxdepth 1 -type d -name 'toolchain-riscv32-esp@*' -exec rm -rf {} + 2>/dev/null || true
+	@rm -rf ionity/.pio/build/*/.sconsign* ionity/.pio/build/*/firmware.elf 2>/dev/null || true
+	@rm -rf firmware/esp32-csi-node/build firmware/esp32-csi-node/managed_components 2>/dev/null || true
+	@echo "After:"  && df -h / | awk 'NR==2 {print "  /  " $$3 " used / " $$2 " total (" $$5 " full)"}'
+	@echo "Done. To free more, run 'make clean' (cargo clean) too."
+
 # ─── Help ────────────────────────────────────────────────────
 help:
 	@echo "WiFi-DensePose Build Targets"
@@ -121,3 +133,15 @@ help:
 	@echo "    make clean            Remove build artifacts"
 	@echo "    make help             Show this help"
 	@echo ""
+
+# ─── AEDI Desktop (.NET MAUI) ────────────────────────────────
+# Builds the desktop client for the host platform. Requires .NET 10 SDK
+# with the maui workload installed (`dotnet workload install maui`).
+desktop:
+	@echo "Building AEDI Desktop (host platform)..."
+	@command -v dotnet >/dev/null 2>&1 || { echo "dotnet not found. Install .NET 10 SDK + maui workload."; exit 1; }
+	cd desktop && dotnet build AEDI.Desktop.sln -c Release
+
+desktop-clean:
+	@echo "Cleaning AEDI Desktop build artifacts..."
+	@find desktop -type d \( -name bin -o -name obj \) -exec rm -rf {} + 2>/dev/null || true

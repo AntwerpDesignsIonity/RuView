@@ -640,7 +640,7 @@ export class FaultFinder {
 
     // Check Three.js
     if (!window.THREE) {
-      this._issues.push({ severity: 'critical', module: 'rendering', message: 'Three.js not loaded — 3D visualization will fail', fix: 'Add <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script> before app scripts' });
+      this._issues.push({ severity: 'critical', module: 'rendering', message: 'Three.js not loaded — 3D visualization will fail', fix: 'Add <script src="https://unpkg.com/three@0.149.0/build/three.min.js"></script> before app scripts' });
     } else {
       if (!window.THREE.OrbitControls) {
         this._issues.push({ severity: 'warning', module: 'rendering', message: 'OrbitControls not loaded — camera interaction disabled', fix: 'Add OrbitControls script after Three.js' });

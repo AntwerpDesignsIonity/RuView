@@ -2,6 +2,10 @@
 
 # WiFi-DensePose Deployment Script
 # This script orchestrates the complete deployment of WiFi-DensePose infrastructure
+#
+# NOTE: For local stack startup, prefer the canonical entry point:
+#   ./.ionity/ionity.sh run
+# This script remains for legacy AWS/k8s production deploys (see README).
 
 set -euo pipefail
 

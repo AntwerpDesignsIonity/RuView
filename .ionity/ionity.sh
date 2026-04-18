@@ -295,6 +295,63 @@ cmd_scripts() {
   ionity_scripts_menu "$@"
 }
 
+# ── COMMAND: wizard — first-run interactive setup ─────────────────────────────
+cmd_wizard() {
+  print_header
+  banner "Ionity — First-Run Wizard"
+  echo -e "  ${BOLD}This wizard will:${RESET}"
+  echo -e "    1. Verify dependencies (Rust, Python, PlatformIO)"
+  echo -e "    2. Detect your LAN IP for HUB_IP"
+  echo -e "    3. Optionally provision an ESP32 with WiFi credentials"
+  echo -e "    4. Build and start the full stack"
+  echo ""
+  read -r -p "  Continue? [Y/n] " ans
+  case "${ans:-Y}" in
+    [Nn]*) echo "  Aborted."; exit 0 ;;
+  esac
+
+  # Step 1: deps
+  echo ""
+  banner "Step 1/4 — Dependencies"
+  cmd_deps
+
+  # Step 2: detect IP
+  echo ""
+  banner "Step 2/4 — Network"
+  local detected_ip
+  detected_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+  if [[ -z "${detected_ip}" ]]; then
+    detected_ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
+  fi
+  echo -e "  Detected IP: ${BOLD}${detected_ip:-(none)}${RESET}"
+  read -r -p "  Use this as HUB_IP? [Y/n] " ans
+  if [[ "${ans:-Y}" =~ ^[Nn] ]]; then
+    read -r -p "  Enter HUB_IP manually: " detected_ip
+  fi
+  local env_file="${REPO_DIR}/.env.local"
+  if grep -q '^HUB_IP=' "${env_file}" 2>/dev/null; then
+    sed -i "s|^HUB_IP=.*|HUB_IP=${detected_ip}|" "${env_file}"
+  else
+    echo "HUB_IP=${detected_ip}" >> "${env_file}"
+  fi
+  echo -e "  ${GREEN}✓${RESET} Saved HUB_IP=${detected_ip} to .env.local"
+
+  # Step 3: optional provisioning
+  echo ""
+  banner "Step 3/4 — ESP32 Provisioning (optional)"
+  read -r -p "  Provision an ESP32 node now? [y/N] " ans
+  if [[ "${ans:-N}" =~ ^[Yy] ]]; then
+    cmd_provision || warn "Provisioning skipped/failed; continuing."
+  else
+    echo "  Skipped. Run '.ionity/ionity.sh provision' later."
+  fi
+
+  # Step 4: launch stack
+  echo ""
+  banner "Step 4/4 — Launching Stack"
+  cmd_run --yes
+}
+
 # ── COMMAND: help ─────────────────────────────────────────────────────────────
 cmd_help() {
   print_header
@@ -315,6 +372,7 @@ cmd_help() {
   echo -e "  ${GREEN}stop${RESET}         Stop all Ionity services"
   echo -e "  ${GREEN}autorepair${RESET}   Watchdog supervisor: monitor + auto-restart on failure"
   echo -e "  ${GREEN}scripts${RESET}      Browse and run the Ionity script library"
+  echo -e "  ${GREEN}wizard${RESET}       First-run interactive setup (deps → IP → provision → run)"
   echo -e "  ${GREEN}help${RESET}         Show this help"
   echo ""
   echo -e "${BOLD}ENVIRONMENT  ${DIM}(set in .env.local)${RESET}"
@@ -368,6 +426,7 @@ case "${COMMAND}" in
   stop)       cmd_stop "$@" ;;
   autorepair) cmd_autorepair "$@" ;;
   scripts)    cmd_scripts "$@" ;;
+  wizard)     cmd_wizard "$@" ;;
   help|--help|-h) cmd_help ;;
   *)
     err "Unknown command: ${COMMAND}"

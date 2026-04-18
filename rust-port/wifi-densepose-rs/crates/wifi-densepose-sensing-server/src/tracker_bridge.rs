@@ -7,7 +7,7 @@
 
 use std::time::Instant;
 use wifi_densepose_signal::ruvsense::{
-    self, KeypointState, PoseTrack, TrackLifecycleState, TrackId, NUM_KEYPOINTS,
+    TrackId, TrackLifecycleState, NUM_KEYPOINTS,
 };
 use wifi_densepose_signal::ruvsense::pose_tracker::PoseTracker;
 

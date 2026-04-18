@@ -5,17 +5,17 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>true</IsPackable>
-    <PackageId>RuView.Sdk.Http</PackageId>
+    <PackageId>AEDI.Sdk.Http</PackageId>
     <Version>0.1.0</Version>
     <Authors>Ionity Global</Authors>
     <Company>Ionity Global</Company>
-    <Description>HTTP client SDK for the RuView sensing server REST API.</Description>
-    <RepositoryUrl>https://github.com/AntwerpDesignsIonity/AEDI-SIGHT-IO-with-RuView</RepositoryUrl>
-    <PackageTags>ruview;aedi;sensing;sdk;http</PackageTags>
+    <Description>HTTP client SDK for the AEDI sensing server REST API.</Description>
+    <RepositoryUrl>https://github.com/AntwerpDesignsIonity/AEDI-SIGHT-IO</RepositoryUrl>
+    <PackageTags>aedi;ionity;sensing;sdk;http</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\RuView.Sdk.Models\RuView.Sdk.Models.csproj" />
+    <ProjectReference Include="..\AEDI.Sdk.Models\AEDI.Sdk.Models.csproj" />
   </ItemGroup>
 
 </Project>

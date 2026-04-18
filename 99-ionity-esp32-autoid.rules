@@ -1,0 +1,20 @@
+# Ionity AEDI-S — auto-identify newly plugged ESP32 nodes
+# Install:
+#   sudo cp 99-ionity-esp32-autoid.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#
+# When any ESP32-S3 (303a:1001 ROM or 303a:4001 USB-CDC) is connected,
+# fire identify-node.py against that port. The script logs to
+# /var/log/ionity-autoid.log; if the MAC is in nodes.yaml it prints the
+# matched node-id, otherwise it logs UNKNOWN with the suggested command.
+#
+# Edit IONITY_REPO below to point at your checkout.
+ENV{IONITY_REPO}="/home/antwerp/Creations/.2026/.Naked/RuView"
+
+ACTION=="add", SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", \
+  RUN+="/bin/sh -c 'logger -t ionity-autoid \"detected ESP32 ROM on $env{DEVNAME}\"; \
+        ($env{IONITY_REPO}/firmware/esp32-csi-node/identify-node.py --port $env{DEVNAME} \
+          >> /var/log/ionity-autoid.log 2>&1) &'"
+
+ACTION=="add", SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="4001", \
+  RUN+="/bin/sh -c 'logger -t ionity-autoid \"detected ESP32 USB-CDC on $env{DEVNAME} (no auto-id; reset broken)\"'"

@@ -1,7 +1,7 @@
 using System.Text.Json;
-using RuView.Sdk.Models;
+using AEDI.Sdk.Models;
 
-namespace RuView.Sdk.Http;
+namespace AEDI.Sdk.Http;
 
 /// <summary>
 /// HTTP client for the sensing server REST API at :3000.

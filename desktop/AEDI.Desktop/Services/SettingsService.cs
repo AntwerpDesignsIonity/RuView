@@ -1,7 +1,7 @@
 using System.Text.Json;
-using RuView.Sdk.Models;
+using AEDI.Sdk.Models;
 
-namespace RuView.Desktop.Services;
+namespace AEDI.Desktop.Services;
 
 /// <summary>
 /// Persists user settings to app data directory.
@@ -9,7 +9,7 @@ namespace RuView.Desktop.Services;
 public sealed class SettingsService
 {
     private static readonly string SettingsPath = Path.Combine(
-        FileSystem.AppDataDirectory, "ruview-settings.json");
+        FileSystem.AppDataDirectory, "aedi-settings.json");
 
     private static readonly JsonSerializerOptions Json = new()
     {

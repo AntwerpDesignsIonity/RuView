@@ -2,13 +2,17 @@
  * Ionity AEDI-S — Shared Navigation Bar
  * Auto-detects current page and highlights active link.
  * Auto-connects to health endpoint and shows live status.
+ * Auto-loads the shared feedback/toast library.
  */
+import './feedback.js';
+
 export function injectNav(containerId = 'global-nav') {
   const page = location.pathname.split('/').pop() || 'index.html';
   const links = [
     { href: 'index.html',         label: 'Dashboard',    icon: '◉' },
     { href: 'monitor.html',       label: 'Monitor',      icon: '◎' },
     { href: 'observatory.html',   label: 'Observatory',  icon: '◈' },
+    { href: 'room-atlas.html',    label: 'Room Atlas',   icon: '▣' },
     { href: 'pose-fusion.html',   label: 'Pose Fusion',  icon: '⬡' },
     { href: 'spectrogram.html',   label: 'Spectrogram',  icon: '⁞' },
     { href: 'nodes.html',         label: 'Nodes',        icon: '⬡' },

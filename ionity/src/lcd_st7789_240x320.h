@@ -1,9 +1,20 @@
 // ---------------------------------------------------------------------------
 // lcd_st7789_240x320.h — Waveshare ESP32-S3-Touch-LCD-2 (ST7789, 240x320 IPS).
 //
-// Display only (CST816T capacitive touch not used for CSI readout).
-// Pin map per Waveshare schematic:
-//   LCD SCLK=39  MOSI=38  DC=41  CS=42  RST=40  BL=15
+// Display only (CST816D capacitive touch not used for CSI readout).
+//
+// Pin map (verified against the CircuitPython board file
+// `ports/espressif/boards/waveshare_esp32_s3_touch_lcd_2/pins.c` — the
+// Waveshare schematic PDF is wrong on at least DC/CS/RST/BL):
+//
+//   LCD (ST7789 SPI):    SCLK=39  MOSI=38  MISO=40  DC=42  CS=45  RST=0  BL=1
+//   Touch (CST816D I2C): SDA=48   SCL=47   INT=46
+//
+// Notes:
+//   * LCD_RST shares GPIO0 with the BOOT button; this is fine at runtime
+//     (BOOT only matters during reset).
+//   * LCD_BL is GPIO1, NOT GPIO15 — GPIO15 is the battery-voltage ADC input
+//     on this board, and driving it as the backlight leaves the screen dark.
 //
 // Self-contained; included only when -DENABLE_LCD_ST7789_240 is set.
 // ---------------------------------------------------------------------------
@@ -44,12 +55,16 @@
 #define LCD_LGREY 0xC618
 #define LCD_NAVY  0x0841
 
+// Pin map verified against CircuitPython board definition for
+// waveshare_esp32_s3_touch_lcd_2 (ports/espressif/boards/.../pins.c):
+//   SCK=39  MOSI=38  MISO=40  LCD_DC=42  LCD_CS=45  LCD_RST=0  LCD_BL=1
+// (LCD_RST shares GPIO0 with the BOOT button — fine at runtime.)
 #define LCD_SCLK 39
 #define LCD_MOSI 38
-#define LCD_CS   42
-#define LCD_DC   41
-#define LCD_RST  40
-#define LCD_BL   15
+#define LCD_CS   45
+#define LCD_DC   42
+#define LCD_RST  0
+#define LCD_BL   1
 
 #define LCD_W 240
 #define LCD_H 320
@@ -58,8 +73,25 @@ static Arduino_DataBus *lcd_bus = nullptr;
 static Arduino_GFX     *lcd     = nullptr;
 
 struct NeighbourSlot { uint8_t id; int8_t rssi; uint32_t last_seen_ms; };
-#define LCD_MAX_NEIGHBOURS 5
+#define LCD_MAX_NEIGHBOURS 4
 static NeighbourSlot s_neighbours[LCD_MAX_NEIGHBOURS] = {};
+
+// ---------------------------------------------------------------------------
+// CSI activity sparkline / mini-waterfall (added 2026-04-18)
+// Rolling ring-buffer of the most recent activity samples (one per lcd_update,
+// i.e. ~5 Hz so the strip covers the last ~12 s of room state). Drawn as a
+// bottom-anchored bar chart coloured by intensity, giving an at-a-glance
+// view of motion / stillness / breathing-band drift.
+// ---------------------------------------------------------------------------
+#define LCD_SPARK_LEN  60
+#define LCD_SPARK_X    8
+#define LCD_SPARK_Y    216
+#define LCD_SPARK_W    (LCD_W - 16)            // 224 px
+#define LCD_SPARK_H    28
+#define LCD_SPARK_BW   ((LCD_SPARK_W) / LCD_SPARK_LEN)  // ~3 px / sample
+static uint8_t  s_spark[LCD_SPARK_LEN] = {};   // 0..255 quantised activity
+static uint8_t  s_spark_head = 0;
+static uint32_t s_spark_last_ms = 0;
 
 static uint16_t activity_color(float a) {
     if (a < 0.0f) a = 0.0f;
@@ -98,9 +130,11 @@ inline void lcd_init() {
 
     lcd->setTextSize(1);
     lcd->setTextColor(LCD_DGREY);
-    lcd->setCursor(8, 240);
+    lcd->setCursor(8, 206);
+    lcd->print("ACTIVITY 12s");
+    lcd->setCursor(8, 250);
     lcd->print("NEIGHBOURS");
-    lcd->drawFastHLine(0, 250, LCD_W, LCD_DGREY);
+    lcd->drawFastHLine(0, 260, LCD_W, LCD_DGREY);
 }
 
 inline void lcd_set_neighbour(uint8_t id, int8_t rssi) {
@@ -164,16 +198,42 @@ static void lcd_draw_main(uint8_t node_id, bool is_hub, int wifi_rssi_dbm,
 
     if (fabsf(activity - prev_act) > 0.02f) {
         prev_act = activity;
-        int by = 220, bh = 16;
-        lcd->drawRect(8, by, LCD_W - 16, bh, LCD_DGREY);
-        lcd->fillRect(9, by + 1, LCD_W - 18, bh - 2, LCD_BLACK);
-        int w = (int)((LCD_W - 18) * activity);
-        if (w > 0) lcd->fillRect(9, by + 1, w, bh - 2, activity_color(activity));
+    }
+}
+
+// Push the latest activity sample into the sparkline ring buffer (max ~5 Hz).
+static void lcd_spark_push(float activity) {
+    uint32_t now = millis();
+    if (now - s_spark_last_ms < 200) return;
+    s_spark_last_ms = now;
+    if (activity < 0.0f) activity = 0.0f;
+    if (activity > 1.0f) activity = 1.0f;
+    s_spark[s_spark_head] = (uint8_t)(activity * 255.0f);
+    s_spark_head = (s_spark_head + 1) % LCD_SPARK_LEN;
+}
+
+// Repaint the entire sparkline strip every refresh (small, ~224x28 px).
+// Bottom-anchored bars, coloured by activity_color() — green = quiet,
+// yellow = movement, red = high motion / interference.
+static void lcd_draw_spark() {
+    lcd->fillRect(LCD_SPARK_X, LCD_SPARK_Y, LCD_SPARK_W, LCD_SPARK_H, LCD_BLACK);
+    lcd->drawFastHLine(LCD_SPARK_X, LCD_SPARK_Y + LCD_SPARK_H - 1,
+                       LCD_SPARK_W, LCD_DGREY);
+    for (int i = 0; i < LCD_SPARK_LEN; i++) {
+        // Oldest sample first → leftmost column.
+        uint8_t v = s_spark[(s_spark_head + i) % LCD_SPARK_LEN];
+        if (v == 0) continue;
+        int x = LCD_SPARK_X + i * LCD_SPARK_BW;
+        int h = (int)(((LCD_SPARK_H - 2) * v) / 255);
+        if (h < 1) h = 1;
+        int y = LCD_SPARK_Y + (LCD_SPARK_H - 1) - h;
+        uint16_t col = activity_color(v / 255.0f);
+        lcd->fillRect(x, y, LCD_SPARK_BW - 1, h, col);
     }
 }
 
 static void lcd_draw_neighbours(uint32_t now) {
-    int y = 256;
+    int y = 264;
     const int row_h = 14;
     for (int i = 0; i < LCD_MAX_NEIGHBOURS; i++) {
         int ry = y + i * row_h;
@@ -199,10 +259,12 @@ inline void lcd_update(uint8_t node_id, bool is_hub, int wifi_rssi_dbm,
                        uint32_t csi_frames_per_s, float activity) {
     static uint32_t last_draw = 0;
     uint32_t now = millis();
+    lcd_spark_push(activity);
     if (now - last_draw < 200) return;   // 5 Hz
     last_draw = now;
     if (!lcd) return;
     lcd_draw_main(node_id, is_hub, wifi_rssi_dbm, csi_frames_per_s, activity);
+    lcd_draw_spark();
     lcd_draw_neighbours(now);
 }
 

@@ -101,6 +101,64 @@ node scripts/mincut-person-counter.js --port 5006  # Correct person counting
 >
 ---
 
+### ESP32-S3 Display Boards (on-device status readout)
+
+AEDI-S firmware auto-detects and renders node status directly on a local LCD when flashed with the matching PlatformIO environment. Pick the environment that matches your board:
+
+| Board | Display | PlatformIO env | Flash one-liner |
+|-------|---------|----------------|-----------------|
+| ESP32-S3-DevKitC-1 (8MB/16MB) | *headless* | `esp32s3_n16r8` | `pio run -e esp32s3_n16r8 -t upload --upload-port /dev/ttyACM0` |
+| Waveshare ESP32-S3-LCD-1.47 | 1.47" ST7789 172×320 | `esp32s3_lcd_1_47` | `pio run -e esp32s3_lcd_1_47 -t upload --upload-port /dev/ttyACM0` |
+| **Waveshare ESP32-S3-Touch-LCD-2** | **2.4" IPS ST7789 240×320** | **`esp32s3_touch_lcd_2`** | `pio run -e esp32s3_touch_lcd_2 -t upload --upload-port /dev/ttyACM0` |
+| Waveshare ESP32-S3-Touch-AMOLED-1.64 | SH8601 (driver WIP) | `esp32s3_amoled_1_64` | `pio run -e esp32s3_amoled_1_64 -t upload --upload-port /dev/ttyACM0` |
+
+On-screen elements on LCD variants: node ID (HUB orange / EDGE cyan), live WiFi RSSI dot, CSI frame rate (pkt/s), activity bar, and up to 5 neighbour nodes with freshness colouring. The same binary streams CSI over UDP :5005 and (on Touch-LCD-2) renders the full status without a host.
+
+**Bulk flash several boards at once** (now respects `BOARD_ENV` override):
+
+```bash
+# Flash every connected ACM port as the default headless env
+./scripts/flash-all-nodes.sh "<SSID>" "<PASS>" <HUB_IP>
+
+# Flash every connected ACM port with the 2.4" LCD firmware
+BOARD_ENV=esp32s3_touch_lcd_2 ./scripts/flash-all-nodes.sh "<SSID>" "<PASS>" <HUB_IP>
+```
+
+> **Flashing ESP32-S3 with native USB CDC**: If `esptool` fails with `BrokenPipeError`, hold the BOOT button, tap RESET (or replug USB while holding BOOT), then release BOOT. This forces the ROM bootloader (VID 303a PID 1001) instead of the Arduino USB-CDC class (PID 4001), which does not forward DTR/RTS to the chip reset line.
+
+---
+
+### Signal Enhancement — Adaptive CSI Denoiser *(new)*
+
+`wifi-densepose-signal` now ships an **adaptive wavelet denoiser** ([`adaptive_denoise.rs`](rust-port/wifi-densepose-rs/crates/wifi-densepose-signal/src/adaptive_denoise.rs)) that attacks the broadband noise Hampel filtering can't reach. It is a faithful dependency-free reimplementation of Donoho's *ideal spatial adaptation by wavelet shrinkage* (1994):
+
+1. Multi-level 1-D Haar DWT along time.
+2. Noise σ estimated from finest-level detail coefficients via robust **MAD**: `σ̂ = median(|d − median(d)|) / 0.6745`.
+3. Soft-threshold every detail level with Donoho's universal threshold `λ = σ̂ √(2 ln N)`.
+4. Inverse Haar reconstruction.
+
+Measured SNR gain on a 5 dB AWGN sinusoid: **≥ 3 dB** (enforced by the test suite). The denoiser ships disabled by default to keep the deterministic proof hash stable; opt in per call site:
+
+```rust
+use wifi_densepose_signal::adaptive_denoise::{AdaptiveDenoiser, DenoiserConfig};
+
+let denoiser = AdaptiveDenoiser::new(DenoiserConfig {
+    levels: 3,
+    threshold_scale: 1.0,
+    bypass: false,
+});
+let clean = denoiser.denoise(&noisy_amplitude);
+```
+
+Run the feature-specific test set:
+
+```bash
+cd rust-port/wifi-densepose-rs
+cargo test -p wifi-densepose-signal --no-default-features --lib adaptive_denoise
+```
+
+---
+
 ### Pre-Trained Models (v0.6.0) — No Training Required
 
 <details open>

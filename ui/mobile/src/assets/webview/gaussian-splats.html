@@ -31,8 +31,30 @@
   <body>
     <div id="gaussian-splat-root"></div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r165/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.165.0/examples/js/controls/OrbitControls.js"></script>
+    <!--
+      Three.js + OrbitControls — pinned to r147, the LAST release that ships
+      a global-attaching `examples/js/controls/OrbitControls.js`. From r150+
+      Three.js dropped the legacy non-ESM controls; loading r165 with the
+      legacy OrbitControls path produces "THREE.OrbitControls is not a
+      constructor" because OrbitControls is no longer attached to THREE.
+      If/when this webview is migrated to ESM + importmap, switch to
+      `three/addons/controls/OrbitControls.js` and import it as a module.
+    -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r147/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+    <script>
+      // Defensive shim: if some bundler re-loads a newer Three.js that does
+      // not attach OrbitControls globally, surface a clearer error than
+      // "is not a constructor" before the page tries to use it.
+      if (typeof THREE !== 'undefined' && typeof THREE.OrbitControls !== 'function') {
+        console.error(
+          '[gaussian-splats] OrbitControls did not attach to THREE. ' +
+          'This usually means three.js >= r150 was loaded with the legacy ' +
+          'examples/js/controls/OrbitControls.js path. Pin to r147 or switch ' +
+          'to ESM (three/addons/controls/OrbitControls.js).'
+        );
+      }
+    </script>
 
     <script>
       (function () {

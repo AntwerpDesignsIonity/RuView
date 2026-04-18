@@ -1,8 +1,8 @@
 using CommunityToolkit.Mvvm.ComponentModel;
-using RuView.Sdk.Models;
-using RuView.Sdk.WebSockets;
+using AEDI.Sdk.Models;
+using AEDI.Sdk.WebSockets;
 
-namespace RuView.Desktop.ViewModels;
+namespace AEDI.Desktop.ViewModels;
 
 /// <summary>
 /// Presence detection page: person count, motion classification, confidence, zone map.

@@ -141,6 +141,7 @@
     .badge-red   { background: #3d0010; color: var(--red);   border: 1px solid #660022; }
     .badge-blue  { background: #00224d; color: var(--accent2); border: 1px solid #004499; }
     .badge-dim   { background: #111; color: var(--dim); border: 1px solid #222; }
+    .badge-yellow{ background: #3d2d00; color: var(--yellow, #ffcc44); border: 1px solid #665522; }
 
     /* ── Buttons ─────────────────────────────────────────── */
     .btn {
@@ -349,8 +350,8 @@
         <div id="esp-table-wrap">
           <table class="esp-table">
             <thead><tr>
-              <th>#</th><th>Node ID</th><th>IP / Port</th><th>Chip</th>
-              <th>Status</th><th>RSSI</th><th>FW Version</th><th>Actions</th>
+              <th>#</th><th>Node ID</th><th>IP</th><th>Chip</th>
+              <th>Status</th><th>RSSI</th><th>Firmware</th><th>Actions</th>
             </tr></thead>
             <tbody id="esp-tbody"><tr><td colspan="8" style="color:var(--text-dim);padding:14px">
               Click Scan to detect connected nodes
@@ -626,10 +627,13 @@ async function pollVitals() {
   ]);
 
   if (v) {
-    const hr  = v.heart_rate ?? v.hr;
-    const rr  = v.respiration_rate ?? v.rr ?? v.resp_rate;
-    const spo = v.spo2 ?? v.SpO2;
-    const conf= v.confidence;
+    // Server payload: { vital_signs: { heart_rate_bpm, breathing_rate_bpm, heartbeat_confidence, breathing_confidence, signal_quality } }
+    // Plus legacy fallbacks for older shapes.
+    const vs  = v.vital_signs ?? v;
+    const hr  = vs.heart_rate_bpm ?? vs.heart_rate ?? vs.hr;
+    const rr  = vs.breathing_rate_bpm ?? vs.respiration_rate ?? vs.rr ?? vs.resp_rate;
+    const spo = vs.spo2 ?? vs.SpO2;
+    const conf= vs.heartbeat_confidence ?? vs.confidence ?? vs.signal_quality;
     const mst = v.motion_state ?? v.motion;
     const pres= v.presence;
 
@@ -664,37 +668,74 @@ function renderNodesTable(arr) {
   const el = q('ov-nodes-table');
   if (!arr.length) { el.innerHTML = '<span style="color:var(--text-dim);font-size:12px">No nodes online</span>'; return; }
   el.innerHTML = `<table class="esp-table"><thead><tr>
-    <th>Node</th><th>IP</th><th>Status</th><th>Firmware</th><th>RSSI</th>
-  </tr></thead><tbody>${arr.map(n => `<tr>
-    <td>${fmt(n.node_id ?? n.id)}</td>
-    <td>${fmt(n.ip ?? n.address)}</td>
-    <td><span class="badge ${(n.status||'').toLowerCase()==='online'?'badge-green':'badge-dim'}">${fmt(n.status)}</span></td>
-    <td>${fmt(n.firmware_version ?? n.fw)}</td>
-    <td>${fmt(n.rssi)} dBm</td>
-  </tr>`).join('')}</tbody></table>`;
+    <th>Node</th><th>IP</th><th>Status</th><th>Firmware</th><th>RSSI</th><th>ML Trained</th><th>Anomaly</th>
+  </tr></thead><tbody>${arr.map(n => {
+    const fwStatus = n.firmware_status ?? n.firmware_version ?? n.fw ?? '—';
+    const fwBadgeClass = fwStatus === 'streaming' ? 'badge-green'
+                       : fwStatus === 'csi_only' ? 'badge-blue'
+                       : fwStatus === 'stale'    ? 'badge-yellow'
+                       : fwStatus === 'offline'  ? 'badge-red'
+                       : 'badge-dim';
+    const trained = (n.ml_trained_pct ?? 0) * 100;
+    const trainedColor = trained > 80 ? 'var(--green)' : trained > 30 ? 'var(--yellow)' : 'var(--text-dim)';
+    const anom = (n.ml_anomaly ?? 0) * 100;
+    const anomColor = anom > 60 ? 'var(--red)' : anom > 30 ? 'var(--yellow)' : 'var(--green)';
+    return `<tr>
+      <td>${fmt(n.node_id ?? n.id)}</td>
+      <td><code style="font-size:11px">${fmt(n.ip ?? n.address)}</code></td>
+      <td><span class="badge ${(n.status||'').toLowerCase()==='active'?'badge-green':((n.status||'').toLowerCase()==='stale'?'badge-yellow':'badge-dim')}">${fmt(n.status)}</span></td>
+      <td><span class="badge ${fwBadgeClass}">${fwStatus}</span></td>
+      <td>${fmt(n.rssi ?? n.rssi_dbm)} dBm</td>
+      <td><span style="color:${trainedColor}">${trained.toFixed(0)}%</span></td>
+      <td><span style="color:${anomColor}">${anom.toFixed(0)}%</span></td>
+    </tr>`;
+  }).join('')}</tbody></table>
+  <div style="margin-top:6px;font-size:10px;color:var(--text-dim)">
+    ML Trained = adaptive baseline learning progress (per-node, online, position-independent).
+    Anomaly = current deviation from learnt baseline (RF environment shifts, motion, intrusion).
+  </div>`;
 }
 
 function renderEspTable(arr) {
   const tbody = q('esp-tbody');
   if (!arr.length) { tbody.innerHTML = '<tr><td colspan="8" style="color:var(--text-dim);padding:14px">No nodes detected</td></tr>'; return; }
-  tbody.innerHTML = arr.map((n,i) => `<tr>
-    <td>${i+1}</td>
-    <td>${fmt(n.node_id ?? n.id)}</td>
-    <td>${fmt(n.ip ?? n.address)}</td>
-    <td><span class="badge badge-blue">${fmt(n.chip ?? 'ESP32-S3')}</span></td>
-    <td><span class="badge ${(n.status||'').toLowerCase()==='online'?'badge-green':'badge-dim'}">${fmt(n.status)}</span></td>
-    <td>${fmt(n.rssi)} dBm</td>
-    <td>${fmt(n.firmware_version ?? n.fw ?? '—')}</td>
-    <td><button class="btn" style="padding:3px 8px;font-size:10px" onclick="pingNode('${n.ip}')">Ping</button></td>
-  </tr>`).join('');
+  tbody.innerHTML = arr.map((n,i) => {
+    const fwStatus = n.firmware_status ?? n.firmware_version ?? n.fw ?? '—';
+    const fwBadgeClass = fwStatus === 'streaming' ? 'badge-green'
+                       : fwStatus === 'csi_only' ? 'badge-blue'
+                       : fwStatus === 'stale'    ? 'badge-yellow'
+                       : fwStatus === 'offline'  ? 'badge-red'
+                       : 'badge-dim';
+    return `<tr>
+      <td>${i+1}</td>
+      <td>${fmt(n.node_id ?? n.id)}</td>
+      <td><code style="font-size:11px">${fmt(n.ip ?? n.address)}</code></td>
+      <td><span class="badge badge-blue">${fmt(n.chip ?? 'ESP32-S3')}</span></td>
+      <td><span class="badge ${(n.status||'').toLowerCase()==='active'?'badge-green':((n.status||'').toLowerCase()==='stale'?'badge-yellow':'badge-dim')}">${fmt(n.status)}</span></td>
+      <td>${fmt(n.rssi ?? n.rssi_dbm)} dBm</td>
+      <td><span class="badge ${fwBadgeClass}">${fwStatus}</span></td>
+      <td><button class="btn" style="padding:3px 8px;font-size:10px" onclick="pingNode('${n.ip ?? ''}')">Ping</button></td>
+    </tr>`;
+  }).join('');
 }
 
 async function pingNode(ip) {
-  if (!ip) return;
-  appendLog(`Pinging node ${ip}…`, 'info');
-  const r = await apiFetch(`${BASE_URL}/api/v1/nodes`);
-  appendLog(r ? `Node ${ip}: OK` : `Node ${ip}: no response`, r ? 'ok' : 'warn');
+  if (!ip) { appendLog('pingNode: no IP supplied', 'warn'); return; }
+  appendLog(`Probing node @ ${ip}…`, 'info');
+  // Look up the node in the latest /api/v1/nodes payload to report rich state.
+  const data = await apiFetch(`${BASE_URL}/api/v1/nodes`);
+  if (!data) { appendLog(`Node ${ip}: server unreachable`, 'err'); return; }
+  const arr = Array.isArray(data) ? data : (data.nodes ?? []);
+  const n = arr.find(x => (x.ip ?? x.address) === ip);
+  if (!n) { appendLog(`Node ${ip}: NOT in active node list (probably offline)`, 'warn'); return; }
+  appendLog(
+    `Node ${ip}: id=${n.node_id} status=${n.status} fw=${n.firmware_status ?? '?'} rssi=${n.rssi_dbm ?? n.rssi}dBm last_seen=${n.last_seen_ms}ms ml_trained=${((n.ml_trained_pct ?? 0)*100).toFixed(0)}%`,
+    n.last_seen_ms != null && n.last_seen_ms < 5000 ? 'ok' : 'warn'
+  );
+  // Auto-switch to logs tab so the user actually sees the result.
+  document.querySelector('button.tab-btn[data-tab="logs"]')?.click();
 }
+window.pingNode = pingNode;
 
 // ── Zones ─────────────────────────────────────────────────────────────────────
 async function pollZones() {
@@ -732,7 +773,7 @@ function connectSignalWs() {
     q('ov-ws').className   = 'status-cell-value val-green';
   };
   wsConn.onclose = () => {
-    q('sig-ws-status').textContent = 'Disconnected';
+    q('sig-ws-status').textContent = 'Disconnected — retrying in 3s…';
     q('ws-indicator').textContent  = 'WS —';
     q('ws-indicator').style.color  = 'var(--dim)';
     q('btn-sig-connect').style.display    = '';
@@ -740,9 +781,17 @@ function connectSignalWs() {
     q('ov-ws').textContent = 'OFF';
     q('ov-ws').className   = 'status-cell-value val-red';
     wsConn = null;
+    // Auto-reconnect with 3s backoff so the UI heals itself when the
+    // server restarts or the network blips.
+    if (!window.__wsReconnectTimer) {
+      window.__wsReconnectTimer = setTimeout(() => {
+        window.__wsReconnectTimer = null;
+        connectSignalWs();
+      }, 3000);
+    }
   };
   wsConn.onerror = () => {
-    q('sig-ws-status').textContent = 'Error — server may be offline';
+    q('sig-ws-status').textContent = 'Error — server may be offline (will retry)';
   };
   wsConn.onmessage = (ev) => {
     wsMsgs++;
@@ -981,11 +1030,27 @@ function buildScriptList() {
 async function runScript(idx) {
   const s = SCRIPTS[idx];
   const out = q('script-output');
-  out.textContent = `Fetching ${BASE_URL}${s.endpoint}…\n`;
-  const data = await apiFetch(`${BASE_URL}${s.endpoint}`);
-  if (!data) { out.textContent += '⚠ No response from server'; return; }
-  out.textContent += JSON.stringify(data, null, 2);
+  const url = `${BASE_URL}${s.endpoint}`;
+  out.textContent = `▶ GET ${url}…\n`;
+  const t0 = performance.now();
+  try {
+    const r = await fetch(url);
+    const dt = (performance.now() - t0).toFixed(0);
+    const ct = r.headers.get('content-type') || '';
+    let body;
+    if (ct.includes('json')) {
+      body = JSON.stringify(await r.json(), null, 2);
+    } else {
+      body = await r.text();
+    }
+    const tag = r.ok ? '✓' : '✗';
+    out.textContent = `${tag} ${r.status} ${r.statusText}  (${dt} ms)\n${url}\n\n${body}`;
+  } catch (e) {
+    const dt = (performance.now() - t0).toFixed(0);
+    out.textContent = `✗ fetch failed (${dt} ms)\n${url}\n\n${e.message}`;
+  }
 }
+window.runScript = runScript;
 
 // ── 3D View lazy load ─────────────────────────────────────────────────────────
 let viz3dLoaded = false;
@@ -1017,18 +1082,20 @@ q('btn-start-srv').addEventListener('click', async () => {
       appendLog('Start failed: ' + (d.error || 'unknown'), 'err');
     }
   } catch(e) {
-    appendLog('Bridge controller not reachable (port 3002). Start it: python scripts/bridge-controller.py', 'warn');
+    appendLog('Bridge controller (:3002) not reachable. Run from a terminal:  ./.ionity/ionity.sh run --yes', 'warn');
+    document.querySelector('button.tab-btn[data-tab="logs"]')?.click();
   }
 });
 q('btn-stop-srv').addEventListener('click', async () => {
   appendLog('Stopping sensing server…', 'warn');
   try {
     const r = await fetch('http://' + location.hostname + ':3002/api/server/stop', {method:'POST'});
-    const d = await r.json();
+    await r.json();
     appendLog('Server stopped', 'ok');
     setTimeout(pollHealth, 1000);
   } catch(e) {
-    appendLog('Bridge controller not reachable (port 3002). Start it: python scripts/bridge-controller.py', 'warn');
+    appendLog('Bridge controller (:3002) not reachable. Run from a terminal:  ./.ionity/ionity.sh stop', 'warn');
+    document.querySelector('button.tab-btn[data-tab="logs"]')?.click();
   }
 });
 
@@ -1071,28 +1138,46 @@ q('btn-usb-scan').addEventListener('click', async () => {
   q('usb-scan-status').textContent = 'Done';
 });
 
-// Provision (calls the provision.py script via the server — or shows CLI hint)
+// Provision (calls the provision.py script via the server — or shows a copy-able CLI command)
+function copyToClipboard(text) {
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).catch(()=>{});
+}
 q('btn-provision').addEventListener('click', () => {
   const port    = q('prov-port').value.trim() || '/dev/ttyACM0';
   const nodeId  = q('prov-nodeid').value || '1';
   const ssid    = q('prov-ssid').value.trim();
   const pass    = q('prov-pass').value;
-  const hubIp   = q('prov-hub-ip').value.trim();
+  const hubIp   = q('prov-hub-ip').value.trim() || '192.168.1.20';
   const flash   = q('prov-flash').value;
   const out     = q('prov-output');
+  const env     = flash === '4mb' ? 'esp32s3_supermini' : 'esp32s3_n16r8';
+  const lines = [
+    '# 1) Flash up-to-date PlatformIO firmware (single source of truth):',
+    `cd ionity && pio run -e ${env} -t upload --upload-port ${port}`,
+    '',
+    '# 2) Write NVS (WiFi credentials + node_id + hub IP):',
+    `python firmware/esp32-csi-node/provision.py --port ${port} \\`,
+    `    --ssid "${ssid || 'YourSSID'}" --password "${pass ? '****' : 'YourPass'}" \\`,
+    `    --target-ip ${hubIp} --node-id ${nodeId} --no-firmware`,
+  ];
   out.style.display = 'block';
-  out.textContent = `To provision this node, run from the terminal:\n\n`;
-  out.textContent += `.ionity/ionity.sh provision ${port} ${nodeId} ${flash}\n`;
-  if (ssid) out.textContent += `\n# Or use the Python helper:\npython scripts/provision.py --port ${port} --ssid "${ssid}" --password "****" --target-ip ${hubIp || '192.168.1.20'}`;
-  q('prov-status').textContent = 'CLI command ready — see below';
+  out.textContent = lines.join('\n');
+  copyToClipboard(lines.join('\n'));
+  q('prov-status').textContent = 'CLI command copied to clipboard';
 });
 
 q('btn-prov-nvs').addEventListener('click', () => {
-  const port = q('prov-port').value.trim() || '/dev/ttyACM0';
-  const out  = q('prov-output');
+  const port   = q('prov-port').value.trim() || '/dev/ttyACM0';
+  const nodeId = q('prov-nodeid').value || '1';
+  const ssid   = q('prov-ssid').value.trim();
+  const pass   = q('prov-pass').value;
+  const hubIp  = q('prov-hub-ip').value.trim() || '192.168.1.20';
+  const out    = q('prov-output');
+  const cmd = `python firmware/esp32-csi-node/provision.py --port ${port} \\\n    --ssid "${ssid || 'YourSSID'}" --password "${pass ? '****' : 'YourPass'}" \\\n    --target-ip ${hubIp} --node-id ${nodeId} --no-firmware`;
   out.style.display = 'block';
-  out.textContent   = `.ionity/ionity.sh provision nvs ${port} node_id 1\n.ionity/ionity.sh provision nvs ${port} wifi_ssid "YourSSID"\n.ionity/ionity.sh provision nvs ${port} wifi_pass "YourPass"`;
-  q('prov-status').textContent = 'NVS CLI command ready — see below';
+  out.textContent   = cmd;
+  copyToClipboard(cmd);
+  q('prov-status').textContent = 'NVS-only command copied to clipboard';
 });
 
 // ── FPS counter ───────────────────────────────────────────────────────────────

@@ -351,8 +351,13 @@ mod tests {
     fn rssi_localization_recovers_3d_position() {
         // Ground truth target at (2.5, 1.5, 1.2) m. 4 nodes at room corners.
         let model = PathLoss { rssi_ref_1m: -40.0, exponent: 2.5 };
-        let gt = [2.5, 1.5, 1.2];
-        let nodes = [[0.0, 0.0, 2.5], [5.0, 0.0, 2.5], [5.0, 4.0, 2.5], [0.0, 4.0, 2.5]];
+        let gt: [f64; 3] = [2.5, 1.5, 1.2];
+        let nodes: [[f64; 3]; 4] = [
+            [0.0, 0.0, 2.5],
+            [5.0, 0.0, 2.5],
+            [5.0, 4.0, 2.5],
+            [0.0, 4.0, 2.5],
+        ];
         let obs: Vec<RssiObservation> = nodes.iter().map(|p| {
             let d = ((gt[0]-p[0]).powi(2) + (gt[1]-p[1]).powi(2) + (gt[2]-p[2]).powi(2)).sqrt();
             RssiObservation { node_pos: *p, rssi_dbm: model.predict_rssi(d), weight: 1.0 }

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AEDI-S — UI Smoke Tests</title>
+<link rel="icon" href="../aedi-logo.svg">
+<style>
+  body { background:#070718; color:#c8d8f0; font:13px/1.5 system-ui,sans-serif;
+         margin:0; padding:24px; }
+  h1 { color:#00ccff; font-weight:300; letter-spacing:2px; }
+  table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+  th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid #1a2040; }
+  th { color:#5577aa; font-weight:600; }
+  tr.pass td:first-child::before { content: '✓ '; color:#00e676; }
+  tr.fail td:first-child::before { content: '✗ '; color:#ff5252; }
+  tr.pending td:first-child::before { content: '… '; color:#888; }
+  td.detail { color:#8899bb; font-size:11px; font-family: monospace; }
+  .summary { margin-top: 16px; padding: 12px; background:#0d1535; border-left:4px solid #00ccff; }
+  button { background:#0d1535; color:#c8d8f0; border:1px solid #1a2040;
+           padding: 8px 16px; cursor:pointer; border-radius:3px; }
+  button:hover { background:#111d44; }
+</style>
+</head>
+<body>
+  <h1>AEDI-S UI SMOKE TESTS</h1>
+  <p>Probe every backend endpoint + verify shared UI assets. Designed to run from
+     <code>http://&lt;host&gt;:3000/ui/tests/ui-smoke.html</code> against a live server.</p>
+
+  <button onclick="run()">▶ Run all probes</button>
+  <span id="run-time" style="margin-left:12px;color:#5577aa"></span>
+
+  <table>
+    <thead><tr><th style="width:36%">Probe</th><th style="width:14%">Status</th><th>Detail</th></tr></thead>
+    <tbody id="results"><tr class="pending"><td>(idle)</td><td>--</td><td>Click "Run" to start</td></tr></tbody>
+  </table>
+
+  <div class="summary" id="summary">No run yet.</div>
+
+<script type="module">
+import { toast, fetchJSON } from '../shared/feedback.js';
+
+const PROBES = [
+  // Backend health & API
+  { name: 'GET /health',                    fn: async () => probeJSON('/health',                'status', 'ok') },
+  { name: 'GET /api/v1/info',               fn: async () => probeJSON('/api/v1/info') },
+  { name: 'GET /api/v1/registry',           fn: async () => probeJSON('/api/v1/registry') },
+  { name: 'GET /api/v1/nodes',              fn: async () => probeJSON('/api/v1/nodes') },
+  { name: 'GET /api/v1/sensing/latest',     fn: async () => probeJSON('/api/v1/sensing/latest') },
+  { name: 'GET /api/v1/room',               fn: async () => probeJSON('/api/v1/room') },
+  { name: 'GET /api/v1/vital-signs',        fn: async () => probeJSON('/api/v1/vital-signs') },
+  { name: 'GET /api/v1/pose/current',       fn: async () => probeJSON('/api/v1/pose/current') },
+  { name: 'GET /api/v1/tomography',         fn: async () => probeJSON('/api/v1/tomography') },
+
+  // UI assets
+  { name: 'Asset: aedi-logo.svg',           fn: async () => probeAsset('../aedi-logo.svg') },
+  { name: 'Module: shared/nav.js',          fn: async () => probeAsset('../shared/nav.js') },
+  { name: 'Module: shared/feedback.js',     fn: async () => probeAsset('../shared/feedback.js') },
+
+  // UI pages reachable
+  { name: 'Page: index.html',               fn: async () => probeAsset('../index.html') },
+  { name: 'Page: nodes.html',               fn: async () => probeAsset('../nodes.html') },
+  { name: 'Page: monitor.html',             fn: async () => probeAsset('../monitor.html') },
+  { name: 'Page: diagnostics.html',         fn: async () => probeAsset('../diagnostics.html') },
+  { name: 'Page: provisioning.html',        fn: async () => probeAsset('../provisioning.html') },
+  { name: 'Page: aedi.html',                fn: async () => probeAsset('../aedi.html') },
+];
+
+async function probeJSON(path, key, expected) {
+  const t0 = performance.now();
+  const data = await fetchJSON(path, { silent: true });
+  const dt = (performance.now() - t0).toFixed(0);
+  if (key && data[key] !== expected) {
+    return { ok: false, detail: `${dt}ms — got ${key}=${JSON.stringify(data[key])}` };
+  }
+  return { ok: true, detail: `${dt}ms — ${JSON.stringify(data).slice(0, 80)}` };
+}
+
+async function probeAsset(path) {
+  const t0 = performance.now();
+  const r = await fetch(path, { cache: 'no-store' });
+  const dt = (performance.now() - t0).toFixed(0);
+  if (!r.ok) return { ok: false, detail: `${dt}ms — HTTP ${r.status}` };
+  const len = (await r.text()).length;
+  return { ok: true, detail: `${dt}ms — ${len} bytes` };
+}
+
+async function run() {
+  const tbody = document.getElementById('results');
+  document.getElementById('summary').textContent = 'Running…';
+  document.getElementById('run-time').textContent = '';
+  tbody.innerHTML = PROBES.map(p =>
+    `<tr class="pending" data-name="${p.name}"><td>${p.name}</td><td>…</td><td class="detail">running</td></tr>`
+  ).join('');
+
+  const t0 = performance.now();
+  let passed = 0, failed = 0;
+  for (const p of PROBES) {
+    let row;
+    try {
+      const r = await p.fn();
+      row = `<tr class="${r.ok ? 'pass' : 'fail'}"><td>${p.name}</td>` +
+            `<td>${r.ok ? 'PASS' : 'FAIL'}</td><td class="detail">${escapeHtml(r.detail)}</td></tr>`;
+      r.ok ? passed++ : failed++;
+    } catch (e) {
+      row = `<tr class="fail"><td>${p.name}</td><td>FAIL</td><td class="detail">${escapeHtml(e.message)}</td></tr>`;
+      failed++;
+    }
+    const target = tbody.querySelector(`tr[data-name="${p.name}"]`);
+    if (target) target.outerHTML = row;
+  }
+  const dt = ((performance.now() - t0) / 1000).toFixed(2);
+  document.getElementById('run-time').textContent = `(${dt}s)`;
+  document.getElementById('summary').innerHTML =
+    `<b>${passed} passed, ${failed} failed</b> out of ${PROBES.length} probes.`;
+  if (failed === 0) toast.success(`All ${passed} probes passed`);
+  else              toast.error(`${failed} probe(s) failed`);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+window.run = run;
+</script>
+</body>
+</html>

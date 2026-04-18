@@ -87,11 +87,11 @@
     <div id="stats-container"></div>
   </div>
 
-  <!-- Three.js and OrbitControls from CDN -->
-  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
-  <script src="https://unpkg.com/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
+  <!-- Three.js + OrbitControls (vendored locally — three.js 0.147.0, last with classic non-ESM OrbitControls) -->
+  <script src="vendor/three-0.147.0/three.min.js"></script>
+  <script src="vendor/three-0.147.0/examples/js/controls/OrbitControls.js"></script>
   <!-- Stats.js for performance monitoring -->
-  <script src="https://unpkg.com/stats.js@0.17.0/build/stats.min.js"></script>
+  <script src="vendor/stats.js-0.17.0/stats.min.js"></script>
 
   <!-- Application modules loaded as ES modules via importmap workaround -->
   <script type="module">

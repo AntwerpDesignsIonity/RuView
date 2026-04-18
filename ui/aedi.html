@@ -303,7 +303,7 @@
 
 <script>
 // ── Config ───────────────────────────────────────────────────────────────────
-const AEDI_BASE = `http://${window.location.hostname}:3002`;
+const AEDI_BASE = `http://${window.location.hostname}:3003`;
 const SENSING_BASE = `http://${window.location.hostname}:${window.location.port || 3000}`;
 const SESSION_ID = 'aedi-' + Math.random().toString(36).slice(2, 10);
 let sending = false;
@@ -425,7 +425,7 @@ async function sendMessage() {
     if (fullText) contentEl.innerHTML = renderMarkdown(fullText);
   } catch (e) {
     typingEl?.remove?.();
-    addMsg('system', `Connection error: ${e.message}. Is the AEDI service running on port 3002?`);
+    addMsg('system', `Connection error: ${e.message}. Is the AEDI service running on port 3003?`);
   } finally {
     sending = false;
     el('send-btn').disabled = false;

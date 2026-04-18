@@ -1,0 +1,77 @@
+name: Witness Bundle
+
+# Generate and publish the ADR-028 witness bundle on every release tag.
+# This produces the trust artifact (test logs, proof hash, firmware hashes,
+# crate manifest) that recipients can re-verify with `bash VERIFY.sh`.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to bundle (defaults to current)"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    name: Generate Witness Bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust-port/wifi-densepose-rs/target
+          key: cargo-witness-${{ runner.os }}-${{ hashFiles('rust-port/wifi-densepose-rs/Cargo.lock') }}
+
+      - name: Generate witness bundle
+        run: bash scripts/generate-witness-bundle.sh
+
+      - name: Locate bundle artifact
+        id: locate
+        run: |
+          BUNDLE=$(ls -t dist/witness-bundle-ADR028-*.tar.gz 2>/dev/null | head -1)
+          if [ -z "$BUNDLE" ]; then
+            echo "::error::No witness bundle produced under dist/"
+            ls -la dist/ || true
+            exit 1
+          fi
+          echo "bundle=$BUNDLE" >> "$GITHUB_OUTPUT"
+          echo "Bundle: $BUNDLE ($(du -h "$BUNDLE" | cut -f1))"
+
+      - name: Upload as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: witness-bundle
+          path: ${{ steps.locate.outputs.bundle }}
+          retention-days: 365
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.locate.outputs.bundle }}
+          fail_on_unmatched_files: true

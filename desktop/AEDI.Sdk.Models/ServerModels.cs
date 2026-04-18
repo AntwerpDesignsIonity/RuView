@@ -1,4 +1,4 @@
-namespace RuView.Sdk.Models;
+namespace AEDI.Sdk.Models;
 
 public sealed class HealthStatus
 {

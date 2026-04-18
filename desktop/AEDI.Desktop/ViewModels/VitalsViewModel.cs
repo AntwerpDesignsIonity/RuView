@@ -1,8 +1,8 @@
 using CommunityToolkit.Mvvm.ComponentModel;
-using RuView.Sdk.Models;
-using RuView.Sdk.WebSockets;
+using AEDI.Sdk.Models;
+using AEDI.Sdk.WebSockets;
 
-namespace RuView.Desktop.ViewModels;
+namespace AEDI.Desktop.ViewModels;
 
 /// <summary>
 /// Vital signs monitoring: heart rate, breathing rate, confidence, signal quality with history.

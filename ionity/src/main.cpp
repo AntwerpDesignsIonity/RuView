@@ -33,10 +33,15 @@
 #include <FastLED.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#include "lcd_gc9a01.h"          // no-op unless -DENABLE_LCD_GC9A01 is set
+#include "lcd_st7789_147.h"      // no-op unless -DENABLE_LCD_ST7789_147 is set
+#include "lcd_st7789_240x320.h"  // no-op unless -DENABLE_LCD_ST7789_240 is set
+#include "lcd_co5300_164.h"      // no-op unless -DENABLE_LCD_CO5300_164 is set
 
 // BSD/POSIX socket API via lwIP (ESP-IDF style, avoids WiFiUDP pbuf issues)
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
+#include <fcntl.h>
 
 // ESP-IDF CSI API (available in Arduino ESP32 SDK)
 #include "esp_wifi.h"
@@ -429,6 +434,10 @@ void setup() {
     leds[0] = CRGB::Black;
     FastLED.show();
 
+#if defined(ENABLE_LCD_GC9A01) || defined(ENABLE_LCD_ST7789_147) || defined(ENABLE_LCD_ST7789_240) || defined(ENABLE_LCD_CO5300_164)
+    lcd_init();
+#endif
+
     // Read all config from NVS
     prefs.begin(NVS_NAMESPACE, /* readOnly= */ true);
     isHubNode    = (prefs.getUChar("led_hub",  0) != 0);
@@ -518,6 +527,74 @@ void loop() {
     // 5. Render
     leds[0] = baseColor;
     FastLED.show();
+
+#if defined(ENABLE_LCD_GC9A01) || defined(ENABLE_LCD_ST7789_147) || defined(ENABLE_LCD_ST7789_240) || defined(ENABLE_LCD_CO5300_164)
+    // Local activity proxy: rolling-RSSI stdev over last 8 samples, mapped 0..1
+    static uint32_t s_lcd_last = 0;
+    static uint32_t s_lcd_frames_prev = 0;
+    static uint32_t s_lcd_rate = 0;
+    if (now - s_lcd_last >= 1000) {
+        s_lcd_rate = g_csi_frames - s_lcd_frames_prev;
+        s_lcd_frames_prev = g_csi_frames;
+        s_lcd_last = now;
+    }
+    // Variance of g_rssi_buf
+    int sum = 0, n = 0;
+    for (int i = 0; i < 8; i++) if (g_rssi_buf[i] != 0) { sum += g_rssi_buf[i]; n++; }
+    float mean = n ? (float)sum / n : 0.0f;
+    float var = 0.0f;
+    for (int i = 0; i < 8; i++) if (g_rssi_buf[i] != 0) {
+        float d = (float)g_rssi_buf[i] - mean; var += d * d;
+    }
+    float stdev = n ? sqrtf(var / n) : 0.0f;
+    float activity = stdev / 6.0f;         // ~0..1 (6 dB stdev = full activity)
+    if (activity > 1.0f) activity = 1.0f;
+
+    int live_rssi = (WiFi.status() == WL_CONNECTED) ? WiFi.RSSI() : 0;
+
+    // Poll roster broadcast from hub-side Python sidecar (scripts/neighbor-broadcaster.py)
+    // Packet format: "RSTR" [count:u8] ([id:u8][rssi:i8]){count}
+    static int s_roster_sock = -1;
+    if (s_roster_sock < 0 && WiFi.status() == WL_CONNECTED) {
+        s_roster_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        if (s_roster_sock >= 0) {
+            int flags = fcntl(s_roster_sock, F_GETFL, 0);
+            fcntl(s_roster_sock, F_SETFL, flags | O_NONBLOCK);
+            int yes = 1;
+            setsockopt(s_roster_sock, SOL_SOCKET, SO_BROADCAST, &yes, sizeof(yes));
+            setsockopt(s_roster_sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+            struct sockaddr_in addr = {};
+            addr.sin_family = AF_INET;
+            addr.sin_addr.s_addr = htonl(INADDR_ANY);
+            addr.sin_port = htons(5006);
+            if (bind(s_roster_sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+                Serial.println("[roster] bind 5006 failed");
+                close(s_roster_sock); s_roster_sock = -1;
+            } else {
+                Serial.println("[roster] listening on UDP 5006");
+            }
+        }
+    }
+    if (s_roster_sock >= 0) {
+        uint8_t rx[64];
+        ssize_t r = recv(s_roster_sock, rx, sizeof(rx), MSG_DONTWAIT);
+        if (r >= 5 && rx[0] == 'R' && rx[1] == 'S' && rx[2] == 'T' && rx[3] == 'R') {
+            uint8_t cnt = rx[4];
+            if (cnt > 16) cnt = 16;
+            if (5 + cnt * 2 <= (size_t)r) {
+                for (uint8_t i = 0; i < cnt; i++) {
+                    uint8_t id = rx[5 + i * 2];
+                    int8_t rssi = (int8_t)rx[6 + i * 2];
+                    if (id != 0 && id != g_node_id) {
+                        lcd_set_neighbour(id, rssi);
+                    }
+                }
+            }
+        }
+    }
+
+    lcd_update(g_node_id, isHubNode, live_rssi, s_lcd_rate, activity);
+#endif
 }
 
 // ===========================================================================

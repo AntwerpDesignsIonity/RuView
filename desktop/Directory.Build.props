@@ -1,0 +1,27 @@
+<Project>
+
+  <!-- Shared metadata for all AEDI desktop projects.
+       Override per-project as needed. -->
+
+  <PropertyGroup>
+    <Authors>Ionity Global (Pty) Ltd</Authors>
+    <Company>Ionity Global (Pty) Ltd</Company>
+    <Copyright>© 2026 Ionity Global (Pty) Ltd</Copyright>
+    <Product>AEDI Desktop</Product>
+    <Version>0.4.0</Version>
+    <PackageProjectUrl>https://github.com/ruvnet/RuView</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/ruvnet/RuView</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <!-- Mark Android/iOS targets as preview-only via a constant the app can read. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-android' Or '$(TargetFramework)' == 'net10.0-ios'">
+    <DefineConstants>$(DefineConstants);PREVIEW_ONLY</DefineConstants>
+  </PropertyGroup>
+
+</Project>

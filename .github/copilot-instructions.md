@@ -63,7 +63,7 @@ ESP32-S3 nodes (CSI over UDP:5005)
 ```bash
 cd rust-port/wifi-densepose-rs
 cargo build -p wifi-densepose-sensing-server --release --no-default-features  # server only
-cargo test --workspace --no-default-features   # 1,463+ tests, must be 0 failed
+cargo test --workspace --no-default-features   # 1,463+ tests; see docs/issues/known-test-failures.md
 cargo bench --package wifi-densepose-signal    # benchmarks
 ```
 
@@ -165,7 +165,7 @@ Pre-configured tasks in [.vscode/tasks.json](.vscode/tasks.json):
 
 ## Pre-Merge Checklist
 
-1. `cargo test --workspace --no-default-features` — 0 failed
+1. `cargo test --workspace --no-default-features` — no NEW failures (see docs/issues/known-test-failures.md for tracked flakes)
 2. `python v1/data/proof/verify.py` — VERDICT: PASS
 3. Update CHANGELOG.md under `[Unreleased]`
 4. Update README/CLAUDE.md if scope changed

@@ -1,13 +1,22 @@
 #!/usr/bin/env bash
 # Flash firmware via PlatformIO, then write NVS config, for every connected ESP32-S3.
-# Usage: flash-all-nodes.sh <SSID> <PASSWORD> <TARGET_IP>
+# Usage:   flash-all-nodes.sh <SSID> <PASSWORD> <TARGET_IP>
+#          BOARD_ENV=<env> flash-all-nodes.sh ...    # override the PlatformIO env
+#
+# BOARD_ENV options (from ionity/platformio.ini):
+#   esp32s3_n16r8       (default) — headless CSI node, 16MB flash / 8MB PSRAM
+#   esp32s3_touch_lcd_2 — Waveshare ESP32-S3-Touch-LCD-2 (2.4" ST7789 240x320)
+#   esp32s3_lcd_1_47    — Waveshare ESP32-S3-LCD-1.47 (ST7789 172x320)
+#   esp32s3_amoled_1_64 — Waveshare Touch-AMOLED-1.64 (CSI only, no display yet)
 set -euo pipefail
 
 SSID="${1:-}"
 PASS="${2:-}"
 HUB_IP="${3:-}"
+BOARD_ENV="${BOARD_ENV:-esp32s3_n16r8}"
 if [[ -z "$SSID" || -z "$HUB_IP" ]]; then
   echo "Usage: $0 <SSID> <PASSWORD> <TARGET_IP>" >&2
+  echo "       BOARD_ENV=<env> $0 ...   (default: esp32s3_n16r8)" >&2
   exit 2
 fi
 
@@ -25,7 +34,7 @@ if [[ ${#PORTS[@]} -eq 0 ]]; then
 fi
 
 echo "[flash-all] Found ${#PORTS[@]} port(s): ${PORTS[*]}"
-echo "[flash-all] SSID=$SSID  HUB_IP=$HUB_IP"
+echo "[flash-all] SSID=$SSID  HUB_IP=$HUB_IP  BOARD_ENV=$BOARD_ENV"
 
 NODE_ID=1
 for PORT in "${PORTS[@]}"; do
@@ -38,7 +47,7 @@ for PORT in "${PORTS[@]}"; do
   echo "=========================================="
 
   # 1. Flash firmware via PlatformIO
-  ( cd ionity && pio run -e esp32s3_n16r8 -t upload --upload-port "$PORT" ) \
+  ( cd ionity && pio run -e "$BOARD_ENV" -t upload --upload-port "$PORT" ) \
     || { echo "[flash-all] FAILED firmware flash on $PORT"; NODE_ID=$((NODE_ID+1)); continue; }
 
   # 2. Provision NVS (WiFi + target IP + node id + LED role)

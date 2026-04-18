@@ -31,15 +31,12 @@ pub fn single_link_config() -> FieldModelConfig {
 /// Estimate occupancy using the FieldModel when calibrated, falling back
 /// to the score-based heuristic otherwise.
 ///
-/// Prefers `estimate_occupancy()` (eigenvalue-based) when the model is
-/// calibrated and enough frames are available. Falls back to perturbation
-/// energy thresholds, then to the score heuristic.
-pub fn occupancy_or_fallback(
+/// Returns `None` when the field model is unavailable or not calibrated enough
+/// to provide an independent occupancy vote.
+pub fn occupancy_estimate(
     field: &FieldModel,
     frame_history: &VecDeque<Vec<f64>>,
-    smoothed_score: f64,
-    prev_count: usize,
-) -> usize {
+) -> Option<usize> {
     match field.status() {
         CalibrationStatus::Fresh | CalibrationStatus::Stale => {
             let frames: Vec<Vec<f64>> = frame_history
@@ -50,35 +47,49 @@ pub fn occupancy_or_fallback(
                 .collect();
 
             if frames.is_empty() {
-                return score_to_person_count(smoothed_score, prev_count);
+                return None;
             }
 
             // Try eigenvalue-based occupancy first (best accuracy).
-            match field.estimate_occupancy(&frames) {
-                Ok(count) => return count,
-                Err(_) => {} // fall through to perturbation energy
+            if let Ok(count) = field.estimate_occupancy(&frames) {
+                return Some(count);
             }
 
             // Fallback: perturbation energy thresholds.
             // FieldModel expects [n_links][n_subcarriers] — we use n_links=1.
             let observation = vec![frames[0].clone()];
-            match field.extract_perturbation(&observation) {
-                Ok(perturbation) => {
-                    if perturbation.total_energy > ENERGY_THRESH_3 {
-                        3
-                    } else if perturbation.total_energy > ENERGY_THRESH_2 {
-                        2
-                    } else if perturbation.total_energy > 1.0 {
-                        1
-                    } else {
-                        0
-                    }
-                }
-                Err(_) => score_to_person_count(smoothed_score, prev_count),
+            if let Ok(perturbation) = field.extract_perturbation(&observation) {
+                return Some(if perturbation.total_energy > ENERGY_THRESH_3 {
+                    3
+                } else if perturbation.total_energy > ENERGY_THRESH_2 {
+                    2
+                } else if perturbation.total_energy > 1.0 {
+                    1
+                } else {
+                    0
+                });
             }
+
+            None
         }
-        _ => score_to_person_count(smoothed_score, prev_count),
+        _ => None,
     }
+}
+
+/// Estimate occupancy using the FieldModel when calibrated, falling back
+/// to the score-based heuristic otherwise.
+///
+/// Prefers `estimate_occupancy()` (eigenvalue-based) when the model is
+/// calibrated and enough frames are available. Falls back to perturbation
+/// energy thresholds, then to the score heuristic.
+pub fn occupancy_or_fallback(
+    field: &FieldModel,
+    frame_history: &VecDeque<Vec<f64>>,
+    smoothed_score: f64,
+    prev_count: usize,
+) -> usize {
+    occupancy_estimate(field, frame_history)
+        .unwrap_or_else(|| score_to_person_count(smoothed_score, prev_count))
 }
 
 /// Feed the latest frame to the FieldModel during calibration collection.

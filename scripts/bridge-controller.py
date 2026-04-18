@@ -239,19 +239,116 @@ def _set_mode(mode):
     MODE_FILE.write_text(mode)
 
 
+# ── ESP32 USB auto-detect & auto-provision ────────────────────────────────────
+
+PROVISION_SCRIPT = REPO_DIR / "firmware" / "esp32-csi-node" / "provision.py"
+import re as _re
+
+
+def _scan_usb_boards():
+    """Enumerate connected serial ports and score them as likely ESP32 boards.
+
+    Returns a list of dicts:
+      {device, label, manufacturer, hwid, chip, score, recommended_env}
+    Sorted descending by score.
+    """
+    try:
+        from serial.tools import list_ports
+    except ImportError:
+        return {"error": "pyserial not installed in venv (.venv/bin/python -m pip install pyserial)"}
+
+    boards = []
+    for port in list_ports.comports():
+        text = " ".join(filter(None, [port.device, port.description, port.manufacturer, port.hwid]))
+        score = 0
+        chip = "unknown"
+        env = "esp32s3_n16r8"  # default 8 MB
+
+        if _re.search(r"VID:PID=303[Aa]:|Espressif|USB JTAG", text):
+            score += 100; chip = "ESP32-S3 (native USB-CDC)"
+        if _re.search(r"VID:PID=10C4:|CP210|Silicon Labs", text):
+            score += 60;  chip = "ESP32 via CP210x bridge"
+        if _re.search(r"VID:PID=1A86:|CH340|wch", text):
+            score += 40;  chip = "ESP32 via CH340 bridge"
+        if _re.search(r"USB Serial|UART", text, _re.IGNORECASE):
+            score += 15
+
+        # Heuristic: SuperMini boards often report 4 MB flash via dmesg later;
+        # we can't tell from VID/PID alone, so just flag it as a candidate.
+        if "supermini" in text.lower():
+            env = "esp32s3_supermini"
+
+        boards.append({
+            "device": port.device,
+            "label": port.description or port.device,
+            "manufacturer": port.manufacturer or "",
+            "hwid": port.hwid or "",
+            "chip": chip,
+            "score": score,
+            "recommended_env": env,
+            "is_esp32": score >= 40,
+        })
+
+    boards.sort(key=lambda b: (b["score"], b["device"]), reverse=True)
+    return boards
+
+
+def _run_provision(port, ssid, password, target_ip, node_id,
+                   no_firmware=True, extra_args=None, timeout=120):
+    """Invoke firmware/esp32-csi-node/provision.py for a single board.
+
+    Returns dict {ok, returncode, stdout, stderr, command}.
+    """
+    if not PROVISION_SCRIPT.exists():
+        return {"ok": False, "error": f"provision.py not found at {PROVISION_SCRIPT}"}
+
+    cmd = [str(VENV_PYTHON), str(PROVISION_SCRIPT),
+           "--port", port,
+           "--ssid", ssid,
+           "--password", password,
+           "--target-ip", target_ip,
+           "--node-id", str(node_id)]
+    if no_firmware:
+        cmd.append("--no-firmware")
+    if extra_args:
+        cmd.extend(extra_args)
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return {
+            "ok": proc.returncode == 0,
+            "returncode": proc.returncode,
+            "stdout": proc.stdout[-4000:],   # tail to keep response small
+            "stderr": proc.stderr[-4000:],
+            "command": " ".join(cmd[:6]) + " … --node-id " + str(node_id),
+        }
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": f"timeout after {timeout}s", "command": " ".join(cmd[:6])}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "command": " ".join(cmd[:6])}
+
+
 class BridgeHandler(BaseHTTPRequestHandler):
     """HTTP request handler for bridge control API."""
 
     def _send_json(self, data, status=200):
         body = json.dumps(data).encode()
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            # Client disconnected before we finished writing — harmless
+            pass
+
+    def log_message(self, format, *args):
+        # Silence noisy per-request logs; errors still go to stderr
+        return
 
     def do_OPTIONS(self):
         """Handle CORS preflight."""
@@ -285,6 +382,14 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "running": pid is not None,
                 "pid": pid,
             })
+
+        elif self.path == "/api/usb/scan":
+            # Live USB serial port enumeration with ESP32 scoring.
+            result = _scan_usb_boards()
+            if isinstance(result, dict) and "error" in result:
+                self._send_json(result, 500)
+            else:
+                self._send_json({"boards": result, "count": len(result)})
 
         else:
             self._send_json({"error": "Not found"}, 404)
@@ -372,6 +477,66 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": err, "running": False}, 500)
             else:
                 self._send_json({"running": True, "pid": pid, "source": source, "message": "Server restarted"})
+
+        elif self.path == "/api/provision/run":
+            # Provision a single board with NVS-only flash.
+            # Body: { port, ssid, password, target_ip, node_id, no_firmware? }
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len) if content_len > 0 else b""
+            try:
+                data = json.loads(body) if body else {}
+            except json.JSONDecodeError:
+                self._send_json({"error": "Invalid JSON"}, 400); return
+            for f in ("port", "ssid", "password", "target_ip", "node_id"):
+                if f not in data or data[f] in (None, ""):
+                    self._send_json({"error": f"missing required field: {f}"}, 400); return
+            result = _run_provision(
+                port=data["port"], ssid=data["ssid"], password=data["password"],
+                target_ip=data["target_ip"], node_id=int(data["node_id"]),
+                no_firmware=bool(data.get("no_firmware", True)),
+            )
+            self._send_json(result, 200 if result.get("ok") else 500)
+
+        elif self.path == "/api/provision/auto":
+            # Auto-detect every connected ESP32 and provision sequentially with
+            # auto-incrementing node IDs.
+            # Body: { ssid, password, target_ip, start_node_id?, no_firmware? }
+            content_len = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_len) if content_len > 0 else b""
+            try:
+                data = json.loads(body) if body else {}
+            except json.JSONDecodeError:
+                self._send_json({"error": "Invalid JSON"}, 400); return
+            for f in ("ssid", "password", "target_ip"):
+                if f not in data or data[f] in (None, ""):
+                    self._send_json({"error": f"missing required field: {f}"}, 400); return
+            start_id = int(data.get("start_node_id", 1))
+
+            boards = _scan_usb_boards()
+            if isinstance(boards, dict) and "error" in boards:
+                self._send_json(boards, 500); return
+            esp32s = [b for b in boards if b.get("is_esp32")]
+            if not esp32s:
+                self._send_json({"error": "No ESP32 boards detected on USB."}, 404); return
+
+            results = []
+            for i, b in enumerate(esp32s):
+                node_id = start_id + i
+                r = _run_provision(
+                    port=b["device"], ssid=data["ssid"], password=data["password"],
+                    target_ip=data["target_ip"], node_id=node_id,
+                    no_firmware=bool(data.get("no_firmware", True)),
+                )
+                r["port"] = b["device"]; r["node_id"] = node_id; r["chip"] = b["chip"]
+                results.append(r)
+
+            ok_count = sum(1 for r in results if r.get("ok"))
+            self._send_json({
+                "total": len(results),
+                "succeeded": ok_count,
+                "failed": len(results) - ok_count,
+                "results": results,
+            }, 200 if ok_count == len(results) else 207)
 
         else:
             self._send_json({"error": "Not found"}, 404)

@@ -114,6 +114,11 @@
         <div class="sub-val">Source: <span id="v-source">--</span></div>
       </div>
       <div class="card">
+        <div class="card-title">Mesh</div>
+        <div class="big-val"><span id="v-mesh">--</span></div>
+        <div class="sub-val">Registered nodes online <a href="nodes.html" style="color:var(--text-dim);text-decoration:none">→</a></div>
+      </div>
+      <div class="card">
         <div class="card-title">Presence</div>
         <div class="big-val"><span id="v-presence">--</span></div>
         <div class="sub-val">Confidence: <span id="v-conf">--</span><span class="avg" id="v-conf-avg"></span></div>
@@ -167,6 +172,7 @@
     <div class="page-grid">
       <a href="monitor.html" class="page-link"><span class="icon">◎</span><span class="label">Monitor Hub</span><span class="desc">Signal analysis, waterfall, vitals trends, system logs</span></a>
       <a href="observatory.html" class="page-link"><span class="icon">◈</span><span class="label">Observatory</span><span class="desc">3D room visualization with pose wireframes</span></a>
+      <a href="room-atlas.html" class="page-link"><span class="icon">▣</span><span class="label">Room Atlas</span><span class="desc">More telemetry plus perspective, top, front, and side room mapping</span></a>
       <a href="pose-fusion.html" class="page-link"><span class="icon">⬡</span><span class="label">Pose Fusion</span><span class="desc">Live WiFi CSI skeleton rendering + confidence</span></a>
       <a href="spectrogram.html" class="page-link"><span class="icon">⁞</span><span class="label">Spectrogram</span><span class="desc">Live CSI subcarrier heatmap &amp; waterfall</span></a>
       <a href="diagnostics.html" class="page-link"><span class="icon">✦</span><span class="label">Diagnostics</span><span class="desc">Health, endpoints, network &amp; system status</span></a>
@@ -233,13 +239,43 @@ window.switchMode = function(mode) {
   setTimeout(() => { if (ws && ws.readyState === 1) statusEl.innerHTML = '<span class="dot green"></span>Source auto-detected from server'; }, 2000);
 };
 
+function setModeStatus(html) {
+  const el = $('mode-status'); if (el) el.innerHTML = html;
+}
 function connect() {
   if (ws && ws.readyState <= 1) return;
-  ws = new WebSocket(WS_URL);
-  ws.onopen = () => { banner.className = 'ok'; banner.textContent = `Connected`; setTimeout(() => banner.style.display = 'none', 2000); };
-  ws.onmessage = (evt) => { try { update(JSON.parse(evt.data)); } catch {} };
-  ws.onclose = () => { banner.className = 'err'; banner.textContent = 'Disconnected — reconnecting…'; setTimeout(connect, 2000); };
-  ws.onerror = () => ws.close();
+  banner.style.display = 'block';
+  banner.className = '';
+  banner.textContent = `Connecting to ${WS_URL} …`;
+  setModeStatus(`<span class="dot yellow"></span>Connecting to ${WS_URL} …`);
+  try { ws = new WebSocket(WS_URL); } catch (e) {
+    banner.className = 'err'; banner.textContent = 'WebSocket init failed: ' + e.message;
+    setModeStatus(`<span class="dot red"></span>WebSocket init failed: ${e.message}`);
+    setTimeout(connect, 3000); return;
+  }
+  ws.onopen = () => {
+    banner.className = 'ok';
+    banner.textContent = 'Connected — waiting for first frame…';
+    setModeStatus('<span class="dot yellow"></span>Connected — waiting for first frame…');
+    setTimeout(() => { if (banner.className === 'ok') banner.style.display = 'none'; }, 3000);
+  };
+  ws.onmessage = (evt) => { try { update(JSON.parse(evt.data)); } catch (e) { console.error('parse', e); } };
+  ws.onclose = (evt) => {
+    banner.className = 'err';
+    banner.style.display = 'block';
+    const reason = evt.reason || `code ${evt.code}`;
+    banner.textContent = `Disconnected (${reason}) — retrying in 2 s…`;
+    setModeStatus(`<span class="dot red"></span>WebSocket closed (${reason}) — retrying…`);
+    setTimeout(connect, 2000);
+  };
+  ws.onerror = (e) => {
+    console.error('[ws] error', e);
+    banner.className = 'err';
+    banner.style.display = 'block';
+    banner.textContent = `WebSocket error on ${WS_URL} — check port 3001 is reachable from this browser.`;
+    setModeStatus(`<span class="dot red"></span>WebSocket error — port 3001 blocked? See banner.`);
+    try { ws.close(); } catch {}
+  };
 }
 
 // ── Rolling averages ────────────────────────────────────────────────────────
@@ -352,8 +388,7 @@ function update(d) {
   $('v-freq').textContent = f.dominant_freq_hz != null ? f.dominant_freq_hz.toFixed(2) + ' Hz' : '-- Hz';
   renderAvg('v-freq', ' Hz', 2);
   const nodes = d.nodes || [];
-  // Track packet rate per node using tick deltas.
-  const now = performance.now();
+  // Track packet rate per node using tick deltas. (`now` already defined at top of update())
   nodes.forEach(n => {
     const id = n.node_id;
     if (!nodeRate[id]) nodeRate[id] = { lastTime: now, count: 0, rate: 0, sinceTick: now };
@@ -439,6 +474,24 @@ function drawField(sf) {
 }
 
 connect();
+
+// ── Mesh tile: registry × live nodes ─────────────────────────────────────────
+async function pollMesh() {
+  try {
+    const [reg, live] = await Promise.all([
+      fetch('/api/v1/registry', { cache: 'no-store' })
+        .then(r => r.ok ? r.json() : fetch('/ui/data/node-registry.json', { cache: 'no-store' }).then(r2 => r2.ok ? r2.json() : { nodes: [] })),
+      fetch('/api/v1/nodes').then(r => r.ok ? r.json() : { nodes: [] }),
+    ]);
+    const registered = (reg.nodes || []).filter(n => n.mac);
+    const liveIds = new Set((live.nodes || []).filter(n => n.last_seen_ms < 5000).map(n => n.node_id));
+    const online = registered.filter(n => liveIds.has(n.node_id)).length;
+    const el = $('v-mesh');
+    if (el) el.textContent = `${online}/${registered.length}`;
+  } catch { /* tile stays at -- */ }
+}
+pollMesh();
+setInterval(pollMesh, 5000);
 </script>
 </body>
 </html>

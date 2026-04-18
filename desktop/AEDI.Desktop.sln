@@ -3,13 +3,13 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.12.0.0
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RuView.Desktop", "RuView.Desktop\RuView.Desktop.csproj", "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AEDI.Desktop", "AEDI.Desktop\AEDI.Desktop.csproj", "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RuView.Sdk.Models", "RuView.Sdk.Models\RuView.Sdk.Models.csproj", "{44E3A880-0C45-4F93-95F1-0B1DB6919B11}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AEDI.Sdk.Models", "AEDI.Sdk.Models\AEDI.Sdk.Models.csproj", "{44E3A880-0C45-4F93-95F1-0B1DB6919B11}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RuView.Sdk.Http", "RuView.Sdk.Http\RuView.Sdk.Http.csproj", "{DF8B9A8A-0A1D-4B0D-B2EC-1E6E881EC6F2}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AEDI.Sdk.Http", "AEDI.Sdk.Http\AEDI.Sdk.Http.csproj", "{DF8B9A8A-0A1D-4B0D-B2EC-1E6E881EC6F2}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RuView.Sdk.WebSockets", "RuView.Sdk.WebSockets\RuView.Sdk.WebSockets.csproj", "{77CE6FE7-7E74-4D12-A5B5-5A4DAAFB4A76}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "AEDI.Sdk.WebSockets", "AEDI.Sdk.WebSockets\AEDI.Sdk.WebSockets.csproj", "{77CE6FE7-7E74-4D12-A5B5-5A4DAAFB4A76}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

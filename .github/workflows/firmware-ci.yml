@@ -4,10 +4,12 @@ on:
   push:
     paths:
       - 'firmware/**'
+      - 'ionity/**'
       - '.github/workflows/firmware-ci.yml'
   pull_request:
     paths:
       - 'firmware/**'
+      - 'ionity/**'
       - '.github/workflows/firmware-ci.yml'
 
 jobs:
@@ -100,3 +102,56 @@ jobs:
             firmware/esp32-csi-node/build/partition_table/partition-table.bin
             firmware/esp32-csi-node/build/ota_data_initial.bin
           retention-days: 90
+
+  pio:
+    name: PlatformIO ${{ matrix.env }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env:
+          - esp32s3_n16r8
+          - esp32s3_touch_lcd_2
+          - esp32s3_lcd_1_47
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.platformio/packages
+          key: pio-${{ runner.os }}-${{ matrix.env }}-${{ hashFiles('ionity/platformio.ini') }}
+          restore-keys: |
+            pio-${{ runner.os }}-${{ matrix.env }}-
+            pio-${{ runner.os }}-
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio
+      - name: Build ${{ matrix.env }}
+        working-directory: ionity
+        run: pio run -e ${{ matrix.env }}
+      - name: Size gate (< 1100 KB)
+        working-directory: ionity
+        run: |
+          BIN=.pio/build/${{ matrix.env }}/firmware.bin
+          SIZE=$(stat -c%s "$BIN")
+          MAX=$((1100 * 1024))
+          echo "Binary: $BIN  size=$SIZE bytes ($(( SIZE / 1024 )) KB)  max=$MAX"
+          if [ "$SIZE" -gt "$MAX" ]; then
+            echo "::error::Firmware ${{ matrix.env }} exceeds 1100 KB ($SIZE > $MAX)"
+            exit 1
+          fi
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ionity-${{ matrix.env }}
+          path: |
+            ionity/.pio/build/${{ matrix.env }}/firmware.bin
+            ionity/.pio/build/${{ matrix.env }}/bootloader.bin
+            ionity/.pio/build/${{ matrix.env }}/partitions.bin
+          retention-days: 30

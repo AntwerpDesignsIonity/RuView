@@ -64,8 +64,8 @@
   },
   "config": {
     "autoStart": false,
-    "logDir": "/Users/cohen/GitHub/ruvnet/RuView/.claude-flow/logs",
-    "stateFile": "/Users/cohen/GitHub/ruvnet/RuView/.claude-flow/daemon-state.json",
+    "logDir": ".claude-flow/logs",
+    "stateFile": ".claude-flow/daemon-state.json",
     "maxConcurrent": 2,
     "workerTimeoutMs": 300000,
     "resourceThresholds": {

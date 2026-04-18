@@ -269,3 +269,9 @@ models/
 *.lora.json
 logs/
 ionity/.pio/
+
+# Local node roster (per-machine, provisioning ledger)
+.ionity/data/nodes.json
+
+# Quarantined stale firmware bins (see firmware/esp32-csi-node/release_bins/README.md)
+firmware/esp32-csi-node/release_bins.stale-*/

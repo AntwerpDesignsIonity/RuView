@@ -1,11 +1,11 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using RuView.Desktop.Services;
-using RuView.Sdk.Http;
-using RuView.Sdk.Models;
-using RuView.Sdk.WebSockets;
+using AEDI.Desktop.Services;
+using AEDI.Sdk.Http;
+using AEDI.Sdk.Models;
+using AEDI.Sdk.WebSockets;
 
-namespace RuView.Desktop.ViewModels;
+namespace AEDI.Desktop.ViewModels;
 
 /// <summary>
 /// Main dashboard: connection status, presence, motion, vitals summary, signal features, node table.

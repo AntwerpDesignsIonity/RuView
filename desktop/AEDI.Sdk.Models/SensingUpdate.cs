@@ -1,4 +1,4 @@
-namespace RuView.Sdk.Models;
+namespace AEDI.Sdk.Models;
 
 /// <summary>
 /// Root message from the sensing server WebSocket (/ws/sensing).

@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AEDI-S - Room Atlas</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #050510; --bg2: #0a0a1e; --bg3: #0f1028; --bg4: #121632;
+      --border: #1a2040; --border-strong: #254b7a; --accent: #0088ff; --accent2: #00ccff;
+      --green: #00e676; --red: #ff3d57; --yellow: #ffd740; --orange: #ff9f43;
+      --text: #c8d8f0; --text-dim: #5577aa; --font: 'Courier New', 'Consolas', monospace;
+    }
+    html, body { min-height: 100%; background: radial-gradient(circle at top, #11142d 0%, var(--bg) 45%); color: var(--text); font-family: var(--font); font-size: 13px; }
+    #shell { min-height: 100vh; display: flex; flex-direction: column; }
+    #main { flex: 1; padding: 18px; display: grid; gap: 16px; }
+    .card {
+      background: linear-gradient(180deg, rgba(15,16,40,0.96), rgba(8,9,24,0.96));
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 14px 32px rgba(0,0,0,0.26);
+    }
+    .hero {
+      display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr); gap: 14px;
+      padding: 18px 20px; align-items: start;
+    }
+    .eyebrow { color: var(--accent2); font-size: 10px; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 8px; }
+    h1 { font-size: 28px; letter-spacing: 1px; margin-bottom: 8px; }
+    .hero-copy p { max-width: 760px; color: var(--text-dim); line-height: 1.55; }
+    .hero-badges { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px;
+      border-radius: 999px; border: 1px solid rgba(0,136,255,0.25);
+      background: rgba(0,136,255,0.08); font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+    }
+    .pill strong { color: var(--text); font-size: 12px; text-transform: none; letter-spacing: 0; }
+    .pill.ok { border-color: rgba(0,230,118,0.32); background: rgba(0,230,118,0.08); }
+    .pill.warn { border-color: rgba(255,215,64,0.32); background: rgba(255,215,64,0.08); }
+    .pill.err { border-color: rgba(255,61,87,0.32); background: rgba(255,61,87,0.08); }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.85fr); gap: 16px; }
+    .primary, .sidebar { display: grid; gap: 16px; }
+    .section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .section-title { font-size: 12px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-dim); }
+    .section-note { font-size: 11px; color: var(--text-dim); }
+    .atlas-card { padding: 16px; }
+    .atlas-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr); gap: 12px; }
+    .side-stack { display: grid; gap: 12px; }
+    .split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .view-card {
+      background: linear-gradient(180deg, rgba(5,6,18,0.92), rgba(10,12,30,0.92));
+      border: 1px solid rgba(37,75,122,0.45);
+      border-radius: 12px;
+      overflow: hidden;
+      min-height: 230px;
+      display: flex; flex-direction: column;
+    }
+    .view-card.wide { min-height: 480px; }
+    .view-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px 0; color: var(--text-dim); font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; }
+    .view-head strong { color: var(--text); font-size: 13px; text-transform: none; letter-spacing: 0; }
+    .view-sub { color: var(--text-dim); font-size: 10px; }
+    canvas { width: 100%; height: 100%; display: block; }
+    .canvas-wrap { position: relative; flex: 1; min-height: 0; padding: 10px 12px 12px; }
+    .legend { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 14px 14px; color: var(--text-dim); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .swatch.node { background: var(--accent2); }
+    .swatch.person { background: var(--green); }
+    .swatch.hot { background: var(--orange); }
+    .swatch.signal { background: var(--accent); }
+    .swatch.placeholder { background: var(--orange); border: 1px dashed rgba(255,159,67,0.7); }
+    .metrics { padding: 16px; }
+    .metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .metric {
+      padding: 12px; border-radius: 12px; border: 1px solid rgba(26,32,64,0.85);
+      background: rgba(4,5,14,0.64);
+    }
+    .metric-label { font-size: 10px; color: var(--text-dim); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px; }
+    .metric-value { font-size: 24px; color: var(--text); }
+    .metric-sub { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+    .list-card { padding: 16px; }
+    .stack { display: grid; gap: 10px; }
+    .evidence-row, .node-row, .object-row {
+      display: grid; gap: 6px; padding: 12px; border-radius: 12px;
+      border: 1px solid rgba(26,32,64,0.85); background: rgba(4,5,14,0.54);
+    }
+    .row-top { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+    .row-label { font-size: 11px; color: var(--text); }
+    .row-meta { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+    .bar { height: 8px; border-radius: 999px; background: rgba(37,75,122,0.28); overflow: hidden; }
+    .bar span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+    .bar.person span { background: linear-gradient(90deg, rgba(0,230,118,0.65), var(--green)); }
+    .bar.hot span { background: linear-gradient(90deg, rgba(255,159,67,0.5), var(--orange)); }
+    .meta-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; font-size: 11px; color: var(--text-dim); }
+    .meta-grid strong { color: var(--text); font-weight: normal; }
+    .empty { padding: 18px; border-radius: 12px; border: 1px dashed rgba(37,75,122,0.55); color: var(--text-dim); text-align: center; line-height: 1.6; }
+    .calibration-banner {
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      padding: 12px 14px; margin-bottom: 14px;
+      background: rgba(255,159,67,0.08);
+      border: 1px solid rgba(255,159,67,0.32);
+      border-left-width: 4px;
+      border-radius: 10px;
+      font-size: 12px; color: var(--text);
+    }
+    .calibration-banner .cb-icon { color: var(--orange); font-size: 18px; }
+    .calibration-banner .cb-msg { flex: 1; min-width: 200px; color: var(--text-dim); line-height: 1.5; }
+    .calibration-banner button {
+      background: rgba(0,136,255,0.16); color: var(--accent2);
+      border: 1px solid rgba(0,136,255,0.45); padding: 6px 14px;
+      border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 11px;
+      letter-spacing: 1px; text-transform: uppercase;
+    }
+    .calibration-banner button:hover { background: rgba(0,136,255,0.28); color: #fff; }
+    @media (max-width: 1180px) {
+      .hero, .layout, .atlas-grid { grid-template-columns: 1fr; }
+      .hero-badges { justify-content: flex-start; }
+    }
+    @media (max-width: 760px) {
+      #main { padding: 12px; }
+      .hero { padding: 16px; }
+      .metric-grid, .split, .meta-grid { grid-template-columns: 1fr; }
+      .view-card.wide { min-height: 340px; }
+    }
+  </style>
+</head>
+<body>
+<div id="shell">
+  <nav id="global-nav"></nav>
+  <main id="main">
+    <section class="card hero">
+      <div class="hero-copy">
+        <div class="eyebrow">Room Intelligence</div>
+        <h1>Room Atlas</h1>
+        <p>High-detail room telemetry with a different dimensional map: synchronized perspective, top, front, and side views showing nodes, live occupancy anchors, tracked people, and signal hotspots across the room volume.</p>
+      </div>
+      <div class="hero-badges">
+        <div class="pill" id="pill-connection">Link <strong id="hero-connection">Connecting</strong></div>
+        <div class="pill" id="pill-source">Source <strong id="hero-source">--</strong></div>
+        <div class="pill" id="pill-room">Room <strong id="hero-room">8 x 6 x 3 m</strong></div>
+        <div class="pill" id="pill-update">Update <strong id="hero-update">--</strong></div>
+      </div>
+    </section>
+
+    <section class="layout">
+      <div class="primary">
+        <article class="card atlas-card">
+          <div id="atlas-calibration" class="calibration-banner" style="display:none">
+            <span class="cb-icon">⚠</span>
+            <span class="cb-msg" id="atlas-calibration-msg">Room is not calibrated.</span>
+            <button onclick="applyDefaultLayout()">Apply default layout</button>
+          </div>
+          <div class="section-head">
+            <div>
+              <div class="section-title">Dimensional Atlas</div>
+              <div class="section-note">Perspective room wireframe plus top, front, and side projections for nodes, occupancy anchors, and signal peaks.</div>
+            </div>
+            <div class="section-note" id="atlas-note">Waiting for sensing data...</div>
+          </div>
+          <div class="atlas-grid">
+            <div class="view-card wide">
+              <div class="view-head"><span>Perspective Atlas</span><strong id="iso-caption">All room objects</strong></div>
+              <div class="canvas-wrap"><canvas id="canvas-iso"></canvas></div>
+              <div class="legend">
+                <span><i class="swatch node"></i> Nodes</span>
+                <span><i class="swatch placeholder"></i> Placeholder layout</span>
+                <span><i class="swatch person"></i> Occupancy anchors</span>
+                <span><i class="swatch hot"></i> Hotspots</span>
+                <span><i class="swatch signal"></i> Signal field</span>
+              </div>
+            </div>
+            <div class="side-stack">
+              <div class="view-card">
+                <div class="view-head"><span>Top Plan</span><strong>Floor occupancy</strong></div>
+                <div class="canvas-wrap"><canvas id="canvas-top"></canvas></div>
+              </div>
+              <div class="split">
+                <div class="view-card">
+                  <div class="view-head"><span>Front Elevation</span><strong>X / Y slice</strong></div>
+                  <div class="canvas-wrap"><canvas id="canvas-front"></canvas></div>
+                </div>
+                <div class="view-card">
+                  <div class="view-head"><span>Side Elevation</span><strong>Z / Y slice</strong></div>
+                  <div class="canvas-wrap"><canvas id="canvas-side"></canvas></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card list-card">
+          <div class="section-head">
+            <div>
+              <div class="section-title">Room Objects</div>
+              <div class="section-note">Live anchors, hotspots, and tracked people summarized from the current sensing frame.</div>
+            </div>
+          </div>
+          <div class="stack" id="object-list"></div>
+        </article>
+      </div>
+
+      <aside class="sidebar">
+        <article class="card metrics">
+          <div class="section-head">
+            <div>
+              <div class="section-title">More Information</div>
+              <div class="section-note">Room health, occupancy, signal quality, and physical coverage.</div>
+            </div>
+          </div>
+          <div class="metric-grid">
+            <div class="metric"><div class="metric-label">Presence</div><div class="metric-value" id="metric-presence">--</div><div class="metric-sub" id="metric-motion">Motion --</div></div>
+            <div class="metric"><div class="metric-label">Persons</div><div class="metric-value" id="metric-persons">0</div><div class="metric-sub" id="metric-consensus">Consensus --</div></div>
+            <div class="metric"><div class="metric-label">Signal Quality</div><div class="metric-value" id="metric-quality">--</div><div class="metric-sub" id="metric-quality-verdict">Verdict --</div></div>
+            <div class="metric"><div class="metric-label">Vital Signs</div><div class="metric-value" id="metric-vitals">--</div><div class="metric-sub" id="metric-vitals-sub">Heart --</div></div>
+            <div class="metric"><div class="metric-label">Room Volume</div><div class="metric-value" id="metric-volume">144 m3</div><div class="metric-sub" id="metric-room-shape">8 x 6 x 3</div></div>
+            <div class="metric"><div class="metric-label">Coverage</div><div class="metric-value" id="metric-coverage">0</div><div class="metric-sub" id="metric-nodes">Nodes --</div></div>
+          </div>
+        </article>
+
+        <article class="card list-card">
+          <div class="section-head">
+            <div>
+              <div class="section-title">Count Evidence</div>
+              <div class="section-note">Weighted votes from each estimator feeding the room occupancy decision.</div>
+            </div>
+          </div>
+          <div class="stack" id="evidence-list"></div>
+        </article>
+
+        <article class="card list-card">
+          <div class="section-head">
+            <div>
+              <div class="section-title">Node Telemetry</div>
+              <div class="section-note">Physical positions and live status for every visible sensing node.</div>
+            </div>
+          </div>
+          <div class="stack" id="node-list"></div>
+        </article>
+      </aside>
+    </section>
+  </main>
+</div>
+
+<script type="module" src="room-atlas.js"></script>
+</body>
+</html>

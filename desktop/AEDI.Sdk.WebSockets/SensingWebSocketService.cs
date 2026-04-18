@@ -1,9 +1,9 @@
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
-using RuView.Sdk.Models;
+using AEDI.Sdk.Models;
 
-namespace RuView.Sdk.WebSockets;
+namespace AEDI.Sdk.WebSockets;
 
 /// <summary>
 /// Manages the persistent WebSocket connection to the sensing server.

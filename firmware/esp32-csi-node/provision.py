@@ -155,8 +155,15 @@ def detect_firmware_dir(args):
     return os.path.join(script_dir, "release_bins")
 
 
-def flash_firmware(port, baud, fw_dir, flash_variant="8mb"):
-    """Flash bootloader + partition table + OTA data + app firmware."""
+def flash_firmware(port, baud, fw_dir, flash_variant="8mb", allow_stale=False):
+    """Flash bootloader + partition table + OTA data + app firmware.
+
+    Refuses to flash when release_bins/ is missing or has been quarantined as
+    stale (release_bins.stale-*). On 2026-04-18 the pre-built ESP-IDF binary
+    was found to ignore the NVS `node_id` override, causing every provisioned
+    node to collide with node 1. The PlatformIO firmware in `ionity/` honors
+    NVS correctly and is the recommended flash route. See release_bins/README.
+    """
     if flash_variant == "4mb":
         app_bin = os.path.join(fw_dir, "esp32-csi-node-4mb.bin")
         part_bin = os.path.join(fw_dir, "partition-table-4mb.bin")
@@ -174,11 +181,64 @@ def flash_firmware(port, baud, fw_dir, flash_variant="8mb"):
         if not os.path.isfile(path):
             missing.append(f"  {label}: {path}")
     if missing:
+        # Look for a quarantined stale-bins directory next to the missing one.
+        parent = os.path.dirname(os.path.abspath(fw_dir))
+        quarantined = sorted(
+            d for d in os.listdir(parent)
+            if d.startswith("release_bins.stale-") and os.path.isdir(os.path.join(parent, d))
+        ) if os.path.isdir(parent) else []
+
         print(f"\nERROR: Firmware binaries missing in {fw_dir}:", file=sys.stderr)
         for m in missing:
             print(m, file=sys.stderr)
-        print("\nBuild firmware or download release binaries first.", file=sys.stderr)
-        sys.exit(1)
+        print("\nThe pre-built ESP-IDF firmware is NOT bundled in this repo by default.",
+              file=sys.stderr)
+        if quarantined:
+            print(f"\nA quarantined build was found:  {quarantined[-1]}", file=sys.stderr)
+            print("It was set aside because it ignored the NVS `node_id` override and",
+                  file=sys.stderr)
+            print("caused every provisioned node to report as node 1.", file=sys.stderr)
+        print("\nRecommended (verified working): flash via PlatformIO, then write NVS only:",
+              file=sys.stderr)
+        print("  cd ionity && pio run -e esp32s3_n16r8 -t upload --upload-port <PORT>",
+              file=sys.stderr)
+        print("  python firmware/esp32-csi-node/provision.py --port <PORT> \\", file=sys.stderr)
+        print("      --ssid X --password Y --target-ip Z --node-id N --no-firmware",
+              file=sys.stderr)
+        print("\nAlternative (rebuild ESP-IDF firmware):", file=sys.stderr)
+        print("  cd firmware/esp32-csi-node && idf.py build && idf.py -p <PORT> flash",
+              file=sys.stderr)
+        print("\nOr re-run with --no-firmware to skip the firmware flash entirely.",
+              file=sys.stderr)
+        sys.exit(2)
+
+    # Sanity-warn if the bins look much older than the source tree.
+    if not allow_stale:
+        try:
+            bin_mtime = os.path.getmtime(app_bin)
+            main_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "main")
+            if os.path.isdir(main_dir):
+                src_mtime = max(
+                    os.path.getmtime(os.path.join(root, f))
+                    for root, _, files in os.walk(main_dir)
+                    for f in files if f.endswith((".c", ".h", ".cpp"))
+                )
+                if src_mtime > bin_mtime + 3600:  # 1h grace for clock skew
+                    age_days = (src_mtime - bin_mtime) / 86400.0
+                    print(f"\nERROR: {os.path.basename(app_bin)} is "
+                          f"{age_days:.1f} days older than the source in main/.",
+                          file=sys.stderr)
+                    print("It will likely ignore NVS overrides and break provisioning.",
+                          file=sys.stderr)
+                    print("\nRebuild via PlatformIO (recommended):", file=sys.stderr)
+                    print("  cd ionity && pio run -e esp32s3_n16r8 -t upload --upload-port <PORT>",
+                          file=sys.stderr)
+                    print("Then re-run this command with --no-firmware.", file=sys.stderr)
+                    print("\nTo override and flash anyway, pass --allow-stale-firmware.",
+                          file=sys.stderr)
+                    sys.exit(2)
+        except (OSError, ValueError):
+            pass  # mtime checks are best-effort; never block on filesystem oddities
 
     flash_args = [
         sys.executable, "-m", "esptool",
@@ -211,11 +271,25 @@ def flash_nvs(port, baud, nvs_bin):
             "--chip", "esp32s3",
             "--port", port,
             "--baud", str(baud),
-            "write_flash",
+            "--before", "usb-reset",
+            "--connect-attempts", "10",
+            "write-flash",
             hex(NVS_PARTITION_OFFSET), bin_path,
         ]
         print(f"Flashing NVS partition ({len(nvs_bin)} bytes) to {port}...")
-        subprocess.check_call(cmd)
+        try:
+            subprocess.check_call(cmd)
+        except subprocess.CalledProcessError:
+            print("\n" + "=" * 70, file=sys.stderr)
+            print("NVS flash failed. Most common cause on ESP32-S3 with native USB-CDC:", file=sys.stderr)
+            print("  the board's firmware does not release USB for the reset signal.", file=sys.stderr)
+            print("\nManually enter download mode and retry:", file=sys.stderr)
+            print("  1. Hold BOOT button on the board.", file=sys.stderr)
+            print("  2. Tap RESET (or unplug + replug USB while still holding BOOT).", file=sys.stderr)
+            print("  3. Release BOOT.", file=sys.stderr)
+            print(f"  4. Re-run this command (port should still be {port}).", file=sys.stderr)
+            print("=" * 70 + "\n", file=sys.stderr)
+            raise
         print("NVS provisioning complete!")
     finally:
         os.unlink(bin_path)
@@ -317,6 +391,8 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Generate NVS binary but don't flash")
     parser.add_argument("--no-firmware", action="store_true",
                         help="Skip firmware flash, only write NVS config (use when firmware is already flashed)")
+    parser.add_argument("--allow-stale-firmware", action="store_true",
+                        help="Flash bundled firmware even if release_bins/ looks older than source. Use only as a last resort — known to cause node-id collisions.")
     parser.add_argument("--firmware-dir", type=str, default=None,
                         help="Directory containing firmware binaries (default: release_bins/ next to this script)")
 
@@ -448,7 +524,8 @@ def main():
                     break
         except Exception:
             pass  # default to 8mb
-        flash_firmware(resolved_port, args.baud, fw_dir, flash_variant)
+        flash_firmware(resolved_port, args.baud, fw_dir, flash_variant,
+                       allow_stale=args.allow_stale_firmware)
 
     # Step 2: Flash NVS config
     flash_nvs(resolved_port, args.baud, nvs_bin)

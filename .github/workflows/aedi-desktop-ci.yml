@@ -1,0 +1,96 @@
+name: AEDI Desktop CI (.NET MAUI)
+
+# Verifies the AEDI Desktop client builds on Windows + macOS for every PR
+# touching desktop/. On tag push (vX.Y.Z-aedi-desktop) it produces installers
+# and attaches them to the GitHub Release.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/aedi-desktop-ci.yml'
+    tags:
+      - 'v*-aedi-desktop'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/aedi-desktop-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: net10.0-windows10.0.19041.0
+            artifact: aedi-desktop-windows
+          - os: macos-latest
+            target: net10.0-maccatalyst
+            artifact: aedi-desktop-macos
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui
+
+      - name: Restore
+        working-directory: desktop
+        run: dotnet restore AEDI.Desktop.sln
+
+      - name: Build
+        working-directory: desktop
+        run: dotnet build AEDI.Desktop.sln -c Release -f ${{ matrix.target }} --no-restore
+
+      - name: Publish (release tag only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: desktop
+        run: dotnet publish AEDI.Desktop/AEDI.Desktop.csproj -c Release -f ${{ matrix.target }} -o publish
+
+      - name: Upload artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: desktop/publish/
+
+  release:
+    name: Attach to GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Package
+        run: |
+          cd dist
+          for d in */; do
+            name="${d%/}"
+            tar -czf "${name}.tar.gz" -C "$name" .
+          done
+          ls -la
+
+      - name: Create / update release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.tar.gz
+          generate_release_notes: true
+          fail_on_unmatched_files: false
