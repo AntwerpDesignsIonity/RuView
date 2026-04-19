@@ -31,6 +31,9 @@
 #include "mmwave_sensor.h"
 #include "swarm_bridge.h"
 #include "autorepair.h"
+#ifdef CONFIG_LED_EFFECTS_ENABLE
+#include "led_effects.h"
+#endif
 #ifdef CONFIG_CSI_MOCK_ENABLED
 #include "mock_csi.h"
 #endif
@@ -210,6 +213,20 @@ void app_main(void)
 #else
     esp_err_t ota_ret = ESP_ERR_NOT_SUPPORTED;
     ESP_LOGI(TAG, "Mock CSI mode: skipping OTA server (no network)");
+#endif
+
+#ifdef CONFIG_LED_EFFECTS_ENABLE
+    /* ADR-062: Initialize onboard status LED and register /led endpoints. */
+    esp_err_t led_ret = led_effects_init();
+    if (led_ret == ESP_OK) {
+        /* Boot-ready indicator: steady green at low brightness. */
+        led_effects_set("solid", 0, 64, 0, 40);
+        if (ota_server != NULL) {
+            led_effects_register_endpoints(ota_server);
+        }
+    } else {
+        ESP_LOGW(TAG, "LED effects init failed: %s", esp_err_to_name(led_ret));
+    }
 #endif
 
     /* ADR-040: Initialize WASM programmable sensing runtime. */

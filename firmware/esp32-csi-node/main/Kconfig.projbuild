@@ -87,6 +87,33 @@ menu "Edge Intelligence (ADR-039)"
 
 endmenu
 
+menu "LED Effects (ADR-062)"
+
+    config LED_EFFECTS_ENABLE
+        bool "Enable onboard WS2812 status LED"
+        default y
+        help
+            Drive an onboard addressable RGB LED (WS2812/NeoPixel).
+            Exposes /led GET and POST endpoints on the OTA HTTP server
+            (port 8032) so the GUI can change color/effect remotely.
+
+    config LED_EFFECTS_GPIO
+        int "WS2812 data GPIO"
+        default 48
+        range 0 48
+        depends on LED_EFFECTS_ENABLE
+        help
+            GPIO pin wired to the WS2812 DIN line.
+            Default 48 matches ESP32-S3 SuperMini / N16R8 dev boards.
+
+    config LED_EFFECTS_COUNT
+        int "Number of LEDs in the chain"
+        default 1
+        range 1 32
+        depends on LED_EFFECTS_ENABLE
+
+endmenu
+
 menu "AMOLED Display (ADR-045)"
 
     config DISPLAY_ENABLE

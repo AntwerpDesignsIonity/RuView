@@ -9,6 +9,12 @@ set(SRCS
 
 set(REQUIRES "")
 
+# ADR-062: Onboard WS2812 status LED (compile-time optional)
+if(CONFIG_LED_EFFECTS_ENABLE)
+    list(APPEND SRCS "led_effects.c")
+    list(APPEND REQUIRES espressif__led_strip)
+endif()
+
 # ADR-061: Mock CSI generator for QEMU testing
 if(CONFIG_CSI_MOCK_ENABLED)
     list(APPEND SRCS "mock_csi.c")

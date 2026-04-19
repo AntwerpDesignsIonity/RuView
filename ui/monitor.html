@@ -239,6 +239,7 @@
     <button class="tab-btn" data-tab="esp32">ESP32</button>
     <button class="tab-btn" data-tab="signals">Signals</button>
     <button class="tab-btn" data-tab="vitals">Vitals</button>
+    <button class="tab-btn" data-tab="lighting">Lighting</button>
     <button class="tab-btn" data-tab="logs">Logs</button>
     <button class="tab-btn" data-tab="scripts">Scripts</button>
     <button class="tab-btn" data-tab="storage">Storage</button>
@@ -558,6 +559,56 @@
       <div class="card">
         <div class="card-title">Edge Vitals (ESP32)</div>
         <div id="edge-vitals-out" style="font-size:12px;color:var(--text-dim)">Not available</div>
+      </div>
+    </div>
+
+    <!-- ── Lighting Effects (ADR-062) ─────────────────────────────────── -->
+    <div class="tab-panel" id="tab-lighting">
+      <div class="card">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span>💡 Lighting Effects</span>
+          <button class="btn" id="btn-lighting-refresh" style="font-size:11px;padding:3px 10px">↻ Refresh</button>
+        </div>
+        <div style="color:var(--text-dim);font-size:12px;margin-bottom:10px">
+          Control onboard WS2812 status LEDs on each ESP32-S3 node.
+          Endpoint: <code>GET/POST /api/v1/nodes/&lt;id&gt;/led</code> (proxied to node port 8032).
+          Requires firmware ≥ v0.6.2 with <code>CONFIG_LED_EFFECTS_ENABLE=y</code>.
+        </div>
+        <div class="btn-row" style="margin-bottom:12px;flex-wrap:wrap">
+          <label style="font-size:12px;color:var(--text-dim)">Target:</label>
+          <select id="lighting-target" style="padding:4px 8px;background:#222;color:#ddd;border:1px solid #444;border-radius:3px">
+            <option value="all">All online nodes</option>
+          </select>
+          <label style="font-size:12px;color:var(--text-dim);margin-left:12px">Effect:</label>
+          <select id="lighting-effect" style="padding:4px 8px;background:#222;color:#ddd;border:1px solid #444;border-radius:3px">
+            <option value="off">Off</option>
+            <option value="solid" selected>Solid</option>
+            <option value="breathe">Breathe</option>
+            <option value="blink">Blink</option>
+            <option value="rainbow">Rainbow</option>
+            <option value="alert">Alert (fast red)</option>
+          </select>
+        </div>
+        <div class="btn-row" style="margin-bottom:12px;flex-wrap:wrap;align-items:center">
+          <label style="font-size:12px;color:var(--text-dim)">Color:</label>
+          <input type="color" id="lighting-color" value="#00ff00" style="width:60px;height:32px;padding:0;border:1px solid #444;background:#222;cursor:pointer">
+          <label style="font-size:12px;color:var(--text-dim);margin-left:12px">Brightness:</label>
+          <input type="range" id="lighting-brightness" min="0" max="255" value="40" style="width:200px">
+          <span id="lighting-brightness-val" style="font-size:12px;color:var(--text-dim);min-width:30px">40</span>
+        </div>
+        <div class="btn-row" style="margin-bottom:12px">
+          <button class="btn btn-primary" id="btn-lighting-apply">⚡ Apply</button>
+          <button class="btn" id="btn-lighting-off">Turn Off</button>
+          <button class="btn btn-danger" id="btn-lighting-alert">🚨 Alert All</button>
+        </div>
+        <div id="lighting-status" style="font-size:11px;color:var(--text-dim);font-family:monospace;white-space:pre-wrap;margin-top:8px;padding:8px;background:#111;border:1px solid #333;border-radius:3px;min-height:40px">Ready.</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Per-Node State</div>
+        <div id="lighting-node-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px">
+          <span style="color:var(--text-dim);font-size:12px">Click Refresh to probe each node.</span>
+        </div>
       </div>
     </div>
 
@@ -2006,6 +2057,125 @@ resizeSignalCanvas();
 window.addEventListener('resize', resizeSignalCanvas);
 // Auto-connect WebSocket for live data across all tabs
 connectSignalWs();
+
+// ── Lighting Effects (ADR-062) ────────────────────────────────────────
+const lightingStatus = document.getElementById('lighting-status');
+const lightingTarget = document.getElementById('lighting-target');
+const lightingEffect = document.getElementById('lighting-effect');
+const lightingColor  = document.getElementById('lighting-color');
+const lightingBr     = document.getElementById('lighting-brightness');
+const lightingBrVal  = document.getElementById('lighting-brightness-val');
+const lightingGrid   = document.getElementById('lighting-node-grid');
+
+function lightLog(msg, cls) {
+  const ts = new Date().toLocaleTimeString();
+  const line = `[${ts}] ${msg}\n`;
+  lightingStatus.textContent = (line + lightingStatus.textContent).slice(0, 4000);
+  if (cls === 'err') lightingStatus.style.color = '#f77';
+  else if (cls === 'ok') lightingStatus.style.color = '#7f7';
+  else lightingStatus.style.color = 'var(--text-dim)';
+}
+
+function hexToRgb(h) {
+  const n = parseInt(h.replace('#',''), 16);
+  return { r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff };
+}
+
+if (lightingBr) {
+  lightingBr.addEventListener('input', () => { lightingBrVal.textContent = lightingBr.value; });
+}
+
+async function lightingRefresh() {
+  lightLog('Refreshing node list...');
+  try {
+    const res = await fetch('/api/v1/nodes');
+    const data = await res.json();
+    const nodes = (data.nodes || []).filter(n => n.status === 'active');
+
+    // Rebuild target dropdown (preserve selection if still present).
+    const prev = lightingTarget.value;
+    lightingTarget.innerHTML = '<option value="all">All online nodes</option>' +
+      nodes.map(n => `<option value="${n.node_id}">Node ${n.node_id} (${n.ip})</option>`).join('');
+    if ([...lightingTarget.options].some(o => o.value === prev)) lightingTarget.value = prev;
+
+    // Probe each node for its current LED state.
+    lightingGrid.innerHTML = nodes.length
+      ? nodes.map(n => `<div id="led-card-${n.node_id}" class="card" style="margin:0;padding:10px">
+          <div style="font-weight:600;margin-bottom:4px">Node ${n.node_id} <span style="color:var(--text-dim);font-size:11px">${n.ip}</span></div>
+          <div id="led-state-${n.node_id}" style="font-size:11px;color:var(--text-dim);font-family:monospace">probing...</div>
+        </div>`).join('')
+      : '<span style="color:var(--text-dim);font-size:12px">No active nodes.</span>';
+
+    await Promise.all(nodes.map(async n => {
+      const el = document.getElementById(`led-state-${n.node_id}`);
+      if (!el) return;
+      try {
+        const r = await fetch(`/api/v1/nodes/${n.node_id}/led`, { signal: AbortSignal.timeout(3000) });
+        if (!r.ok) { el.textContent = `HTTP ${r.status} — firmware may lack LED`; el.style.color = '#fa7'; return; }
+        const j = await r.json();
+        el.innerHTML = `effect: <b>${j.effect}</b><br>rgb: (${j.r},${j.g},${j.b})  br: ${j.brightness}  gpio: ${j.gpio || '?'}`;
+        el.style.color = '#7f7';
+      } catch (e) {
+        el.textContent = 'unreachable (timeout) — needs v0.6.2+';
+        el.style.color = '#888';
+      }
+    }));
+    lightLog(`Refreshed ${nodes.length} active node(s).`, 'ok');
+  } catch (e) {
+    lightLog(`Refresh failed: ${e.message}`, 'err');
+  }
+}
+
+async function lightingApply(overrideEffect) {
+  const effect = overrideEffect || lightingEffect.value;
+  const { r, g, b } = hexToRgb(lightingColor.value);
+  const brightness = parseInt(lightingBr.value, 10);
+  const target = lightingTarget.value;
+  const body = JSON.stringify({ effect, r, g, b, brightness });
+
+  // Resolve target list.
+  let ids = [];
+  if (target === 'all') {
+    try {
+      const data = await (await fetch('/api/v1/nodes')).json();
+      ids = (data.nodes || []).filter(n => n.status === 'active').map(n => n.node_id);
+    } catch (e) { lightLog(`fetch nodes failed: ${e.message}`, 'err'); return; }
+  } else {
+    ids = [parseInt(target, 10)];
+  }
+
+  if (!ids.length) { lightLog('No active nodes to apply to.', 'err'); return; }
+  lightLog(`Applying "${effect}" rgb(${r},${g},${b}) br=${brightness} → node(s) ${ids.join(', ')}`);
+
+  const results = await Promise.all(ids.map(async id => {
+    try {
+      const r2 = await fetch(`/api/v1/nodes/${id}/led`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        signal: AbortSignal.timeout(4000),
+      });
+      return { id, ok: r2.ok, status: r2.status };
+    } catch (e) {
+      return { id, ok: false, status: e.name };
+    }
+  }));
+  const good = results.filter(r => r.ok).length;
+  lightLog(`Done: ${good}/${results.length} succeeded. ` +
+           results.filter(r => !r.ok).map(r => `node ${r.id}:${r.status}`).join(' '),
+           good === results.length ? 'ok' : 'err');
+  setTimeout(lightingRefresh, 600);
+}
+
+document.getElementById('btn-lighting-apply').addEventListener('click', () => lightingApply());
+document.getElementById('btn-lighting-off').addEventListener('click', () => lightingApply('off'));
+document.getElementById('btn-lighting-alert').addEventListener('click', () => lightingApply('alert'));
+document.getElementById('btn-lighting-refresh').addEventListener('click', lightingRefresh);
+
+// Auto-refresh when the Lighting tab is first shown.
+document.querySelector('[data-tab="lighting"]').addEventListener('click', () => {
+  setTimeout(lightingRefresh, 150);
+}, { once: true });
 </script>
 </body>
 </html>

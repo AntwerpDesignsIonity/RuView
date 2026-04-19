@@ -5372,6 +5372,200 @@ fn parse_nodes_yaml_lite(yaml: &str) -> Vec<serde_json::Value> {
     out
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// ADR-062: LED effects proxy
+// ──────────────────────────────────────────────────────────────────────
+//
+// Per-node WS2812 control is exposed on each ESP32 at http://<node-ip>:8032/led
+// (GET returns JSON state; POST with {effect, r, g, b, brightness} sets it).
+// Node IPs aren't reachable via DNS from the browser-side UI, so the server
+// proxies the request. We use a tiny raw-TCP HTTP/1.1 client to avoid pulling
+// in reqwest.
+
+const LED_NODE_PORT: u16 = 8032;
+const LED_NODE_TIMEOUT_MS: u64 = 4000;
+
+async fn led_node_request(
+    ip: std::net::IpAddr,
+    method: &str,
+    body: Option<&[u8]>,
+) -> Result<(u16, String), String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpStream;
+    use tokio::time::{timeout, Duration};
+
+    let addr = std::net::SocketAddr::new(ip, LED_NODE_PORT);
+    let connect_fut = TcpStream::connect(&addr);
+    let mut stream = timeout(Duration::from_millis(LED_NODE_TIMEOUT_MS), connect_fut)
+        .await
+        .map_err(|_| format!("connect timeout to {addr}"))?
+        .map_err(|e| format!("connect error to {addr}: {e}"))?;
+
+    let body_bytes = body.unwrap_or(&[]);
+    let request = format!(
+        "{method} /led HTTP/1.1\r\n\
+         Host: {ip}:{port}\r\n\
+         User-Agent: aedi-sensing-server\r\n\
+         Accept: application/json\r\n\
+         Connection: close\r\n\
+         Content-Type: application/json\r\n\
+         Content-Length: {len}\r\n\
+         \r\n",
+        method = method,
+        ip = ip,
+        port = LED_NODE_PORT,
+        len = body_bytes.len(),
+    );
+    timeout(
+        Duration::from_millis(LED_NODE_TIMEOUT_MS),
+        async {
+            stream.write_all(request.as_bytes()).await?;
+            if !body_bytes.is_empty() {
+                stream.write_all(body_bytes).await?;
+            }
+            stream.flush().await?;
+            Ok::<_, std::io::Error>(())
+        },
+    )
+    .await
+    .map_err(|_| "write timeout".to_string())?
+    .map_err(|e| format!("write error: {e}"))?;
+
+    let mut buf = Vec::with_capacity(1024);
+    timeout(Duration::from_millis(LED_NODE_TIMEOUT_MS), stream.read_to_end(&mut buf))
+        .await
+        .map_err(|_| "read timeout".to_string())?
+        .map_err(|e| format!("read error: {e}"))?;
+
+    // Minimal HTTP/1.1 response parser.
+    let text = String::from_utf8_lossy(&buf).into_owned();
+    let (head, rest) = text.split_once("\r\n\r\n").ok_or("malformed response")?;
+    let status = head
+        .lines()
+        .next()
+        .and_then(|s| s.split_whitespace().nth(1))
+        .and_then(|s| s.parse::<u16>().ok())
+        .ok_or("no status line")?;
+    // rest may be chunked; handle the simple case first, fall back to raw.
+    let body_txt = if head
+        .to_ascii_lowercase()
+        .contains("transfer-encoding: chunked")
+    {
+        // Concatenate chunked segments.
+        let mut out = String::new();
+        let mut cursor = rest;
+        loop {
+            let nl = match cursor.find("\r\n") { Some(v) => v, None => break };
+            let len = usize::from_str_radix(cursor[..nl].trim(), 16).unwrap_or(0);
+            if len == 0 { break; }
+            let data_start = nl + 2;
+            let data_end = data_start + len;
+            if data_end > cursor.len() { break; }
+            out.push_str(&cursor[data_start..data_end]);
+            cursor = &cursor[data_end + 2..]; // skip trailing \r\n
+        }
+        out
+    } else {
+        rest.to_string()
+    };
+    Ok((status, body_txt))
+}
+
+async fn resolve_node_ip(state: &SharedState, node_id: u8) -> Option<std::net::IpAddr> {
+    let s = state.read().await;
+    s.node_states.get(&node_id).and_then(|ns| ns.peer_ip)
+}
+
+/// GET /api/v1/nodes/:node_id/led — proxy to node's /led endpoint.
+async fn node_led_get(
+    State(state): State<SharedState>,
+    axum::extract::Path(node_id): axum::extract::Path<u8>,
+) -> (axum::http::StatusCode, axum::http::HeaderMap, String) {
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(axum::http::header::CONTENT_TYPE, "application/json".parse().unwrap());
+    let ip = match resolve_node_ip(&state, node_id).await {
+        Some(ip) => ip,
+        None => {
+            let body = format!("{{\"error\":\"unknown node {node_id}\"}}");
+            return (axum::http::StatusCode::NOT_FOUND, headers, body);
+        }
+    };
+    match led_node_request(ip, "GET", None).await {
+        Ok((status, body)) => (
+            axum::http::StatusCode::from_u16(status)
+                .unwrap_or(axum::http::StatusCode::BAD_GATEWAY),
+            headers,
+            body,
+        ),
+        Err(e) => (
+            axum::http::StatusCode::BAD_GATEWAY,
+            headers,
+            format!("{{\"error\":\"{}\"}}", e.replace('"', "'")),
+        ),
+    }
+}
+
+/// POST /api/v1/nodes/:node_id/led — forward JSON body to node.
+async fn node_led_set(
+    State(state): State<SharedState>,
+    axum::extract::Path(node_id): axum::extract::Path<u8>,
+    body: axum::body::Bytes,
+) -> (axum::http::StatusCode, axum::http::HeaderMap, String) {
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(axum::http::header::CONTENT_TYPE, "application/json".parse().unwrap());
+    let ip = match resolve_node_ip(&state, node_id).await {
+        Some(ip) => ip,
+        None => {
+            let b = format!("{{\"error\":\"unknown node {node_id}\"}}");
+            return (axum::http::StatusCode::NOT_FOUND, headers, b);
+        }
+    };
+    match led_node_request(ip, "POST", Some(&body)).await {
+        Ok((status, body)) => {
+            tracing::info!(node_id, status, "led proxy set OK");
+            // Best-effort: emit an event for the SQL tailer.
+            let _ = append_event_jsonl(
+                "led.set",
+                serde_json::json!({
+                    "node_id": node_id,
+                    "ip": ip.to_string(),
+                    "status": status,
+                }),
+            );
+            (
+                axum::http::StatusCode::from_u16(status)
+                    .unwrap_or(axum::http::StatusCode::BAD_GATEWAY),
+                headers,
+                body,
+            )
+        }
+        Err(e) => {
+            tracing::warn!(node_id, error = %e, "led proxy set failed");
+            (
+                axum::http::StatusCode::BAD_GATEWAY,
+                headers,
+                format!("{{\"error\":\"{}\"}}", e.replace('"', "'")),
+            )
+        }
+    }
+}
+
+/// Best-effort append to data/events.jsonl (used by the SQL tailer sidecar).
+fn append_event_jsonl(kind: &str, payload: serde_json::Value) -> std::io::Result<()> {
+    use std::io::Write;
+    let path = std::path::Path::new("data/events.jsonl");
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let ts = chrono::Utc::now().to_rfc3339();
+    let line = serde_json::json!({ "kind": kind, "payload": payload, "ts": ts });
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    writeln!(f, "{}", line)
+}
+
 /// POST /api/v1/nodes/positions — update node positions at runtime.
 async fn update_node_positions(
     State(state): State<SharedState>,
@@ -7143,6 +7337,8 @@ async fn main() {
         // Room config + node positions for XYZ Segment 3D page
         .route("/api/v1/room", get(room_endpoint))
         .route("/api/v1/nodes/positions", post(update_node_positions))
+        // ADR-062: LED effects proxy to each node's :8032/led endpoint.
+        .route("/api/v1/nodes/:node_id/led", get(node_led_get).post(node_led_set))
         .route("/api/v1/calibration/auto", post(calibration_auto_endpoint))
         .route("/api/v1/localization/person", get(localization_person_endpoint))
         .route("/api/v1/tomography", get(tomography_endpoint))
