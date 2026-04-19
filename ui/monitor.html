@@ -258,9 +258,18 @@
             <div class="status-cell-sub" id="ov-server-src">source: —</div>
           </div>
           <div class="status-cell">
-            <div class="status-cell-label">Hub IP</div>
+            <div class="status-cell-label" style="display:flex;justify-content:space-between;align-items:center">
+              <span>Hub IP</span>
+              <button id="btn-copy-hub-ip" title="Copy hub IP to clipboard"
+                style="font-size:9px;padding:2px 6px;background:transparent;border:1px solid var(--border);color:var(--text-dim);border-radius:3px;cursor:pointer">⧉ copy</button>
+            </div>
             <div class="status-cell-value val-blue" id="ov-hub-ip" style="font-size:18px;font-family:var(--font-mono,monospace)">—</div>
             <div class="status-cell-sub" id="ov-hub-ports">connected to —</div>
+          </div>
+          <div class="status-cell">
+            <div class="status-cell-label">Uptime</div>
+            <div class="status-cell-value val-green" id="ov-uptime" style="font-size:18px">—</div>
+            <div class="status-cell-sub" id="ov-version">version —</div>
           </div>
           <div class="status-cell">
             <div class="status-cell-label">Tick</div>
@@ -414,6 +423,7 @@
         <div class="card-title">Connected Nodes (via Server)</div>
         <div class="btn-row" style="margin-bottom:10px">
           <button class="btn btn-primary" id="btn-esp-scan">⟳ Scan / Refresh</button>
+          <button class="btn" id="btn-ping-all" title="HTTP ping every known node in parallel and show round-trip time">📡 Ping All</button>
           <span id="esp-scan-status" style="font-size:11px;color:var(--text-dim)"></span>
         </div>
         <div id="esp-table-wrap">
@@ -600,6 +610,7 @@
         <div class="card-title">Recent Events — last 50 entries from data/events.jsonl</div>
         <div class="btn-row" style="margin-bottom:8px">
           <button class="btn" id="btn-events-reload">↻ Reload</button>
+          <button class="btn" id="btn-events-csv" title="Download the last 50 events as a CSV file">⬇ CSV</button>
           <span id="events-count" style="font-size:11px;color:var(--text-dim);align-self:center"></span>
         </div>
         <div id="events-list" style="font-family:ui-monospace,monospace;font-size:11px;max-height:240px;overflow:auto;background:#020208;padding:8px;border-radius:4px"></div>
@@ -1878,6 +1889,105 @@ document.querySelector('button.tab-btn[data-tab="storage"]')?.addEventListener('
   setTimeout(() => { loadStorageStatus(); loadStorageEvents(); }, 100);
 });
 
+// ── New functions: uptime, copy hub IP, CSV export, ping all ──────────────────
+function fmtUptime(secs) {
+  secs = Math.max(0, Math.floor(secs || 0));
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (d) return `${d}d ${h}h ${m}m`;
+  if (h) return `${h}h ${m}m ${s}s`;
+  if (m) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+async function pollLive() {
+  try {
+    const [liveR, verR] = await Promise.all([
+      fetch('/health/live').then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch('/health/version').then(r => r.ok ? r.json() : null).catch(() => null),
+    ]);
+    if (liveR && liveR.uptime != null) q('ov-uptime').textContent = fmtUptime(liveR.uptime);
+    if (verR) {
+      const v = verR.version || verR.crate_version || verR.git_sha;
+      if (v) q('ov-version').textContent = `version ${v}`;
+    }
+  } catch (_) { /* silent */ }
+}
+
+q('btn-copy-hub-ip')?.addEventListener('click', async (e) => {
+  const ip = q('ov-hub-ip')?.textContent?.trim();
+  if (!ip || ip === '—') { window.aediToast?.warn?.('Hub IP not available yet'); return; }
+  try {
+    await navigator.clipboard.writeText(ip);
+    window.aediToast?.success?.(`Copied: ${ip}`);
+    e.currentTarget.textContent = '✓ copied';
+    setTimeout(() => { e.currentTarget.textContent = '⧉ copy'; }, 1500);
+  } catch (err) {
+    window.aediToast?.error?.(`Copy failed: ${err.message}`);
+  }
+});
+
+q('btn-events-csv')?.addEventListener('click', async () => {
+  try {
+    const r = await fetch(`${API}/storage/recent?limit=50`);
+    const d = await r.json();
+    const rows = d.events || [];
+    if (!rows.length) { window.aediToast?.warn?.('No events to export'); return; }
+    const esc = (v) => {
+      const s = v == null ? '' : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const lines = ['ts,kind,payload'];
+    for (const ev of rows) lines.push([esc(ev.ts), esc(ev.kind), esc(JSON.stringify(ev.payload || {}))].join(','));
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), {
+      href: url,
+      download: `aedi-events-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`,
+    });
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    window.aediToast?.success?.(`Exported ${rows.length} events`);
+  } catch (e) {
+    window.aediToast?.error?.(`Export failed: ${e.message}`);
+  }
+});
+
+q('btn-ping-all')?.addEventListener('click', async (e) => {
+  const status = q('esp-scan-status');
+  const btn = e.currentTarget;
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = '⏳ Pinging…';
+  try {
+    const nodes = await apiFetch(`${API}/nodes`);
+    const ips = Object.entries(nodes?.nodes || {})
+      .map(([id, info]) => ({ id, ip: info?.ip }))
+      .filter(n => n.ip);
+    if (!ips.length) { status.textContent = 'No node IPs known — run a scan first.'; return; }
+    status.textContent = `Pinging ${ips.length} node(s)…`;
+    const results = await Promise.all(ips.map(async ({ id, ip }) => {
+      const t0 = performance.now();
+      try {
+        const ctrl = new AbortController();
+        const to = setTimeout(() => ctrl.abort(), 2000);
+        await fetch(`http://${ip}/`, { mode: 'no-cors', signal: ctrl.signal });
+        clearTimeout(to);
+        return { id, ip, ok: true, ms: Math.round(performance.now() - t0) };
+      } catch (_) {
+        return { id, ip, ok: false, ms: Math.round(performance.now() - t0) };
+      }
+    }));
+    const okN = results.filter(r => r.ok).length;
+    status.textContent = `Ping: ${okN}/${results.length} reachable · ` +
+      results.map(r => `${r.id}=${r.ok ? r.ms + 'ms' : 'timeout'}`).join(', ');
+    appendLog(`Ping all nodes: ${okN}/${results.length} ok`, okN === results.length ? 'ok' : 'warn');
+  } catch (err) {
+    status.textContent = `Ping failed: ${err.message}`;
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+  }
+});
+
 // ── FPS counter ───────────────────────────────────────────────────────────────
 setInterval(() => {
   sigFps = sigFrameCount;
@@ -1890,8 +2000,10 @@ buildScriptList();
 pollHealth();
 pollVitals();
 pollZones();
+pollLive();
 healthInterval = setInterval(pollHealth, 3000);
 vitalsInterval = setInterval(() => { pollVitals(); pollZones(); }, 5000);
+setInterval(pollLive, 5000);
 resizeSignalCanvas();
 window.addEventListener('resize', resizeSignalCanvas);
 // Auto-connect WebSocket for live data across all tabs
