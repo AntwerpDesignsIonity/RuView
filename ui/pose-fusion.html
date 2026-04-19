@@ -33,6 +33,20 @@
     .status-dot.live { background: var(--green); box-shadow: 0 0 6px var(--green); }
     .status-dot.off  { background: var(--dim); }
 
+    /* Trail toggle button — always visible top-right of viewport */
+    #trail-btn {
+      position: absolute; top: 12px; right: 12px; z-index: 5;
+      background: rgba(5,5,16,0.85); color: var(--text);
+      border: 1px solid var(--accent); border-radius: 6px;
+      padding: 8px 14px; font-family: var(--font); font-size: 11px;
+      letter-spacing: 1px; cursor: pointer; transition: all 0.15s;
+      display: flex; align-items: center; gap: 8px;
+    }
+    #trail-btn:hover { background: var(--accent); color: #fff; }
+    #trail-btn.on { background: var(--accent); color: #fff; box-shadow: 0 0 12px rgba(0,136,255,0.5); }
+    #trail-btn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+    #trail-btn.on .dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
     /* Side panel */
     #side { background: var(--bg2); border-left: 1px solid var(--border); overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
     .panel { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
@@ -57,6 +71,9 @@
   <div id="main">
     <div id="pose-viewport">
       <canvas id="skeleton-canvas"></canvas>
+      <button id="trail-btn" class="on" title="Toggle 5-second motion trail">
+        <span class="dot"></span><span id="trail-label">TRAIL 5s: ON</span>
+      </button>
       <div id="pose-status">
         <div class="status-row"><span class="status-dot off" id="ws-dot"></span><span id="ws-label">Connecting…</span></div>
         <div class="status-row"><span id="tick-label" style="color:var(--text-dim)">tick: --</span></div>
@@ -120,6 +137,24 @@ const rssiCtx = rssiCanvas.getContext('2d');
 
 const rssiHistory = [];
 const RSSI_MAX = 100;
+
+// ── Trail / fade state ──────────────────────────────────────────────────────
+// When enabled, the skeleton canvas is not fully cleared each frame; instead
+// each frame applies a destination-out alpha wipe sized so that pixels decay
+// to zero over FADE_MS. At FADE_MS=5000 and 30 Hz, α ≈ 0.0067 per frame.
+const FADE_MS = 5000;
+let trailOn = true;
+let lastFrameTs = performance.now();
+
+const trailBtn = $('trail-btn');
+const trailLabel = $('trail-label');
+trailBtn.addEventListener('click', () => {
+  trailOn = !trailOn;
+  trailBtn.classList.toggle('on', trailOn);
+  trailLabel.textContent = trailOn ? 'TRAIL 5s: ON' : 'TRAIL: OFF';
+  // Full clear when turning off so leftover ghosts disappear immediately.
+  if (!trailOn) skCtx.clearRect(0, 0, skCanvas.width, skCanvas.height);
+});
 
 function resizeSkeleton() {
   const vp = $('pose-viewport');
@@ -197,18 +232,32 @@ function onData(d) {
 
 function drawSkeleton(keypoints, persons) {
   const w = skCanvas.width, h = skCanvas.height;
-  skCtx.clearRect(0, 0, w, h);
 
-  // Draw room grid
-  skCtx.strokeStyle = 'rgba(0,136,255,0.08)';
-  skCtx.lineWidth = 1;
-  for (let x = 0; x < w; x += 40) { skCtx.beginPath(); skCtx.moveTo(x, 0); skCtx.lineTo(x, h); skCtx.stroke(); }
-  for (let y = 0; y < h; y += 40) { skCtx.beginPath(); skCtx.moveTo(0, y); skCtx.lineTo(w, y); skCtx.stroke(); }
+  if (trailOn) {
+    // Fade existing pixels by α proportional to elapsed frame time so the
+    // trail decays in exactly FADE_MS regardless of WS rate.
+    const nowTs = performance.now();
+    const dt = Math.min(nowTs - lastFrameTs, 100); // cap runaway gaps
+    lastFrameTs = nowTs;
+    const alpha = dt / FADE_MS;
+    skCtx.save();
+    skCtx.globalCompositeOperation = 'destination-out';
+    skCtx.fillStyle = `rgba(0,0,0,${alpha})`;
+    skCtx.fillRect(0, 0, w, h);
+    skCtx.restore();
+  } else {
+    skCtx.clearRect(0, 0, w, h);
 
-  // Draw label
-  skCtx.fillStyle = 'rgba(200,216,240,0.15)';
-  skCtx.font = '10px Courier New';
-  skCtx.fillText('WIFI CSI POSE ESTIMATION — LIVE', 12, 20);
+    // Grid + header only redrawn in non-trail mode (would otherwise fade).
+    skCtx.strokeStyle = 'rgba(0,136,255,0.08)';
+    skCtx.lineWidth = 1;
+    for (let x = 0; x < w; x += 40) { skCtx.beginPath(); skCtx.moveTo(x, 0); skCtx.lineTo(x, h); skCtx.stroke(); }
+    for (let y = 0; y < h; y += 40) { skCtx.beginPath(); skCtx.moveTo(0, y); skCtx.lineTo(w, y); skCtx.stroke(); }
+
+    skCtx.fillStyle = 'rgba(200,216,240,0.15)';
+    skCtx.font = '10px Courier New';
+    skCtx.fillText('WIFI CSI POSE ESTIMATION — LIVE', 12, 20);
+  }
 
   // If we have pose_keypoints, draw them
   if (keypoints && keypoints.length > 0) {
@@ -237,14 +286,17 @@ function drawSkeleton(keypoints, persons) {
     return;
   }
 
-  // No keypoints — show "awaiting model" message
-  skCtx.fillStyle = 'rgba(200,216,240,0.3)';
-  skCtx.font = '14px Courier New';
-  skCtx.textAlign = 'center';
-  skCtx.fillText('Awaiting pose data from WiFi CSI', w / 2, h / 2 - 10);
-  skCtx.font = '10px Courier New';
-  skCtx.fillText('Load a trained .rvf model to enable skeleton rendering', w / 2, h / 2 + 12);
-  skCtx.textAlign = 'start';
+  // No keypoints — show "awaiting model" message (only when not trailing;
+  // trail mode would fade it anyway and the button label already says LIVE).
+  if (!trailOn) {
+    skCtx.fillStyle = 'rgba(200,216,240,0.3)';
+    skCtx.font = '14px Courier New';
+    skCtx.textAlign = 'center';
+    skCtx.fillText('Awaiting pose data from WiFi CSI', w / 2, h / 2 - 10);
+    skCtx.font = '10px Courier New';
+    skCtx.fillText('Load a trained .rvf model to enable skeleton rendering', w / 2, h / 2 + 12);
+    skCtx.textAlign = 'start';
+  }
 }
 
 function drawKeypointSkeleton(kps, w, h, color) {

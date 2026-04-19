@@ -151,7 +151,8 @@
           <div id="atlas-calibration" class="calibration-banner" style="display:none">
             <span class="cb-icon">⚠</span>
             <span class="cb-msg" id="atlas-calibration-msg">Room is not calibrated.</span>
-            <button onclick="applyDefaultLayout()">Apply default layout</button>
+            <button onclick="autoCalibrate()" title="Auto-detect node layout from live telemetry">Auto-calibrate</button>
+            <button onclick="applyDefaultLayout()" title="POST a fixed perimeter layout">Apply default layout</button>
           </div>
           <div class="section-head">
             <div>

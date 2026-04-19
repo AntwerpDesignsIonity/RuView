@@ -275,3 +275,12 @@ ionity/.pio/
 
 # Quarantined stale firmware bins (see firmware/esp32-csi-node/release_bins/README.md)
 firmware/esp32-csi-node/release_bins.stale-*/
+
+# Runtime state (should never be committed)
+logs/sensing-server.log
+logs/sensing-server.pid
+logs/*.pid
+data/events.jsonl
+data/node-config.json
+data/node-roles.json
+data/storage-config.json

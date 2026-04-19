@@ -1,12 +1,10 @@
 /**
  * Sensing WebSocket Service
  *
- * Manages the connection to the Python sensing WebSocket server
- * (ws://localhost:8765) and provides a callback-based API for the UI.
- *
- * Falls back to simulated data only after MAX_RECONNECT_ATTEMPTS exhausted.
- * While reconnecting the service stays in "reconnecting" state and does NOT
- * emit simulated frames so the UI can clearly distinguish live vs. fallback data.
+ * Manages the connection to the Rust sensing WebSocket server (ws://host:3001)
+ * and provides a callback-based API for the UI. Real data only — if the server
+ * is unreachable the service stays in "reconnecting" state forever and never
+ * fabricates frames.
  */
 
 // Derive WebSocket URL from the page origin so it works on any host.
@@ -15,11 +13,7 @@ const _wsProto = (typeof window !== 'undefined' && window.location.protocol === 
 const _wsHostname = (typeof window !== 'undefined' && window.location.hostname) ? window.location.hostname : 'localhost';
 const SENSING_WS_URL = `${_wsProto}//${_wsHostname}:3001/ws/sensing`;
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000];
-const MAX_RECONNECT_ATTEMPTS = 20;
-// Number of failed attempts that must occur before simulation starts.
-// This prevents the UI from flashing "SIMULATED" on a brief hiccup.
-const SIM_FALLBACK_AFTER_ATTEMPTS = 5;
-const SIMULATION_INTERVAL = 500; // ms
+const MAX_RECONNECT_ATTEMPTS = 999999; // effectively infinite — real data only
 const HEALTH_CHECK_INTERVAL = 15000; // ms
 const WATCHDOG_INTERVAL = 1000; // ms
 const STALE_FRAME_WARN_MS = 7000;
@@ -42,15 +36,14 @@ class SensingService {
     this._isRunning = false;
     this._isStopping = false;
     this._lastAutoRecoverAt = 0;
-    // Connection state: disconnected | connecting | connected | reconnecting | simulated
+    // Connection state: disconnected | connecting | connected | reconnecting
     this._state = 'disconnected';
     // Data-source label exposed to the UI:
     //   "live"              — real ESP32 hardware connected
-    //   "server-simulated"  — server is running but using synthetic data (no hardware)
+    //   "hardware-offline"  — server up, no ESP32 frames yet
     //   "reconnecting"      — WebSocket disconnected, retrying
-    //   "simulated"         — client-side fallback simulation (server unreachable)
     this._dataSource = 'reconnecting';
-    // The raw source string from the server (e.g. "esp32", "simulated", "simulate")
+    // The raw source string from the server (e.g. "esp32", "esp32:offline")
     this._serverSource = null;
     this._lastMessage = null;
     this._lastFrameAt = 0;
@@ -262,39 +255,15 @@ class SensingService {
       this._connect();
     }, delay);
 
-    // Only start simulation after several failed attempts so a brief hiccup
-    // does not immediately switch the UI to "SIMULATED DATA".
-    if (this._reconnectAttempt >= SIM_FALLBACK_AFTER_ATTEMPTS && this._state !== 'simulated') {
-      this._fallbackToSimulation();
-    }
-
     this._emitDiagnostics();
   }
 
-  // ---- Simulation fallback -----------------------------------------------
+  // ---- Simulation removed — real data only -------------------------------
 
-  _fallbackToSimulation() {
-    this._setState('simulated');
-    this._setDataSource('simulated');
-    if (this._simTimer) return; // already running
-    console.info('[Sensing] Running in simulation mode');
+  _fallbackToSimulation() { /* no-op: simulation disabled */ }
+  _stopSimulation() { /* no-op: simulation disabled */ }
 
-    this._simTimer = setInterval(() => {
-      const data = this._generateSimulatedData();
-      this._handleData(data);
-    }, SIMULATION_INTERVAL);
-
-    this._emitDiagnostics();
-  }
-
-  _stopSimulation() {
-    if (this._simTimer) {
-      clearInterval(this._simTimer);
-      this._simTimer = null;
-    }
-  }
-
-  _generateSimulatedData() {
+  _generateSimulatedData_DISABLED() {
     const t = Date.now() / 1000;
     const baseRssi = -45;
     const variance = 1.5 + Math.sin(t * 0.1) * 1.0;
@@ -422,11 +391,10 @@ class SensingService {
     } else if (rawSource === 'esp32:offline') {
       // Hardware provisioned but no UDP frames yet — waiting for ESP32 WiFi or bridge
       this._setDataSource('hardware-offline');
-    } else if (rawSource === 'simulated' || rawSource === 'simulate') {
-      this._setDataSource('server-simulated');
     } else {
-      // Unknown source — show as server-simulated to be safe
-      this._setDataSource('server-simulated');
+      // Server should never emit simulated data anymore — treat anything
+      // unknown as "waiting for hardware".
+      this._setDataSource('hardware-offline');
     }
     this._emitDiagnostics();
   }

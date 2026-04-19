@@ -248,6 +248,10 @@
         <div class="ctx-row"><span class="ctx-label">Model</span><span class="ctx-val" id="ctx-model">—</span></div>
         <div class="ctx-row"><span class="ctx-label">Ollama</span><span class="ctx-val" id="ctx-ollama">—</span></div>
         <div class="ctx-row"><span class="ctx-label">Sessions</span><span class="ctx-val" id="ctx-sessions">0</span></div>
+        <button id="btn-start-ai" onclick="startOfflineAi()"
+          style="margin-top:8px;width:100%;padding:8px 10px;font-size:12px;font-weight:600;background:var(--accent2,#0af);color:#000;border:none;border-radius:4px;cursor:pointer"
+          title="Launch the local Ollama engine so AEDI can answer offline">🧠 Start Offline AI</button>
+        <div id="start-ai-msg" style="margin-top:6px;font-size:10px;color:var(--text-dim);min-height:12px"></div>
       </div>
 
       <div class="ctx-section">
@@ -309,45 +313,128 @@ const SESSION_ID = 'aedi-' + Math.random().toString(36).slice(2, 10);
 let sending = false;
 
 // ── Context polling ──────────────────────────────────────────────────────────
-async function pollContext() {
+// Primary source is the AEDI chat service (:3003). When it's offline we fall
+// back to the sensing server (:3000) so the sidebar still shows live telemetry
+// rather than a row of "?"s.
+function fmtUptime(secs) {
+  secs = Math.floor(secs || 0);
+  if (secs < 60) return secs + 's';
+  if (secs < 3600) return Math.floor(secs/60) + 'm ' + (secs%60) + 's';
+  if (secs < 86400) return Math.floor(secs/3600) + 'h ' + Math.floor((secs%3600)/60) + 'm';
+  return Math.floor(secs/86400) + 'd ' + Math.floor((secs%86400)/3600) + 'h';
+}
+
+// ── Offline AI control ───────────────────────────────────────────────────────
+// Launches the local Ollama LLM engine via the sensing-server endpoint on :3000
+// (same origin as this page). AEDI's Python backend on :3003 will auto-detect
+// Ollama once it's online at :11434.
+async function startOfflineAi() {
+  const btn = el('btn-start-ai');
+  const msg = el('start-ai-msg');
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = '⏳ Starting…';
+  msg.style.color = 'var(--text-dim)';
+  msg.textContent = 'Launching ollama serve…';
   try {
-    // AEDI health
-    const ah = await fetch(`${AEDI_BASE}/health`).then(r => r.json()).catch(() => null);
-    if (ah) {
-      el('ctx-status').textContent = ah.status || '?';
-      el('ctx-status').className = 'ctx-val ' + (ah.status === 'ok' ? 'ok' : 'err');
-      el('ctx-model').textContent = ah.model || '?';
-      el('ctx-ollama').textContent = ah.ollama?.online ? 'online' : 'offline';
-      el('ctx-ollama').className = 'ctx-val ' + (ah.ollama?.online ? 'ok' : 'err');
-      el('ctx-sessions').textContent = ah.active_conversations || 0;
-      el('nav-model').textContent = ah.model || '—';
-      el('nav-dot').className = 'dot ' + (ah.ollama?.online ? 'dot-green' : 'dot-red');
-      el('nav-status').textContent = ah.ollama?.online ? 'online' : 'offline';
+    const r = await fetch(`${SENSING_BASE}/api/v1/ollama/start`, {
+      method: 'POST',
+      headers: {'content-type':'application/json'},
+      body: '{}',
+    });
+    const j = await r.json();
+    if (!j.ok) {
+      msg.style.color = 'var(--err,#e55)';
+      msg.innerHTML = `✗ ${j.error || 'start failed'}${j.hint ? ' — ' + j.hint : ''}`;
+    } else if (j.already_running) {
+      msg.style.color = 'var(--ok,#0c8)';
+      msg.textContent = '✓ Ollama already running';
+    } else if (j.online) {
+      msg.style.color = 'var(--ok,#0c8)';
+      msg.textContent = `✓ Ollama up (pid ${j.pid})`;
     } else {
-      el('ctx-status').textContent = 'offline';
-      el('ctx-status').className = 'ctx-val err';
-      el('nav-dot').className = 'dot dot-red';
-      el('nav-status').textContent = 'offline';
+      msg.style.color = 'var(--warn,#fb0)';
+      msg.textContent = `Started (pid ${j.pid}); waiting for model load…`;
     }
-    // Sensing context
-    const ctx = await fetch(`${AEDI_BASE}/api/context`).then(r => r.json()).catch(() => null);
-    if (ctx?.raw) {
-      const s = ctx.raw.sensing || {};
-      const h = ctx.raw.health || {};
-      const a = ctx.raw.autorepair || {};
-      el('ctx-source').textContent = s.source || '?';
-      el('ctx-tick').textContent = s.tick ?? '?';
-      el('ctx-nodes').textContent = (s.nodes || []).length;
-      el('ctx-motion').textContent = s.motion || '?';
-      el('ctx-motion').className = 'ctx-val ' + (s.motion === 'present' ? 'warn' : '');
-      el('ctx-health').textContent = h.status || '?';
-      el('ctx-health').className = 'ctx-val ' + (h.status === 'ok' ? 'ok' : 'err');
-      el('ctx-autorepair').textContent = a.healthy ? 'healthy' : a.healthy === false ? 'degraded' : '?';
-      el('ctx-autorepair').className = 'ctx-val ' + (a.healthy ? 'ok' : a.healthy === false ? 'err' : '');
-      el('ctx-memory').textContent = a.rss_mb ? `${a.rss_mb} MB` : '?';
-      el('ctx-uptime').textContent = a.uptime_secs ? `${a.uptime_secs}s` : '?';
-    }
-  } catch(e) {}
+  } catch (e) {
+    msg.style.color = 'var(--err,#e55)';
+    msg.textContent = `✗ ${e.message}`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
+    // Force a fresh context poll so Ollama and AEDI badges update immediately.
+    pollContext();
+  }
+}
+
+async function pollContext() {
+  // AEDI chat service (optional — may be offline on minimal stacks)
+  const ah = await fetch(`${AEDI_BASE}/health`)
+    .then(r => r.ok ? r.json() : null).catch(() => null);
+  if (ah) {
+    el('ctx-status').textContent = ah.status || 'ok';
+    el('ctx-status').className = 'ctx-val ' + (ah.status === 'ok' ? 'ok' : 'err');
+    el('ctx-model').textContent = ah.model || '—';
+    el('ctx-ollama').textContent = ah.ollama?.online ? 'online' : 'offline';
+    el('ctx-ollama').className = 'ctx-val ' + (ah.ollama?.online ? 'ok' : 'err');
+    el('ctx-sessions').textContent = ah.active_conversations ?? 0;
+    el('nav-model').textContent = ah.model || '—';
+    el('nav-dot').className = 'dot ' + (ah.ollama?.online ? 'dot-green' : 'dot-red');
+    el('nav-status').textContent = ah.ollama?.online ? 'online' : 'offline';
+  } else {
+    el('ctx-status').textContent = 'offline';
+    el('ctx-status').className = 'ctx-val err';
+    el('ctx-model').textContent = '—';
+    el('ctx-ollama').textContent = 'offline';
+    el('ctx-ollama').className = 'ctx-val err';
+    el('nav-model').textContent = '—';
+    el('nav-dot').className = 'dot dot-red';
+    el('nav-status').textContent = 'offline';
+  }
+
+  // Sensing server (always expected). Populate from :3000 whether or not
+  // the chat service is up.
+  const [h, ar, nodes, latest] = await Promise.all([
+    fetch(`${SENSING_BASE}/health`).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(`${SENSING_BASE}/health/autorepair`).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(`${SENSING_BASE}/api/v1/nodes`).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(`${SENSING_BASE}/api/v1/sensing/latest`).then(r => r.ok ? r.json() : null).catch(() => null),
+  ]);
+
+  if (h) {
+    el('ctx-source').textContent = h.source || '—';
+    el('ctx-tick').textContent = h.tick ?? '—';
+    el('ctx-health').textContent = h.status || '—';
+    el('ctx-health').className = 'ctx-val ' + (h.status === 'ok' ? 'ok' : 'err');
+  } else {
+    el('ctx-source').textContent = 'offline';
+    el('ctx-tick').textContent = '—';
+    el('ctx-health').textContent = 'offline';
+    el('ctx-health').className = 'ctx-val err';
+  }
+
+  el('ctx-nodes').textContent = Array.isArray(nodes?.nodes) ? nodes.nodes.length : '0';
+
+  const motion = latest?.classification?.motion_level
+    || (latest?.classification?.presence ? 'present' : (latest ? 'idle' : '—'));
+  el('ctx-motion').textContent = motion;
+  el('ctx-motion').className = 'ctx-val ' +
+    (motion === 'idle' || motion === '—' ? '' :
+     motion === 'present_still' ? 'warn' : 'ok');
+
+  const a = ar?.autorepair;
+  if (a) {
+    const healthy = a.healthy === true;
+    el('ctx-autorepair').textContent = healthy ? 'healthy' : 'degraded';
+    el('ctx-autorepair').className = 'ctx-val ' + (healthy ? 'ok' : 'err');
+    el('ctx-memory').textContent = a.memory_mb ? `${a.memory_mb} MB` : '—';
+    el('ctx-uptime').textContent = a.uptime_secs != null ? fmtUptime(a.uptime_secs) : '—';
+  } else {
+    el('ctx-autorepair').textContent = '—';
+    el('ctx-autorepair').className = 'ctx-val';
+    el('ctx-memory').textContent = '—';
+    el('ctx-uptime').textContent = '—';
+  }
 }
 
 // ── Chat ─────────────────────────────────────────────────────────────────────

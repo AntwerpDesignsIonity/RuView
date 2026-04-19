@@ -222,9 +222,6 @@ function updateModeFromSource(source) {
     btnWifi.classList.remove('active'); btnUsb.classList.add('active');
     statusEl.innerHTML = '<span class="dot green"></span>USB serial bridge active';
     warnEl.style.display = 'none';
-  } else if (source === 'simulated' || source === 'simulate') {
-    statusEl.innerHTML = '<span class="dot red"></span>Server simulated data — no hardware';
-    warnEl.style.display = 'none';
   } else {
     statusEl.innerHTML = `<span class="dot yellow"></span>Source: ${source || 'unknown'}`;
     warnEl.style.display = 'none';

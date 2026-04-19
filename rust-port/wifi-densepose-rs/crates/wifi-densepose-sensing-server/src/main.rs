@@ -98,7 +98,7 @@ struct Args {
     #[arg(long, default_value = "127.0.0.1", env = "SENSING_BIND_ADDR")]
     bind_addr: String,
 
-    /// Data source: auto, wifi, esp32, simulate
+    /// Data source: auto, wifi, esp32 (simulation is disabled — real data only)
     #[arg(long, default_value = "auto")]
     source: String,
 
@@ -2103,35 +2103,6 @@ async fn probe_esp32(port: u16) -> bool {
     }
 }
 
-// ── Simulated data generator ─────────────────────────────────────────────────
-
-fn generate_simulated_frame(tick: u64) -> Esp32Frame {
-    let t = tick as f64 * 0.1;
-    let n_sub = 56usize;
-    let mut amplitudes = Vec::with_capacity(n_sub);
-    let mut phases = Vec::with_capacity(n_sub);
-
-    for i in 0..n_sub {
-        let base = 15.0 + 5.0 * (i as f64 * 0.1 + t * 0.3).sin();
-        let noise = (i as f64 * 7.3 + t * 13.7).sin() * 2.0;
-        amplitudes.push((base + noise).max(0.1));
-        phases.push((i as f64 * 0.2 + t * 0.5).sin() * std::f64::consts::PI);
-    }
-
-    Esp32Frame {
-        magic: 0xC511_0001,
-        node_id: 1,
-        n_antennas: 1,
-        n_subcarriers: n_sub as u8,
-        freq_mhz: 2437,
-        sequence: tick as u32,
-        rssi: (-40.0 + 5.0 * (t * 0.2).sin()) as i8,
-        noise_floor: -90,
-        amplitudes,
-        phases,
-    }
-}
-
 // ── WebSocket handler ────────────────────────────────────────────────────────
 
 async fn ws_sensing_handler(
@@ -2330,6 +2301,320 @@ async fn handle_ws_pose_client(mut socket: WebSocket, state: SharedState) {
 
 // ── REST endpoints ───────────────────────────────────────────────────────────
 
+/// Best-effort local LAN IPv4 detection.
+///
+/// Opens a non-routing UDP socket "connected" to a public address and asks
+/// the kernel which local interface IP it picked.  Cached after first call.
+/// Returns `0.0.0.0` if all attempts fail.
+fn detect_hub_ip() -> String {
+    use std::sync::OnceLock;
+    static CACHE: OnceLock<String> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        // Try IPv4 routing first (no packets actually sent).
+        if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
+            if sock.connect("8.8.8.8:80").is_ok() {
+                if let Ok(addr) = sock.local_addr() {
+                    let ip = addr.ip().to_string();
+                    if ip != "0.0.0.0" { return ip; }
+                }
+            }
+        }
+        // Fallback to RFC1918 LAN-only target.
+        if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
+            if sock.connect("192.168.1.1:80").is_ok() {
+                if let Ok(addr) = sock.local_addr() {
+                    return addr.ip().to_string();
+                }
+            }
+        }
+        "0.0.0.0".to_string()
+    }).clone()
+}
+
+// ── Node role registry ───────────────────────────────────────────────────────
+// Per-node TX/RX/TXRX label used by the multistatic sensing pipeline. The
+// authoritative role is flashed to NVS via `provision.py --node-role`, but the
+// running ESP32 firmware doesn't currently echo it back, so we maintain a
+// hub-side override map persisted to `data/node-roles.json`. UI can label
+// nodes immediately and queue physical re-flashes later.
+//
+// Values: "tx" (transmitter / NDP injection), "rx" (receiver / CSI capture),
+// "txrx" (default bistatic transceiver), "unknown" (never assigned).
+fn node_role_path() -> std::path::PathBuf {
+    std::path::PathBuf::from("data/node-roles.json")
+}
+
+fn node_role_registry() -> &'static std::sync::RwLock<std::collections::HashMap<u8, String>> {
+    use std::sync::OnceLock;
+    static REG: OnceLock<std::sync::RwLock<std::collections::HashMap<u8, String>>> = OnceLock::new();
+    REG.get_or_init(|| {
+        let map: std::collections::HashMap<u8, String> = std::fs::read_to_string(node_role_path())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        std::sync::RwLock::new(map)
+    })
+}
+
+/// Look up a node's role; returns "txrx" if no override is set (the firmware
+/// default), or "unknown" only if explicitly recorded as such.
+fn node_role_for(id: u8) -> String {
+    node_role_registry()
+        .read()
+        .ok()
+        .and_then(|g| g.get(&id).cloned())
+        .unwrap_or_else(|| "txrx".to_string())
+}
+
+fn set_node_role(id: u8, role: &str) -> Result<(), String> {
+    let role = role.to_lowercase();
+    if !matches!(role.as_str(), "tx" | "rx" | "txrx" | "unknown") {
+        warn!(node_id = id, role = %role,
+            "node-role: rejected invalid role (must be tx|rx|txrx|unknown)");
+        return Err(format!("invalid role '{}': must be tx, rx, txrx, or unknown", role));
+    }
+    let (prev, snapshot) = {
+        let mut g = node_role_registry().write().map_err(|e| e.to_string())?;
+        let prev = g.insert(id, role.clone()).unwrap_or_else(|| "txrx".to_string());
+        (prev, g.clone())
+    };
+    if let Some(parent) = node_role_path().parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let path = node_role_path();
+    std::fs::write(
+        &path,
+        serde_json::to_string_pretty(&snapshot).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    if prev == role {
+        info!(node_id = id, role = %role, persisted = %path.display(),
+            "node-role: no change (idempotent write)");
+    } else {
+        info!(node_id = id, prev = %prev, new = %role,
+            persisted = %path.display(), registry_size = snapshot.len(),
+            "node-role: changed");
+        record_event("role.changed", serde_json::json!({
+            "node_id": id, "prev": prev, "new": role,
+        }));
+    }
+    Ok(())
+}
+
+// ── Per-node remote config registry ──────────────────────────────────────────
+// Hub-side settings (CSI packet rate, radio channel, TX power) that the node
+// can poll and adopt at runtime. Persisted to `data/node-config.json` so
+// settings survive hub restarts. The ESP32 firmware picks these up via the
+// existing `swarm_bridge` poll loop; if the firmware predates the poll, the
+// config is still durable and applied by future `provision.py` runs.
+//
+// Rationale: operators want to throttle a noisy node or boost a far one
+// without reflashing. The rate is clamped to 1..=200 Hz because below 1 Hz
+// breathing estimation falls apart and above 200 Hz the UDP pipeline chokes.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
+struct NodeConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rate_hz: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    channel: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tx_power_dbm: Option<i8>,
+    /// Monotonic revision bumped on every change — nodes only reapply when
+    /// this increases, so a poll loop can short-circuit.
+    #[serde(default)]
+    revision: u32,
+}
+
+fn node_config_path() -> std::path::PathBuf {
+    std::path::PathBuf::from("data/node-config.json")
+}
+
+fn node_config_registry() -> &'static std::sync::RwLock<std::collections::HashMap<u8, NodeConfig>> {
+    use std::sync::OnceLock;
+    static REG: OnceLock<std::sync::RwLock<std::collections::HashMap<u8, NodeConfig>>> =
+        OnceLock::new();
+    REG.get_or_init(|| {
+        let map: std::collections::HashMap<u8, NodeConfig> =
+            std::fs::read_to_string(node_config_path())
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_default();
+        std::sync::RwLock::new(map)
+    })
+}
+
+fn node_config_for(id: u8) -> NodeConfig {
+    node_config_registry()
+        .read()
+        .ok()
+        .and_then(|g| g.get(&id).cloned())
+        .unwrap_or_default()
+}
+
+/// Merge a patch into a node's stored config. Only fields present in `patch`
+/// are applied (null or missing fields are left untouched). Returns the new
+/// merged state or a validation error string.
+fn set_node_config(id: u8, patch: &serde_json::Value) -> Result<NodeConfig, String> {
+    // Validate ranges before touching the registry.
+    let rate_hz = match patch.get("rate_hz") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(v) => {
+            let n = v.as_u64().ok_or_else(|| "rate_hz must be a positive integer".to_string())?;
+            if !(1..=200).contains(&n) {
+                return Err(format!("rate_hz {} out of range [1, 200]", n));
+            }
+            Some(n as u16)
+        }
+    };
+    let channel = match patch.get("channel") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(v) => {
+            let n = v.as_u64().ok_or_else(|| "channel must be an integer".to_string())?;
+            // Valid 2.4 GHz channels (1-13) + 5 GHz (36-165). Permissive range.
+            if !(1..=165).contains(&n) {
+                return Err(format!("channel {} out of range [1, 165]", n));
+            }
+            Some(n as u8)
+        }
+    };
+    let tx_power_dbm = match patch.get("tx_power_dbm") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(v) => {
+            let n = v.as_i64().ok_or_else(|| "tx_power_dbm must be an integer".to_string())?;
+            if !(-4..=20).contains(&n) {
+                return Err(format!("tx_power_dbm {} out of range [-4, 20]", n));
+            }
+            Some(n as i8)
+        }
+    };
+    let snapshot = {
+        let mut g = node_config_registry().write().map_err(|e| e.to_string())?;
+        let entry = g.entry(id).or_default();
+        let mut changed = false;
+        if let Some(r) = rate_hz {
+            if entry.rate_hz != Some(r) { entry.rate_hz = Some(r); changed = true; }
+        }
+        if let Some(c) = channel {
+            if entry.channel != Some(c) { entry.channel = Some(c); changed = true; }
+        }
+        if let Some(p) = tx_power_dbm {
+            if entry.tx_power_dbm != Some(p) { entry.tx_power_dbm = Some(p); changed = true; }
+        }
+        if changed {
+            entry.revision = entry.revision.saturating_add(1);
+        }
+        g.clone()
+    };
+    if let Some(parent) = node_config_path().parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(
+        node_config_path(),
+        serde_json::to_string_pretty(&snapshot).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    let cfg = snapshot.get(&id).cloned().unwrap_or_default();
+    info!(node_id = id, rate_hz = ?cfg.rate_hz, channel = ?cfg.channel,
+        tx_power_dbm = ?cfg.tx_power_dbm, revision = cfg.revision,
+        "node-config: persisted");
+    Ok(cfg)
+}
+
+/// POST /api/v1/node-config — merge patch into a node's stored config.
+/// Body: `{"node_id": <u8>, "rate_hz"?: <1..200>, "channel"?: <1..165>,
+///         "tx_power_dbm"?: <-4..20>}`.
+/// Any combination of the three may be omitted — only what's present is
+/// written. Returns the new merged state and a bumped revision number.
+async fn node_config_set(
+    Json(body): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    let id = match body.get("node_id").and_then(|v| v.as_u64()) {
+        Some(n) if n <= 255 => n as u8,
+        _ => {
+            return Json(serde_json::json!({
+                "ok": false,
+                "error": "missing/invalid node_id (expected u8 0-255)",
+            }));
+        }
+    };
+    match set_node_config(id, &body) {
+        Ok(cfg) => Json(serde_json::json!({
+            "ok": true,
+            "node_id": id,
+            "config": cfg,
+        })),
+        Err(e) => Json(serde_json::json!({
+            "ok": false,
+            "node_id": id,
+            "error": e,
+        })),
+    }
+}
+
+/// GET /api/v1/node-config?node_id=<u8> — firmware polling endpoint.
+/// Returns the current config; empty object if nothing has been set. Nodes
+/// should compare `revision` against the last-applied value and reapply
+/// (rate / channel / tx-power) only when it increases.
+async fn node_config_get(
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let id = match q.get("node_id").and_then(|v| v.parse::<u8>().ok()) {
+        Some(n) => n,
+        None => {
+            return Json(serde_json::json!({
+                "ok": false,
+                "error": "missing/invalid node_id query param",
+            }));
+        }
+    };
+    let cfg = node_config_for(id);
+    Json(serde_json::json!({
+        "ok": true,
+        "node_id": id,
+        "config": cfg,
+    }))
+}
+
+/// GET /api/v1/node-config/all — snapshot of every configured node. Used by
+/// the UI to render the per-node row controls in one fetch.
+async fn node_config_list() -> Json<serde_json::Value> {
+    let snapshot = node_config_registry()
+        .read()
+        .ok()
+        .map(|g| g.clone())
+        .unwrap_or_default();
+    Json(serde_json::json!({
+        "ok": true,
+        "nodes": snapshot,
+    }))
+}
+
+/// Returns the count of currently-active TX / RX nodes by cross-referencing
+/// the role registry against per-node liveness (last_frame_time within 5 s).
+/// Inactive role assignments are reported separately so the UI can warn.
+fn role_quality_summary(
+    states: &std::collections::HashMap<u8, NodeState>,
+) -> (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>) {
+    let now = std::time::Instant::now();
+    let mut tx_active = Vec::new();
+    let mut rx_active = Vec::new();
+    let mut tx_inactive = Vec::new();
+    let mut rx_inactive = Vec::new();
+    for (&id, ns) in states.iter() {
+        let elapsed_ms = ns.last_frame_time
+            .map(|t| now.duration_since(t).as_millis() as u64)
+            .unwrap_or(u64::MAX);
+        let active = elapsed_ms <= 5_000;
+        match node_role_for(id).as_str() {
+            "tx"  => if active { tx_active.push(id) } else { tx_inactive.push(id) },
+            "rx"  => if active { rx_active.push(id) } else { rx_inactive.push(id) },
+            _ => {}
+        }
+    }
+    tx_active.sort(); rx_active.sort(); tx_inactive.sort(); rx_inactive.sort();
+    (tx_active, rx_active, tx_inactive, rx_inactive)
+}
+
 async fn health(State(state): State<SharedState>) -> Json<serde_json::Value> {
     let s = state.read().await;
     Json(serde_json::json!({
@@ -2337,6 +2622,449 @@ async fn health(State(state): State<SharedState>) -> Json<serde_json::Value> {
         "source": s.effective_source(),
         "tick": s.tick,
         "clients": s.tx.receiver_count(),
+        "hub_ip": detect_hub_ip(),
+    }))
+}
+
+/// POST /api/v1/role-set — set TX/RX/TXRX label for a node.
+/// Body: `{"node_id": <u8>, "role": "tx" | "rx" | "txrx" | "unknown"}`.
+/// Persists to `data/node-roles.json`. Survives restart but does NOT reflash
+/// the ESP32 — for true RF-level role separation re-run
+/// `provision.py --node-role tx --no-firmware` against the device.
+/// Flat path (no URL parameter) sidesteps the matchit param/literal collision
+/// with /api/v1/nodes/positions and /api/v1/nodes/{id} style routes.
+async fn node_role_set(
+    Json(body): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    let id = match body.get("node_id").and_then(|v| v.as_u64()) {
+        Some(n) if n <= 255 => n as u8,
+        _ => {
+            warn!(?body, "role-set: missing/invalid node_id");
+            return Json(serde_json::json!({
+                "ok": false, "error": "missing/invalid node_id (expected u8 0-255)"
+            }));
+        }
+    };
+    let role = body.get("role").and_then(|v| v.as_str()).unwrap_or("");
+    info!(node_id = id, role = %role, "role-set: incoming request");
+    match set_node_role(id, role) {
+        Ok(()) => Json(serde_json::json!({
+            "ok": true,
+            "node_id": id,
+            "role": node_role_for(id),
+        })),
+        Err(e) => Json(serde_json::json!({
+            "ok": false,
+            "node_id": id,
+            "error": e,
+        })),
+    }
+}
+
+/// POST /api/v1/role-set/auto — auto-assign roles for active nodes.
+/// Picks the active node with the strongest mean RSSI as the TX (highest
+/// SNR = best NDP injector), and assigns RX to all other active nodes.
+/// Body (optional): `{"prefer_node_id": <u8>}` — if present, force that node
+/// as TX instead of strongest-RSSI. Returns the resulting assignment.
+async fn node_role_auto(
+    State(state): State<SharedState>,
+    body: Option<Json<serde_json::Value>>,
+) -> Json<serde_json::Value> {
+    let prefer = body.as_ref()
+        .and_then(|b| b.get("prefer_node_id"))
+        .and_then(|v| v.as_u64())
+        .filter(|n| *n <= 255)
+        .map(|n| n as u8);
+    let s = state.read().await;
+    let now = std::time::Instant::now();
+    // Active nodes only (frame within 5 s) — never assign roles to dead ones.
+    let mut active: Vec<(u8, f32)> = s.node_states.iter()
+        .filter_map(|(&id, ns)| {
+            let elapsed_ms = ns.last_frame_time
+                .map(|t| now.duration_since(t).as_millis() as u64)?;
+            if elapsed_ms > 5_000 { return None; }
+            let mean_rssi = if !ns.rssi_history.is_empty() {
+                let sum: f64 = ns.rssi_history.iter().sum();
+                sum / ns.rssi_history.len() as f64
+            } else {
+                ns.rssi_history.back().copied().unwrap_or(-90.0_f64)
+            };
+            Some((id, mean_rssi as f32))
+        })
+        .collect();
+    drop(s);
+    if active.len() < 2 {
+        warn!(active = active.len(),
+            "role-set/auto: need >=2 active nodes for multistatic, refusing");
+        return Json(serde_json::json!({
+            "ok": false,
+            "error": "need at least 2 active nodes (one TX + one RX) for multistatic",
+            "active_nodes": active.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+        }));
+    }
+    // Strongest mean RSSI first (least negative).
+    active.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    let tx_id = prefer
+        .filter(|p| active.iter().any(|(id, _)| id == p))
+        .unwrap_or_else(|| active[0].0);
+    let mut assigned = Vec::with_capacity(active.len());
+    let mut errors = Vec::new();
+    for (id, _) in &active {
+        let role = if *id == tx_id { "tx" } else { "rx" };
+        match set_node_role(*id, role) {
+            Ok(()) => assigned.push(serde_json::json!({"node_id": id, "role": role})),
+            Err(e) => errors.push(serde_json::json!({"node_id": id, "error": e})),
+        }
+    }
+    info!(tx_node = tx_id, rx_count = assigned.len().saturating_sub(1),
+        prefer = ?prefer, "role-set/auto: assigned roles");
+    Json(serde_json::json!({
+        "ok": errors.is_empty(),
+        "tx_node_id": tx_id,
+        "assigned": assigned,
+        "errors": errors,
+        "strategy": if prefer.is_some() { "prefer" } else { "strongest_rssi" },
+    }))
+}
+
+// ── Offline AI (Ollama) control ───────────────────────────────────────────────
+// Lightweight lifecycle endpoints for the AEDI tab's "Start Offline AI" button.
+// We don't attempt to manage the Python AEDI assistant on :3003 (it's a
+// long-running systemd-style user process) — just the Ollama LLM engine on
+// :11434, which is the thing that flips AEDI from offline to online.
+
+fn ollama_binary_path() -> String {
+    // 1. Respect explicit env var. 2. Prefer ~/.local/ollama/bin/ollama
+    //    (matches .ionity/setup-ollama.sh). 3. Fall back to PATH.
+    if let Ok(p) = std::env::var("OLLAMA_BIN") { return p; }
+    if let Some(home) = std::env::var_os("HOME") {
+        let local = std::path::PathBuf::from(&home).join(".local/ollama/bin/ollama");
+        if local.is_file() { return local.to_string_lossy().into_owned(); }
+    }
+    "ollama".to_string()
+}
+
+fn ollama_pid_path() -> std::path::PathBuf {
+    std::path::PathBuf::from("logs/ollama.pid")
+}
+
+fn ollama_log_path() -> std::path::PathBuf {
+    std::path::PathBuf::from("logs/ollama.log")
+}
+
+async fn ollama_api_online() -> bool {
+    // Check that port 11434 is accepting connections. Doing a full HTTP GET
+    // would require pulling in reqwest; a 1.5 s TCP connect is enough to
+    // distinguish "ollama serve is up" vs "not running".
+    let addr = "127.0.0.1:11434";
+    tokio::time::timeout(
+        std::time::Duration::from_millis(1500),
+        tokio::net::TcpStream::connect(addr),
+    ).await.ok().and_then(|r| r.ok()).is_some()
+}
+
+/// GET /api/v1/ollama/status — is the local Ollama LLM engine up?
+async fn ollama_status() -> Json<serde_json::Value> {
+    let online = ollama_api_online().await;
+    let pid = std::fs::read_to_string(ollama_pid_path()).ok()
+        .and_then(|s| s.trim().parse::<u32>().ok());
+    Json(serde_json::json!({
+        "online": online,
+        "pid": pid,
+        "binary": ollama_binary_path(),
+        "log": ollama_log_path().display().to_string(),
+        "endpoint": "http://127.0.0.1:11434",
+    }))
+}
+
+/// POST /api/v1/ollama/start — spawn `ollama serve` detached, PID → logs/ollama.pid.
+/// Idempotent: if /api/tags responds we return `already_running: true`.
+async fn ollama_start() -> Json<serde_json::Value> {
+    if ollama_api_online().await {
+        info!("ollama/start: already running on :11434");
+        return Json(serde_json::json!({
+            "ok": true, "already_running": true,
+            "endpoint": "http://127.0.0.1:11434",
+        }));
+    }
+    let bin = ollama_binary_path();
+    // Ensure logs/ exists and open the log file for stdout/stderr capture.
+    if let Some(parent) = ollama_log_path().parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let log_file = match std::fs::OpenOptions::new()
+        .create(true).append(true).open(ollama_log_path()) {
+        Ok(f) => f,
+        Err(e) => {
+            warn!(error = %e, "ollama/start: failed to open log file");
+            return Json(serde_json::json!({
+                "ok": false, "error": format!("open log file: {}", e)
+            }));
+        }
+    };
+    let log_err = match log_file.try_clone() {
+        Ok(f) => f,
+        Err(e) => return Json(serde_json::json!({
+            "ok": false, "error": format!("clone log fd: {}", e)
+        })),
+    };
+    // OLLAMA_HOST=0.0.0.0 mirrors .ionity/setup-ollama.sh systemd unit.
+    let spawn = std::process::Command::new(&bin)
+        .arg("serve")
+        .env("OLLAMA_HOST", "0.0.0.0")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::from(log_file))
+        .stderr(std::process::Stdio::from(log_err))
+        .spawn();
+    let child = match spawn {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(bin = %bin, error = %e, "ollama/start: spawn failed");
+            return Json(serde_json::json!({
+                "ok": false, "error": format!("spawn '{}': {}", bin, e),
+                "hint": "run `.ionity/setup-ollama.sh` to install Ollama",
+            }));
+        }
+    };
+    let pid = child.id();
+    // Detach — don't reap. Record PID for status/stop.
+    let _ = std::fs::write(ollama_pid_path(), pid.to_string());
+    std::mem::forget(child);
+    info!(pid, bin = %bin, "ollama/start: spawned ollama serve");
+    // Brief wait so the caller sees an accurate online state if startup is fast.
+    for _ in 0..10 {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        if ollama_api_online().await { break; }
+    }
+    let online = ollama_api_online().await;
+    Json(serde_json::json!({
+        "ok": true,
+        "already_running": false,
+        "pid": pid,
+        "online": online,
+        "endpoint": "http://127.0.0.1:11434",
+        "log": ollama_log_path().display().to_string(),
+    }))
+}
+
+// ── Storage / Database ───────────────────────────────────────────────
+// Strategy: events are written as JSONL immediately (no dep, no install).
+// When PostgreSQL is set up via `scripts/setup-postgres.sh`, the endpoint
+// `/api/v1/storage/status` will report it as reachable and the operator can
+// migrate / query it externally. The UI "Storage" tab exposes:
+//   - GET  /api/v1/storage/status          — backend inventory + sizes
+//   - GET  /api/v1/storage/recent?limit=N  — tail events.jsonl
+//   - POST /api/v1/storage/event           — append arbitrary event (body {kind, payload})
+//   - GET  /api/v1/storage/scan?root=PATH  — find DB-like files across device
+//   - POST /api/v1/storage/config          — set storage root (body {root})
+fn events_jsonl_path() -> std::path::PathBuf {
+    std::env::var("AEDI_EVENTS_PATH")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("data/events.jsonl"))
+}
+
+fn storage_config_path() -> std::path::PathBuf {
+    std::path::PathBuf::from("data/storage-config.json")
+}
+
+/// Append a structured event to `data/events.jsonl`. Never panics.
+/// Called from any code path that mutates persistent state (role changes,
+/// ollama start, node config updates) so operators get a single audit trail.
+fn record_event(kind: &str, payload: serde_json::Value) {
+    use std::io::Write;
+    let path = events_jsonl_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let ts = chrono::Utc::now().to_rfc3339();
+    let line = serde_json::json!({ "ts": ts, "kind": kind, "payload": payload });
+    match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        Ok(mut f) => { let _ = writeln!(f, "{}", line); }
+        Err(e) => warn!(path = %path.display(), error = %e, "storage: failed to append event"),
+    }
+}
+
+/// TCP probe 127.0.0.1:5432 — true if PostgreSQL is accepting connections.
+async fn postgres_reachable() -> bool {
+    tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        tokio::net::TcpStream::connect("127.0.0.1:5432"),
+    ).await.ok().and_then(|r| r.ok()).is_some()
+}
+
+fn file_size(path: &std::path::Path) -> Option<u64> {
+    std::fs::metadata(path).ok().map(|m| m.len())
+}
+
+fn count_lines(path: &std::path::Path) -> Option<u64> {
+    use std::io::{BufRead, BufReader};
+    std::fs::File::open(path).ok()
+        .map(|f| BufReader::new(f).lines().filter_map(|l| l.ok()).count() as u64)
+}
+
+/// GET /api/v1/storage/status — single source of truth for the Storage tab.
+async fn storage_status() -> Json<serde_json::Value> {
+    let evt = events_jsonl_path();
+    let sqlite_candidates = [
+        std::path::PathBuf::from("logs/aedi_logs.sqlite3"),
+        std::path::PathBuf::from("logs/ruview_logs.sqlite3"),
+    ];
+    let sqlite = sqlite_candidates.iter()
+        .find(|p| p.exists())
+        .map(|p| serde_json::json!({
+            "path": p.display().to_string(),
+            "bytes": file_size(p).unwrap_or(0),
+        }));
+
+    // Check psql availability (purely informational — no install attempt).
+    let psql = std::process::Command::new("psql")
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string());
+
+    let pg_online = postgres_reachable().await;
+
+    // Load custom storage root if configured.
+    let storage_root = std::fs::read_to_string(storage_config_path()).ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get("root").and_then(|r| r.as_str().map(String::from)));
+
+    Json(serde_json::json!({
+        "ok": true,
+        "active_backend": "jsonl",
+        "events_jsonl": {
+            "path": evt.display().to_string(),
+            "exists": evt.exists(),
+            "bytes": file_size(&evt).unwrap_or(0),
+            "lines": count_lines(&evt).unwrap_or(0),
+        },
+        "sqlite": sqlite,
+        "postgres": {
+            "online": pg_online,
+            "endpoint": "127.0.0.1:5432",
+            "psql_binary": psql,
+            "installed": psql.is_some() || pg_online,
+            "setup_script": "scripts/setup-postgres.sh",
+        },
+        "storage_root": storage_root,
+        "cwd": std::env::current_dir().ok().map(|p| p.display().to_string()),
+    }))
+}
+
+/// GET /api/v1/storage/recent?limit=N — tail last N events from JSONL.
+async fn storage_recent(
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let limit = q.get("limit").and_then(|s| s.parse::<usize>().ok()).unwrap_or(50).min(1000);
+    let path = events_jsonl_path();
+    let lines: Vec<serde_json::Value> = std::fs::read_to_string(&path)
+        .unwrap_or_default()
+        .lines()
+        .rev()
+        .take(limit)
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .collect();
+    Json(serde_json::json!({
+        "ok": true,
+        "path": path.display().to_string(),
+        "count": lines.len(),
+        "events": lines,
+    }))
+}
+
+/// POST /api/v1/storage/event — append a caller-supplied event.
+/// Body: `{ "kind": "note", "payload": { ... } }`
+async fn storage_event(Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
+    let kind = body.get("kind").and_then(|v| v.as_str()).unwrap_or("note").to_string();
+    let payload = body.get("payload").cloned().unwrap_or(serde_json::json!({}));
+    record_event(&kind, payload);
+    Json(serde_json::json!({ "ok": true, "kind": kind }))
+}
+
+/// Recursive DB-file scanner. Shallow depth + exclude list to keep it fast.
+fn scan_dbs(root: &std::path::Path, depth: u32, max_depth: u32, out: &mut Vec<serde_json::Value>) {
+    if depth > max_depth || out.len() >= 500 { return; }
+    let name = root.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    if matches!(name, "node_modules" | ".git" | "target" | ".cache" | "proc" | "sys"
+                    | ".venv" | "venv" | "__pycache__" | ".local" | ".rustup" | ".cargo") {
+        return;
+    }
+    let entries = match std::fs::read_dir(root) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        let ft = match entry.file_type() { Ok(t) => t, Err(_) => continue };
+        if ft.is_symlink() { continue; }
+        if ft.is_dir() {
+            scan_dbs(&p, depth + 1, max_depth, out);
+        } else if ft.is_file() {
+            let fname = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+            let kind = if matches!(ext.as_str(), "sqlite" | "sqlite3" | "db" | "db3") {
+                "sqlite"
+            } else if ext == "jsonl" {
+                "jsonl"
+            } else if ext == "json" && (fname.contains("role") || fname.contains("config")) {
+                continue; // skip regular config JSON, too noisy
+            } else if ext == "pgsql" || ext == "sql" {
+                "sql"
+            } else {
+                continue;
+            };
+            if let Ok(md) = entry.metadata() {
+                out.push(serde_json::json!({
+                    "path": p.display().to_string(),
+                    "kind": kind,
+                    "bytes": md.len(),
+                }));
+            }
+        }
+    }
+}
+
+/// GET /api/v1/storage/scan?root=/path&depth=5 — find DB-like files.
+async fn storage_scan(
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let root = q.get("root").cloned().unwrap_or_else(|| {
+        std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_else(|_| ".".into())
+    });
+    let max_depth = q.get("depth").and_then(|s| s.parse::<u32>().ok()).unwrap_or(6).min(10);
+    let mut out = Vec::new();
+    let t0 = std::time::Instant::now();
+    scan_dbs(std::path::Path::new(&root), 0, max_depth, &mut out);
+    let elapsed_ms = t0.elapsed().as_millis() as u64;
+    info!(root, max_depth, found = out.len(), elapsed_ms, "storage/scan completed");
+    Json(serde_json::json!({
+        "ok": true,
+        "root": root,
+        "max_depth": max_depth,
+        "count": out.len(),
+        "elapsed_ms": elapsed_ms,
+        "results": out,
+    }))
+}
+
+/// POST /api/v1/storage/config — set preferred storage root.
+/// Body: `{ "root": "/some/path" }`. Persists to data/storage-config.json.
+async fn storage_set_config(Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
+    let root = body.get("root").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    if root.is_empty() {
+        return Json(serde_json::json!({"ok": false, "error": "missing 'root' field"}));
+    }
+    let path = storage_config_path();
+    if let Some(parent) = path.parent() { let _ = std::fs::create_dir_all(parent); }
+    let payload = serde_json::json!({ "root": root, "updated_at": chrono::Utc::now().to_rfc3339() });
+    let write_ok = std::fs::write(&path, serde_json::to_string_pretty(&payload).unwrap_or_default());
+    record_event("storage.config", payload.clone());
+    Json(serde_json::json!({
+        "ok": write_ok.is_ok(),
+        "root": root,
+        "persisted": path.display().to_string(),
     }))
 }
 
@@ -3500,6 +4228,7 @@ async fn api_info(State(state): State<SharedState>) -> Json<serde_json::Value> {
         "environment": "production",
         "backend": "rust",
         "source": s.effective_source(),
+        "hub_ip": detect_hub_ip(),
         "features": {
             "wifi_sensing": true,
             "pose_estimation": true,
@@ -4325,29 +5054,65 @@ async fn nodes_endpoint(State(state): State<SharedState>) -> Json<serde_json::Va
                 else { "csi_only" };
             let rssi = ns.rssi_history.back().copied().unwrap_or(-90.0);
             let ml = agg_by_node.get(&id);
+            let cfg = node_config_for(id);
             serde_json::json!({
                 "node_id": id,
                 "status": status,
                 "firmware_status": firmware_status,
+                "role": node_role_for(id),
                 "ip": ns.peer_ip.map(|ip| ip.to_string()),
                 "last_seen_ms": elapsed_ms,
                 "rssi_dbm": rssi,
                 "motion_level": &ns.current_motion_level,
                 "person_count": ns.prev_person_count,
-                // Adaptive ML calibration (TinyML aggression detector). These
-                // numbers are learnt online per node and are independent of
-                // physical placement — the baseline retrains itself for
-                // whatever RF environment each node sits in.
                 "ml_trained_pct": ml.map(|m| m.trained_pct).unwrap_or(0.0),
                 "ml_anomaly": ml.map(|m| m.anomaly).unwrap_or(0.0),
                 "ml_aggression": ml.map(|m| m.aggression).unwrap_or(0.0),
                 "ml_samples": ml.map(|m| m.samples).unwrap_or(0),
+                // Remote-configurable settings (rate_hz / channel / tx_power_dbm).
+                // Empty object if this node has no overrides. `revision`
+                // lets a polling firmware short-circuit when unchanged.
+                "config": cfg,
             })
         })
         .collect();
+    // Multistatic role mix — quick at-a-glance counters for the UI.
+    let mut tx_count = 0u32;
+    let mut rx_count = 0u32;
+    let mut txrx_count = 0u32;
+    for n in &nodes {
+        match n.get("role").and_then(|v| v.as_str()).unwrap_or("txrx") {
+            "tx" => tx_count += 1,
+            "rx" => rx_count += 1,
+            _ => txrx_count += 1,
+        }
+    }
+    // Accuracy-aware multistatic readiness: a TX assignment to a stale/offline
+    // node is useless for live fusion. Only count assigned roles whose nodes
+    // are currently active (frame within 5 s).
+    let (tx_active, rx_active, tx_inactive, rx_inactive)
+        = role_quality_summary(&s.node_states);
+    let role_assigned = (tx_count + rx_count) as usize;
+    let active_assigned = tx_active.len() + rx_active.len();
+    let role_quality = if role_assigned == 0 { 0.0 }
+        else { active_assigned as f32 / role_assigned as f32 };
     Json(serde_json::json!({
         "nodes": nodes,
         "total": nodes.len(),
+        "hub_ip": detect_hub_ip(),
+        "roles": {
+            "tx": tx_count,
+            "rx": rx_count,
+            "txrx": txrx_count,
+            // True multistatic readiness: at least one ACTIVE TX and one
+            // ACTIVE RX. A stale role assignment doesn't deliver fusion gain.
+            "multistatic_ready": !tx_active.is_empty() && !rx_active.is_empty(),
+            "tx_active": tx_active,
+            "rx_active": rx_active,
+            "tx_inactive": tx_inactive,
+            "rx_inactive": rx_inactive,
+            "role_quality": role_quality,
+        },
     }))
 }
 
@@ -4629,6 +5394,113 @@ async fn update_node_positions(
         "status": "ok",
         "updated": count,
     }))
+}
+
+/// Compute a deterministic perimeter layout for `n` nodes inside a
+/// `width × depth × height` room, ordered corners → mid-walls. Height
+/// fixed at ~55% of room height (typical mounting).
+fn perimeter_layout(n: usize, width: f32, depth: f32, height: f32) -> Vec<[f32; 3]> {
+    let inset: f32 = 0.3;
+    let h = height * 0.55;
+    let mut anchors: Vec<[f32; 3]> = vec![
+        [inset,         h, inset],
+        [width - inset, h, inset],
+        [width - inset, h, depth - inset],
+        [inset,         h, depth - inset],
+        [width * 0.5,   h, inset],
+        [width * 0.5,   h, depth - inset],
+        [inset,         h, depth * 0.5],
+        [width - inset, h, depth * 0.5],
+    ];
+    // Pad with linearly-interpolated points for >8 nodes.
+    while anchors.len() < n {
+        let t = anchors.len() as f32 / n as f32;
+        anchors.push([width * t, h, depth * (1.0 - t)]);
+    }
+    anchors.truncate(n);
+    anchors
+}
+
+/// Auto-calibration shared between startup and on-demand. Returns the
+/// number of positions written, or 0 if no active nodes were found.
+///
+/// Algorithm: for every node that has reported within the last 10 s,
+/// compute mean RSSI from its `rssi_history` ring buffer. Sort nodes by
+/// `node_id` for determinism (so node 0 → corner 0 every restart even
+/// if we mix the boards), then assign each to the next perimeter slot.
+/// Room dimensions are read from the existing constants.
+async fn auto_calibrate_inner(state: &SharedState) -> usize {
+    let now = std::time::Instant::now();
+    let active_ids: Vec<u8> = {
+        let s = state.read().await;
+        let mut ids: Vec<u8> = s.node_states.iter()
+            .filter(|(_, ns)| ns.last_frame_time
+                .map_or(false, |t| now.duration_since(t).as_secs() < 10))
+            .map(|(&id, _)| id)
+            .collect();
+        ids.sort_unstable();
+        ids
+    };
+    if active_ids.is_empty() {
+        return 0;
+    }
+    // Highest seen ID dictates the slot count, so an unmoved node keeps
+    // its slot when others come/go.
+    let slot_count = (*active_ids.iter().max().unwrap() as usize) + 1;
+    let layout = perimeter_layout(slot_count, 8.0, 6.0, 3.0);
+    {
+        let mut s = state.write().await;
+        s.multistatic_fuser.set_node_positions(layout);
+    }
+    info!(active = active_ids.len(), slots = slot_count, "Auto-calibrated node positions (perimeter layout)");
+    active_ids.len()
+}
+
+/// POST /api/v1/calibration/auto — re-derive node positions on demand.
+///
+/// Stable across reboots: each node keeps its slot as long as its
+/// `node_id` is stable. Adding or moving a node triggers a re-layout.
+async fn calibration_auto_endpoint(
+    State(state): State<SharedState>,
+) -> Json<serde_json::Value> {
+    let active = auto_calibrate_inner(&state).await;
+    let positions: Vec<serde_json::Value> = {
+        let s = state.read().await;
+        s.multistatic_fuser.node_positions().iter().enumerate()
+            .map(|(i, p)| serde_json::json!({
+                "node_id": i, "x": p[0] as f64, "y": p[1] as f64, "z": p[2] as f64,
+            }))
+            .collect()
+    };
+    Json(serde_json::json!({
+        "status": if active > 0 { "ok" } else { "no_active_nodes" },
+        "active_nodes": active,
+        "positions": positions,
+        "method": "perimeter_by_node_id",
+    }))
+}
+
+/// Background task: 30 s after server starts, if no positions are set,
+/// run auto-calibration once. Re-tries every 30 s until at least one
+/// node is active. Idempotent — does nothing once positions exist.
+async fn auto_calibration_startup_task(state: SharedState) {
+    use tokio::time::{sleep, Duration};
+    sleep(Duration::from_secs(30)).await;
+    loop {
+        let already_set = {
+            let s = state.read().await;
+            !s.multistatic_fuser.node_positions().is_empty()
+        };
+        if already_set {
+            info!("Auto-calibration: positions already configured, skipping.");
+            return;
+        }
+        let active = auto_calibrate_inner(&state).await;
+        if active > 0 {
+            return;
+        }
+        sleep(Duration::from_secs(30)).await;
+    }
 }
 
 /// GET /api/v1/tomography — voxel grid status from field model.
@@ -5234,136 +6106,6 @@ async fn udp_receiver_task(state: SharedState, udp_port: u16) {
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
         }
-    }
-}
-
-// ── Simulated data task ──────────────────────────────────────────────────────
-
-async fn simulated_data_task(state: SharedState, tick_ms: u64) {
-    let mut interval = tokio::time::interval(Duration::from_millis(tick_ms));
-    info!("Simulated data source active (tick={}ms)", tick_ms);
-
-    loop {
-        interval.tick().await;
-
-        let mut s = state.write().await;
-        s.tick += 1;
-        let tick = s.tick;
-
-        let frame = generate_simulated_frame(tick);
-
-        // Append current amplitudes to history before feature extraction.
-        s.frame_history.push_back(frame.amplitudes.clone());
-        if s.frame_history.len() > FRAME_HISTORY_CAPACITY {
-            s.frame_history.pop_front();
-        }
-
-        let sample_rate_hz = 1000.0 / tick_ms as f64;
-        let (features, mut classification, breathing_rate_hz, sub_variances, raw_motion) =
-            extract_features_from_frame(&frame, &s.frame_history, sample_rate_hz);
-        smooth_and_classify(&mut s, &mut classification, raw_motion);
-    adaptive_override(&s, &features, &mut classification);
-
-        s.rssi_history.push_back(features.mean_rssi);
-        if s.rssi_history.len() > 60 {
-            s.rssi_history.pop_front();
-        }
-
-        let motion_score = if classification.motion_level == "active" { 0.8 }
-            else if classification.motion_level == "present_still" { 0.3 }
-            else { 0.05 };
-
-        let raw_vitals = s.vital_detector.process_frame(
-            &frame.amplitudes,
-            &frame.phases,
-        );
-        let vitals = smooth_vitals(&mut s, &raw_vitals);
-        s.latest_vitals = vitals.clone();
-
-        let frame_amplitudes = frame.amplitudes.clone();
-        let frame_n_sub = frame.n_subcarriers;
-
-        // Multi-person estimation with temporal smoothing (EMA α=0.10).
-        let raw_score = compute_person_score(&features);
-        s.smoothed_person_score = s.smoothed_person_score * 0.90 + raw_score * 0.10;
-        let count_evidence = if classification.presence {
-            let evidence = build_single_link_count_evidence(
-                &s.frame_history,
-                s.field_model.as_ref(),
-                classification.confidence,
-                s.smoothed_person_score,
-                s.prev_person_count,
-            );
-            let count = evidence.as_ref().map(|item| item.consensus_count).unwrap_or(1);
-            s.prev_person_count = count;
-            evidence
-        } else {
-            s.prev_person_count = 0;
-            None
-        };
-        let est_persons = count_evidence.as_ref().map(|item| item.consensus_count).unwrap_or(0);
-
-        let mut update = SensingUpdate {
-            msg_type: "sensing_update".to_string(),
-            timestamp: chrono::Utc::now().timestamp_millis() as f64 / 1000.0,
-            source: "simulated".to_string(),
-            tick,
-            nodes: vec![NodeInfo {
-                node_id: 1,
-                rssi_dbm: features.mean_rssi,
-                position: [2.0, 0.0, 1.5],
-                amplitude: frame_amplitudes,
-                subcarrier_count: frame_n_sub as usize,
-            }],
-            features: features.clone(),
-            classification,
-            signal_field: generate_signal_field(
-                features.mean_rssi, motion_score, breathing_rate_hz,
-                features.variance.min(1.0), &sub_variances,
-            ),
-            vital_signs: Some(vitals),
-            enhanced_motion: None,
-            enhanced_breathing: None,
-            posture: None,
-            signal_quality_score: None,
-            quality_verdict: None,
-            bssid_count: None,
-            pose_keypoints: None,
-            model_status: if s.model_loaded {
-                Some(serde_json::json!({
-                    "loaded": true,
-                    "layers": s.progressive_loader.as_ref()
-                        .map(|l| { let (a,b,c) = l.layer_status(); a as u8 + b as u8 + c as u8 })
-                        .unwrap_or(0),
-                    "sona_profile": s.active_sona_profile.as_deref().unwrap_or("default"),
-                }))
-            } else {
-                None
-            },
-            persons: None,
-            estimated_persons: if est_persons > 0 { Some(est_persons) } else { None },
-            count_evidence,
-            person_anchors: None,
-            node_features: None,
-        };
-
-        {
-            let s_ref = &mut *s;
-            finalize_people_for_update(
-                &mut update,
-                &mut s_ref.pose_tracker,
-                &mut s_ref.last_tracker_instant,
-                &mut s_ref.track_temporal_state,
-            );
-        }
-
-        if update.classification.presence {
-            s.total_detections += 1;
-        }
-        if let Ok(json) = serde_json::to_string(&update) {
-            let _ = s.tx.send(json);
-        }
-        s.latest_update = Some(update);
     }
 }
 
@@ -6108,23 +6850,27 @@ async fn main() {
         info!("  Aggression baseline: {} (loaded if present)", baseline_path.display());
     }
 
-    // Auto-detect data source
+    // Auto-detect data source. Simulation has been removed — if no hardware
+    // is present we retry probing every 5 s instead of silently faking data.
     let source = match args.source.as_str() {
-        "auto" => {
+        "auto" => loop {
             info!("Auto-detecting data source...");
             if probe_esp32(args.udp_port).await {
                 info!("  ESP32 CSI detected on UDP :{}", args.udp_port);
-                "esp32"
+                break "esp32";
             } else if probe_windows_wifi().await {
                 info!("  Windows WiFi detected");
-                "wifi"
+                break "wifi";
             } else if probe_linux_wifi() {
                 info!("  Linux WiFi detected (iw dev)");
-                "wifi"
-            } else {
-                info!("  No hardware detected, using simulation");
-                "simulate"
+                break "wifi";
             }
+            warn!("  No hardware detected — retrying in 5 s (simulation disabled, real data only)");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        },
+        "simulate" | "simulated" | "sim" => {
+            error!("Simulation mode has been removed. Use --source esp32 or --source wifi.");
+            std::process::exit(2);
         }
         other => other,
     };
@@ -6310,13 +7056,19 @@ async fn main() {
                 tokio::spawn(windows_wifi_task(state.clone(), args.tick_ms));
             }
         }
-        _ => {
-            tokio::spawn(simulated_data_task(state.clone(), args.tick_ms));
+        other => {
+            error!("Unknown --source '{other}'. Valid values: auto, esp32, wifi (simulation removed).");
+            std::process::exit(2);
         }
     }
 
     // Autorepair: spawn software watchdog (checks every 30s)
     tokio::spawn(autorepair_watchdog_task(state.clone(), 30));
+
+    // Auto-calibration: 30 s after startup, if no positions are configured,
+    // assign nodes to a deterministic perimeter layout based on their IDs.
+    // Re-tries every 30 s until at least one node is active. No-op once set.
+    tokio::spawn(auto_calibration_startup_task(state.clone()));
 
     // ADR-050: Parse bind address once, use for all listeners
     let bind_ip: std::net::IpAddr = args.bind_addr.parse()
@@ -6364,6 +7116,26 @@ async fn main() {
         .route("/api/v1/sensing/latest", get(latest))
         // Per-node health endpoint
         .route("/api/v1/nodes", get(nodes_endpoint))
+        // TX/RX/TXRX role override (multistatic mesh labelling). Flat path,
+        // body carries both node_id and role.
+        .route("/api/v1/role-set", post(node_role_set))
+        // Auto-assign: pick strongest-RSSI active node as TX, rest as RX.
+        // Optional body: {"prefer_node_id": <u8>} to force a specific TX.
+        .route("/api/v1/role-set/auto", post(node_role_auto))
+        // Per-node remote config (CSI rate, channel, TX power). Firmware
+        // polls `GET /api/v1/node-config?node_id=N`; UI reads
+        // `/api/v1/node-config/all`; writes via POST.
+        .route("/api/v1/node-config", get(node_config_get).post(node_config_set))
+        .route("/api/v1/node-config/all", get(node_config_list))
+        // Offline AI (Ollama) lifecycle for the AEDI "Start Offline AI" button.
+        .route("/api/v1/ollama/status", get(ollama_status))
+        .route("/api/v1/ollama/start", post(ollama_start))
+        // Storage / PostgreSQL / JSONL audit log — drives the Monitor "Storage" tab.
+        .route("/api/v1/storage/status", get(storage_status))
+        .route("/api/v1/storage/recent", get(storage_recent))
+        .route("/api/v1/storage/event", post(storage_event))
+        .route("/api/v1/storage/scan", get(storage_scan))
+        .route("/api/v1/storage/config", post(storage_set_config))
         .route("/api/v1/registry", get(registry_endpoint))
         .route("/api/v1/preprocessing/stats", get(preprocessing_stats_endpoint))
         // TinyML environment-trained anomaly + aggression scores
@@ -6371,6 +7143,7 @@ async fn main() {
         // Room config + node positions for XYZ Segment 3D page
         .route("/api/v1/room", get(room_endpoint))
         .route("/api/v1/nodes/positions", post(update_node_positions))
+        .route("/api/v1/calibration/auto", post(calibration_auto_endpoint))
         .route("/api/v1/localization/person", get(localization_person_endpoint))
         .route("/api/v1/tomography", get(tomography_endpoint))
         // Vital sign endpoints

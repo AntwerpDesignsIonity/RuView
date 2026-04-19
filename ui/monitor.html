@@ -235,11 +235,13 @@
   <div id="tab-bar">
     <button class="tab-btn active" data-tab="overview">Overview</button>
     <button class="tab-btn" data-tab="view3d">3D View</button>
+    <button class="tab-btn" data-tab="nodes">Nodes</button>
     <button class="tab-btn" data-tab="esp32">ESP32</button>
     <button class="tab-btn" data-tab="signals">Signals</button>
     <button class="tab-btn" data-tab="vitals">Vitals</button>
     <button class="tab-btn" data-tab="logs">Logs</button>
     <button class="tab-btn" data-tab="scripts">Scripts</button>
+    <button class="tab-btn" data-tab="storage">Storage</button>
   </div>
 
   <!-- ══ Tab content ════════════════════════════════════════════════════ -->
@@ -254,6 +256,11 @@
             <div class="status-cell-label">Server</div>
             <div class="status-cell-value val-dim" id="ov-server">—</div>
             <div class="status-cell-sub" id="ov-server-src">source: —</div>
+          </div>
+          <div class="status-cell">
+            <div class="status-cell-label">Hub IP</div>
+            <div class="status-cell-value val-blue" id="ov-hub-ip" style="font-size:18px;font-family:var(--font-mono,monospace)">—</div>
+            <div class="status-cell-sub" id="ov-hub-ports">connected to —</div>
           </div>
           <div class="status-cell">
             <div class="status-cell-label">Tick</div>
@@ -315,8 +322,10 @@
             <button class="btn" id="btn-refresh-all">↺ Refresh Status</button>
             <button class="btn" id="btn-open-gui">⊞ Open All GUIs</button>
           </div>
-          <div style="margin-top:10px;font-size:11px;color:var(--text-dim)">
-            Server: <code id="ctrl-srv-url">http://localhost:3000</code>
+          <div style="margin-top:10px;font-size:11px;color:var(--text-dim);line-height:1.6">
+            <div>Server: <code id="ctrl-srv-url">http://localhost:3000</code></div>
+            <div>Hub IP: <code id="ctrl-hub-ip" style="color:var(--text-bright)">—</code></div>
+            <div>ESP32 nodes: <span id="ctrl-node-ips" style="color:var(--text-bright)">—</span></div>
           </div>
         </div>
         <div class="col card">
@@ -326,7 +335,12 @@
       </div>
 
       <div class="card">
-        <div class="card-title">Nodes Online</div>
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Nodes Online</span>
+          <button id="btn-auto-roles" style="font-size:11px;padding:3px 10px;background:var(--accent,#0af);color:#000;border:none;border-radius:3px;cursor:pointer;font-weight:600"
+            title="Auto-assign: pick strongest-RSSI active node as TX, the rest as RX">⚡ Auto-Assign Roles</button>
+        </div>
+        <div id="ov-roles-banner" style="margin-bottom:8px;display:none;padding:6px 10px;border-radius:4px;font-size:12px"></div>
         <div id="ov-nodes-table"><span style="color:var(--text-dim);font-size:12px">No node data yet</span></div>
       </div>
     </div>
@@ -336,6 +350,61 @@
       <div id="view3d-wrap" style="flex:1;border-radius:0;border:none;">
         <iframe id="view3d-frame" src="viz.html" allowfullscreen
           sandbox="allow-scripts allow-same-origin allow-popups"></iframe>
+      </div>
+    </div>
+
+    <!-- ── Nodes (remote config) ──────────────────────────────────────── -->
+    <!--
+      Per-node CSI packet rate, radio channel, TX power. The server persists
+      these to data/node-config.json and serves them back via
+      `GET /api/v1/node-config?node_id=N`, which the firmware poll loop
+      adopts on its next tick. Changes take effect without a reflash.
+    -->
+    <div class="tab-panel" id="tab-nodes">
+      <div class="card">
+        <div class="card-title">Remote Node Config</div>
+        <div class="btn-row" style="margin-bottom:10px">
+          <button class="btn btn-primary" id="btn-nodes-refresh">⟳ Refresh</button>
+          <button class="btn" id="btn-nodes-apply-all"
+            title="Apply the rate entered below to every active node at once">
+            Apply rate to all…
+          </button>
+          <input type="number" id="nodes-bulk-rate" min="1" max="200" step="1"
+            placeholder="Hz (1–200)"
+            style="width:100px;padding:5px 8px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--font);font-size:12px" />
+          <span id="nodes-status" style="font-size:11px;color:var(--text-dim);margin-left:8px"></span>
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px;line-height:1.5">
+          Rate is the CSI packet broadcast rate per second.
+          Sane default is <b>50 Hz</b> (good vitals bandwidth, low UDP load).
+          Leave a field blank to inherit the firmware default.
+          Writes persist in <code>data/node-config.json</code>; firmware polls
+          <code>/api/v1/node-config?node_id=N</code> every tick and applies
+          changes on the next revision bump without requiring a reflash.
+        </div>
+        <div id="nodes-table-wrap">
+          <table class="esp-table" id="nodes-config-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Status</th>
+                <th>Role</th>
+                <th>RSSI</th>
+                <th>IP</th>
+                <th>Rate (Hz)</th>
+                <th>Channel</th>
+                <th>TX Power (dBm)</th>
+                <th>Rev</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="nodes-config-body">
+              <tr><td colspan="10" style="color:var(--text-dim);text-align:center;padding:16px">
+                Loading…
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -510,8 +579,65 @@
       </div>
     </div>
 
+    <!-- ── Storage ────────────────────────────────────────────────────── -->
+    <div class="tab-panel" id="tab-storage">
+      <div class="card">
+        <div class="card-title">Database Backend — audit log + PostgreSQL</div>
+        <div id="storage-status" style="font-size:12px;color:var(--text-dim)">Loading…</div>
+        <div class="btn-row" style="margin-top:10px;gap:8px">
+          <button class="btn btn-primary" id="btn-storage-refresh">↻ Refresh</button>
+          <button class="btn" id="btn-storage-install" title="Prints the sudo command to install PostgreSQL">
+            🐘 Install PostgreSQL…
+          </button>
+          <button class="btn" id="btn-storage-test-event" title="Append a synthetic event to the JSONL audit log">
+            ＋ Test Event
+          </button>
+        </div>
+        <pre id="storage-install-hint" style="display:none;margin-top:10px;padding:10px;background:#020208;border-radius:4px;font-size:11px;color:#0f0;white-space:pre-wrap"></pre>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Recent Events — last 50 entries from data/events.jsonl</div>
+        <div class="btn-row" style="margin-bottom:8px">
+          <button class="btn" id="btn-events-reload">↻ Reload</button>
+          <span id="events-count" style="font-size:11px;color:var(--text-dim);align-self:center"></span>
+        </div>
+        <div id="events-list" style="font-family:ui-monospace,monospace;font-size:11px;max-height:240px;overflow:auto;background:#020208;padding:8px;border-radius:4px"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Scan Device — find all DB files (.sqlite, .db, .jsonl, .sql)</div>
+        <div class="btn-row" style="margin-bottom:8px;gap:8px">
+          <input id="scan-root" placeholder="root path (blank = cwd)" style="flex:1;padding:6px;background:#020208;border:1px solid #333;color:var(--text);border-radius:4px;font-size:12px">
+          <input id="scan-depth" type="number" value="6" min="1" max="10" style="width:70px;padding:6px;background:#020208;border:1px solid #333;color:var(--text);border-radius:4px;font-size:12px" title="max depth">
+          <button class="btn btn-primary" id="btn-scan">🔍 Scan</button>
+        </div>
+        <div id="scan-results" style="font-family:ui-monospace,monospace;font-size:11px;max-height:240px;overflow:auto;background:#020208;padding:8px;border-radius:4px;color:var(--text-dim)">Press Scan to find databases on this device.</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Save Where — preferred storage root</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">
+          Overrides the default <code>data/</code> location for future event writes. Persists to <code>data/storage-config.json</code>.
+        </div>
+        <div class="btn-row" style="gap:8px">
+          <input id="storage-root" placeholder="/absolute/path/to/data" style="flex:1;padding:6px;background:#020208;border:1px solid #333;color:var(--text);border-radius:4px;font-size:12px">
+          <button class="btn btn-primary" id="btn-storage-save">💾 Save Location</button>
+        </div>
+        <div id="storage-save-msg" style="margin-top:8px;font-size:11px;color:var(--text-dim);min-height:14px"></div>
+      </div>
+    </div>
+
   </div><!-- #content -->
 </div><!-- #shell -->
+
+<script type="module">
+  // Side-effect import: mounts the shared toast/feedback layer so any
+  // page script can call `window.aediToast.error(...)`.
+  import { toast, stickyError } from './shared/feedback.js';
+  window.aediToast = toast;
+  window.aediStickyError = stickyError;
+</script>
 
 <script>
 'use strict';
@@ -580,6 +706,26 @@ function colorClass(val, lo, hi) {
 }
 
 // ── Health polling ────────────────────────────────────────────────────────────
+// Cache-busted lookup of /api/v1/nodes that surfaces the per-node IPs in the
+// Server Controls card. Independent of the main pollHealth path so it can be
+// fired on demand (e.g. after Start/Stop) without re-rendering the overview.
+async function refreshNodeIps() {
+  const tgt = q('ctrl-node-ips');
+  if (!tgt) return;
+  const data = await apiFetch(`${BASE_URL}/api/v1/nodes`);
+  if (!data) { tgt.textContent = '—'; return; }
+  const arr = Array.isArray(data) ? data : (data.nodes ?? []);
+  if (!arr.length) { tgt.textContent = 'none online'; return; }
+  // Render as comma-separated "id@ip" pills, sorted by node_id.
+  arr.sort((a, b) => (a.node_id ?? 0) - (b.node_id ?? 0));
+  tgt.innerHTML = arr.map(n => {
+    const ip = n.ip ?? n.address ?? '?';
+    const stale = (n.last_seen_ms ?? 0) > 5000;
+    const color = stale ? 'var(--yellow)' : 'var(--green)';
+    return `<span style="color:${color};margin-right:8px">${n.node_id}@<code>${ip}</code></span>`;
+  }).join('');
+}
+
 async function pollHealth() {
   const data = await apiFetch(HEALTH_URL);
   const srvDot   = q('srv-dot');
@@ -602,6 +748,22 @@ async function pollHealth() {
   q('ov-server').className   = 'status-cell-value val-green';
   q('ov-server-src').textContent = `source: ${fmt(data.source)}`;
   q('ov-tick').textContent = fmt(data.tick);
+
+  // Surface hub IP (LAN address the server is bound to) in Server Controls.
+  if (data.hub_ip) {
+    const hubEl = q('ctrl-hub-ip');
+    if (hubEl) hubEl.textContent = data.hub_ip;
+    // Also show prominently in the Overview Server Status grid.
+    const ovHub = q('ov-hub-ip');
+    if (ovHub) ovHub.textContent = data.hub_ip;
+    const ovHubPorts = q('ov-hub-ports');
+    if (ovHubPorts) {
+      ovHubPorts.textContent =
+        `HTTP :${location.port || 80} · WS :${WS_PORT} · UDP :5005`;
+    }
+  }
+  // Refresh per-node IP roster shown in Server Controls.
+  refreshNodeIps();
 
   // Persons
   const persons = data.persons ?? data.person_count ?? 0;
@@ -659,6 +821,41 @@ async function pollVitals() {
   if (nodes) {
     const arr = Array.isArray(nodes) ? nodes : (nodes.nodes ?? []);
     q('ov-nodes').textContent = arr.length;
+    // Surface the multistatic role mix beneath the node count.
+    const roles = (nodes && nodes.roles) || null;
+    const roleSubEl = document.querySelector('#ov-nodes + .status-cell-sub');
+    if (roleSubEl && roles) {
+      const ready = roles.multistatic_ready;
+      roleSubEl.innerHTML = `online · <span style="color:${ready?'var(--green)':'var(--yellow)'}">`
+        + `TX:${roles.tx} RX:${roles.rx} TXRX:${roles.txrx}${ready?' ✓ multistatic':' (bistatic)'}</span>`;
+    }
+    // Banner: warn when roles are assigned to stale/offline nodes, or
+    // celebrate full multistatic readiness.
+    const banner = q('ov-roles-banner');
+    if (banner && roles) {
+      const inactive = (roles.tx_inactive||[]).concat(roles.rx_inactive||[]);
+      const quality = roles.role_quality != null ? Math.round(roles.role_quality*100) : null;
+      if (roles.multistatic_ready && inactive.length === 0) {
+        banner.style.display = 'block';
+        banner.style.background = 'rgba(0,200,120,0.15)';
+        banner.style.color = 'var(--green)';
+        banner.innerHTML = `✓ Multistatic ready — TX:[${(roles.tx_active||[]).join(',')}] `
+          + `RX:[${(roles.rx_active||[]).join(',')}] · role quality ${quality}%`;
+      } else if (inactive.length > 0) {
+        banner.style.display = 'block';
+        banner.style.background = 'rgba(255,180,0,0.15)';
+        banner.style.color = 'var(--yellow)';
+        banner.innerHTML = `⚠ Roles assigned to inactive nodes: [${inactive.join(',')}]. `
+          + `Click <b>⚡ Auto-Assign Roles</b> to redistribute among the ${(roles.tx_active||[]).length + (roles.rx_active||[]).length} live nodes.`;
+      } else if (!roles.multistatic_ready) {
+        banner.style.display = 'block';
+        banner.style.background = 'rgba(255,180,0,0.15)';
+        banner.style.color = 'var(--yellow)';
+        banner.innerHTML = `⚠ All nodes are TXRX (bistatic). Click <b>⚡ Auto-Assign Roles</b> to designate the strongest as TX and the rest as RX for higher fusion quality.`;
+      } else {
+        banner.style.display = 'none';
+      }
+    }
     renderNodesTable(arr);
     renderEspTable(arr);
   }
@@ -668,7 +865,7 @@ function renderNodesTable(arr) {
   const el = q('ov-nodes-table');
   if (!arr.length) { el.innerHTML = '<span style="color:var(--text-dim);font-size:12px">No nodes online</span>'; return; }
   el.innerHTML = `<table class="esp-table"><thead><tr>
-    <th>Node</th><th>IP</th><th>Status</th><th>Firmware</th><th>RSSI</th><th>ML Trained</th><th>Anomaly</th>
+    <th>Node</th><th>IP</th><th>Status</th><th>Role</th><th>Firmware</th><th>RSSI</th><th>ML Trained</th><th>Anomaly</th>
   </tr></thead><tbody>${arr.map(n => {
     const fwStatus = n.firmware_status ?? n.firmware_version ?? n.fw ?? '—';
     const fwBadgeClass = fwStatus === 'streaming' ? 'badge-green'
@@ -680,10 +877,28 @@ function renderNodesTable(arr) {
     const trainedColor = trained > 80 ? 'var(--green)' : trained > 30 ? 'var(--yellow)' : 'var(--text-dim)';
     const anom = (n.ml_anomaly ?? 0) * 100;
     const anomColor = anom > 60 ? 'var(--red)' : anom > 30 ? 'var(--yellow)' : 'var(--green)';
+    const role = (n.role || 'txrx').toLowerCase();
+    const roleClass = role === 'tx' ? 'badge-yellow'
+                    : role === 'rx' ? 'badge-blue'
+                    : role === 'txrx' ? 'badge-dim'
+                    : 'badge-red';
+    const roleLabel = role === 'tx' ? 'TX (transmit)'
+                    : role === 'rx' ? 'RX (receive)'
+                    : role === 'txrx' ? 'TX+RX'
+                    : 'unknown';
+    const id = n.node_id ?? n.id;
     return `<tr>
-      <td>${fmt(n.node_id ?? n.id)}</td>
+      <td>${fmt(id)}</td>
       <td><code style="font-size:11px">${fmt(n.ip ?? n.address)}</code></td>
       <td><span class="badge ${(n.status||'').toLowerCase()==='active'?'badge-green':((n.status||'').toLowerCase()==='stale'?'badge-yellow':'badge-dim')}">${fmt(n.status)}</span></td>
+      <td>
+        <span class="badge ${roleClass}" title="${roleLabel}">${role.toUpperCase()}</span>
+        <select data-node-id="${id}" class="role-select" style="margin-left:6px;font-size:10px;background:var(--bg-darker,#111);color:var(--text-bright);border:1px solid var(--border,#333);border-radius:3px;padding:1px 3px">
+          <option value="txrx" ${role==='txrx'?'selected':''}>TX+RX</option>
+          <option value="tx"   ${role==='tx'  ?'selected':''}>TX only</option>
+          <option value="rx"   ${role==='rx'  ?'selected':''}>RX only</option>
+        </select>
+      </td>
       <td><span class="badge ${fwBadgeClass}">${fwStatus}</span></td>
       <td>${fmt(n.rssi ?? n.rssi_dbm)} dBm</td>
       <td><span style="color:${trainedColor}">${trained.toFixed(0)}%</span></td>
@@ -691,9 +906,28 @@ function renderNodesTable(arr) {
     </tr>`;
   }).join('')}</tbody></table>
   <div style="margin-top:6px;font-size:10px;color:var(--text-dim)">
+    Role = multistatic mesh assignment. For best fusion quality keep at least one TX (NDP injector) and ≥1 RX (CSI capture). All-TXRX = bistatic fallback.
     ML Trained = adaptive baseline learning progress (per-node, online, position-independent).
     Anomaly = current deviation from learnt baseline (RF environment shifts, motion, intrusion).
   </div>`;
+  // Wire per-row role dropdowns. Each change POSTs to /api/v1/role-set; the
+  // next pollHealth() tick will redraw the table from authoritative server state.
+  el.querySelectorAll('select.role-select').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      const nodeId = parseInt(sel.dataset.nodeId, 10);
+      const role = sel.value;
+      sel.disabled = true;
+      try {
+        const r = await fetch(`${API}/role-set`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ node_id: nodeId, role }),
+        });
+        if (!r.ok) console.warn('role-set HTTP', r.status);
+      } catch (e) { console.warn('role-set failed', e); }
+      finally { sel.disabled = false; pollHealth(); }
+    });
+  });
 }
 
 function renderEspTable(arr) {
@@ -1067,6 +1301,25 @@ q('btn-refresh-all').addEventListener('click', () => { pollHealth(); pollVitals(
 q('btn-open-gui').addEventListener('click', () => {
   ['index.html','pose-fusion.html','observatory.html','viz.html'].forEach(p => window.open(p,'_blank'));
 });
+// Auto-assign TX/RX roles: server picks strongest-RSSI active node as TX, rest as RX.
+q('btn-auto-roles')?.addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = '⏳ Assigning…';
+  try {
+    const r = await fetch(API + '/role-set/auto', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    const j = await r.json();
+    if (j.ok) {
+      appendLog(`Auto-assigned roles: TX=node ${j.tx_node_id}, ${j.assigned.length-1} RX nodes (strategy: ${j.strategy})`, 'ok');
+    } else {
+      appendLog(`Auto-assign failed: ${j.error || 'unknown'}`, 'err');
+    }
+  } catch (err) { appendLog(`Auto-assign error: ${err}`, 'err'); }
+  finally { btn.disabled = false; btn.textContent = orig; pollHealth(); }
+});
 q('btn-start-srv').addEventListener('click', async () => {
   appendLog('Starting sensing server…', 'ok');
   try {
@@ -1077,12 +1330,16 @@ q('btn-start-srv').addEventListener('click', async () => {
     const d = await r.json();
     if (d.running) {
       appendLog('Server started (PID ' + d.pid + ', source=' + d.source + ')', 'ok');
+      window.aediToast?.success('Sensing server started', { detail: 'PID ' + d.pid });
       setTimeout(pollHealth, 2000);
     } else {
       appendLog('Start failed: ' + (d.error || 'unknown'), 'err');
+      window.aediToast?.error('Start failed', { detail: d.error || 'unknown' });
     }
   } catch(e) {
     appendLog('Bridge controller (:3002) not reachable. Run from a terminal:  ./.ionity/ionity.sh run --yes', 'warn');
+    window.aediStickyError?.('Bridge controller (:3002) not reachable',
+      { detail: 'Run ./.ionity/ionity.sh run --yes from a terminal' });
     document.querySelector('button.tab-btn[data-tab="logs"]')?.click();
   }
 });
@@ -1092,9 +1349,12 @@ q('btn-stop-srv').addEventListener('click', async () => {
     const r = await fetch('http://' + location.hostname + ':3002/api/server/stop', {method:'POST'});
     await r.json();
     appendLog('Server stopped', 'ok');
+    window.aediToast?.info('Sensing server stopped');
     setTimeout(pollHealth, 1000);
   } catch(e) {
     appendLog('Bridge controller (:3002) not reachable. Run from a terminal:  ./.ionity/ionity.sh stop', 'warn');
+    window.aediStickyError?.('Bridge controller (:3002) not reachable',
+      { detail: 'Run ./.ionity/ionity.sh stop from a terminal' });
     document.querySelector('button.tab-btn[data-tab="logs"]')?.click();
   }
 });
@@ -1129,55 +1389,493 @@ q('btn-esp-scan').addEventListener('click', async () => {
   q('esp-scan-status').textContent = `${arr.length} node(s) found`;
 });
 
-q('btn-usb-scan').addEventListener('click', async () => {
-  q('usb-scan-status').textContent = 'Querying server…';
-  const d = await apiFetch(`${API}/info`);
-  q('usb-boards-output').innerHTML = d
-    ? `<pre style="font-size:11px">${JSON.stringify(d, null, 2)}</pre>`
-    : '<span style="color:var(--text-dim)">Server not responding. Run board scan from CLI: .ionity/ionity.sh scan</span>';
-  q('usb-scan-status').textContent = 'Done';
+// ── Nodes tab: per-node remote config (rate / channel / TX power) ────────────
+// Hits:
+//   GET  /api/v1/nodes              (liveness + current config block)
+//   POST /api/v1/node-config        (merge patch — only fields present are applied)
+// On success the server bumps `config.revision`; firmware polls
+// /api/v1/node-config?node_id=N every tick and reapplies when rev increases.
+const nodesConfigStatus = q('nodes-status');
+
+function setNodesStatus(msg, cls) {
+  if (!nodesConfigStatus) return;
+  nodesConfigStatus.textContent = msg;
+  nodesConfigStatus.style.color = cls === 'ok' ? 'var(--ok, #4caf50)'
+                                : cls === 'err' ? 'var(--err, #f44336)'
+                                : 'var(--text-dim)';
+}
+
+function renderNodesConfigTable(nodes) {
+  const tbody = q('nodes-config-body');
+  if (!tbody) return;
+  if (!nodes.length) {
+    tbody.innerHTML =
+      '<tr><td colspan="10" style="color:var(--text-dim);text-align:center;padding:16px">No nodes registered yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = nodes.map(n => {
+    const cfg = n.config || {};
+    const rate = cfg.rate_hz ?? '';
+    const chan = cfg.channel ?? '';
+    const pwr  = cfg.tx_power_dbm ?? '';
+    const rev  = cfg.revision ?? 0;
+    const statusColor = n.status === 'active' ? 'var(--ok, #4caf50)'
+                      : n.status === 'stale'  ? 'var(--warn, #ff9800)'
+                      : 'var(--err, #f44336)';
+    return `
+      <tr data-node-id="${n.node_id}">
+        <td><b>${n.node_id}</b></td>
+        <td style="color:${statusColor}">${n.status}</td>
+        <td>${n.role || 'txrx'}</td>
+        <td>${Number(n.rssi_dbm ?? -99).toFixed(0)}</td>
+        <td style="font-size:11px;color:var(--text-dim)">${n.ip || '—'}</td>
+        <td><input type="number" class="nc-rate" min="1" max="200" step="1"
+              value="${rate}" placeholder="—"
+              style="width:70px;padding:4px 6px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--font)" /></td>
+        <td><input type="number" class="nc-chan" min="1" max="165" step="1"
+              value="${chan}" placeholder="—"
+              style="width:60px;padding:4px 6px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--font)" /></td>
+        <td><input type="number" class="nc-pwr" min="-4" max="20" step="1"
+              value="${pwr}" placeholder="—"
+              style="width:60px;padding:4px 6px;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--font)" /></td>
+        <td style="font-size:11px;color:var(--text-dim)">${rev}</td>
+        <td><button class="btn btn-primary nc-apply" style="padding:4px 10px;font-size:11px">Apply</button></td>
+      </tr>`;
+  }).join('');
+
+  // Wire Apply buttons. One handler per row reads the row's inputs and POSTs
+  // the merged patch, then refreshes the table (so rev/value update).
+  tbody.querySelectorAll('button.nc-apply').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const nodeId = Number(row.dataset.nodeId);
+      const rateVal = row.querySelector('.nc-rate').value.trim();
+      const chanVal = row.querySelector('.nc-chan').value.trim();
+      const pwrVal  = row.querySelector('.nc-pwr').value.trim();
+      const patch = { node_id: nodeId };
+      if (rateVal !== '') patch.rate_hz = Number(rateVal);
+      if (chanVal !== '') patch.channel = Number(chanVal);
+      if (pwrVal  !== '') patch.tx_power_dbm = Number(pwrVal);
+      await postNodeConfig(patch, btn);
+      await refreshNodesTab();
+    });
+  });
+}
+
+async function postNodeConfig(patch, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const r = await fetch(`${API}/node-config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const data = await r.json();
+    if (!data.ok) {
+      setNodesStatus(`node ${patch.node_id}: ${data.error || 'failed'}`, 'err');
+      window.aediToast?.error?.(`Node ${patch.node_id}: ${data.error || 'failed'}`);
+    } else {
+      const fields = Object.keys(patch).filter(k => k !== 'node_id').join(', ');
+      setNodesStatus(`Node ${patch.node_id} updated (${fields || 'no-op'}) rev ${data.config?.revision}`, 'ok');
+      window.aediToast?.success?.(`Node ${patch.node_id}: ${fields || 'no-op'} saved`);
+    }
+    return data;
+  } catch (e) {
+    setNodesStatus(`Network error: ${e.message}`, 'err');
+    window.aediStickyError?.('Could not POST /api/v1/node-config', { detail: e.message });
+    return null;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Apply'; }
+  }
+}
+
+async function refreshNodesTab() {
+  setNodesStatus('Refreshing…');
+  const data = await apiFetch(`${API}/nodes`);
+  if (!data) { setNodesStatus('Server offline', 'err'); return; }
+  const arr = Array.isArray(data) ? data : (data.nodes ?? []);
+  arr.sort((a, b) => (a.node_id ?? 0) - (b.node_id ?? 0));
+  renderNodesConfigTable(arr);
+  setNodesStatus(`${arr.length} node(s)`, 'ok');
+}
+
+q('btn-nodes-refresh')?.addEventListener('click', refreshNodesTab);
+
+q('btn-nodes-apply-all')?.addEventListener('click', async () => {
+  const raw = q('nodes-bulk-rate').value.trim();
+  const rate = Number(raw);
+  if (!raw || !Number.isFinite(rate) || rate < 1 || rate > 200) {
+    setNodesStatus('Enter a rate between 1 and 200 Hz first', 'err');
+    return;
+  }
+  const data = await apiFetch(`${API}/nodes`);
+  if (!data) { setNodesStatus('Server offline', 'err'); return; }
+  const arr = Array.isArray(data) ? data : (data.nodes ?? []);
+  const active = arr.filter(n => n.status === 'active');
+  if (!active.length) { setNodesStatus('No active nodes to update', 'err'); return; }
+  setNodesStatus(`Applying ${rate} Hz to ${active.length} node(s)…`);
+  for (const n of active) {
+    await postNodeConfig({ node_id: n.node_id, rate_hz: rate });
+  }
+  await refreshNodesTab();
+  setNodesStatus(`Applied ${rate} Hz to ${active.length} node(s)`, 'ok');
 });
 
-// Provision (calls the provision.py script via the server — or shows a copy-able CLI command)
+// Auto-refresh on tab activation.
+document.querySelector('button.tab-btn[data-tab="nodes"]')
+  ?.addEventListener('click', refreshNodesTab);
+
+// ── USB / Provision: optional bridge controller on :3002 ──────────────────────
+const BRIDGE_URL = `http://${location.hostname}:3002`;
+
+async function bridgeFetch(path, init) {
+  try {
+    const r = await fetch(`${BRIDGE_URL}${path}`, init);
+    const d = await r.json().catch(() => ({}));
+    return { ok: r.ok, status: r.status, data: d };
+  } catch (e) {
+    return { ok: false, status: 0, data: { error: e.message } };
+  }
+}
+
+function renderUsbBoards(boards) {
+  if (!boards || !boards.length) {
+    return '<span style="color:var(--text-dim)">No serial ports detected. Plug in an ESP32 board (USB-CDC or CP210x/CH340 bridge).</span>';
+  }
+  const rows = boards.map((b, i) => {
+    const tag = b.is_esp32
+      ? '<span class="badge badge-green">ESP32</span>'
+      : '<span class="badge">other</span>';
+    const useBtn = b.is_esp32
+      ? `<button class="btn" data-port="${b.device}" data-env="${b.recommended_env}">Use</button>`
+      : '';
+    return `<tr>
+        <td>${i + 1}</td>
+        <td><code>${b.device}</code></td>
+        <td>${b.chip}</td>
+        <td>${b.label}</td>
+        <td>${tag}</td>
+        <td>${useBtn}</td>
+      </tr>`;
+  }).join('');
+  return `<table class="esp-table">
+    <thead><tr><th>#</th><th>Port</th><th>Chip</th><th>Label</th><th>Type</th><th></th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+q('btn-usb-scan').addEventListener('click', async () => {
+  q('usb-scan-status').textContent = 'Scanning USB…';
+  const r = await bridgeFetch('/api/usb/scan');
+  if (!r.ok) {
+    q('usb-boards-output').innerHTML =
+      `<span style="color:var(--text-dim)">Bridge controller (:3002) not running. Start it:<br>
+       <code>python scripts/bridge-controller.py</code><br>
+       Then click Detect again. Fallback CLI:&nbsp;<code>.ionity/ionity.sh scan</code></span>`;
+    q('usb-scan-status').textContent = 'Bridge offline';
+    return;
+  }
+  const boards = r.data.boards || [];
+  q('usb-boards-output').innerHTML = renderUsbBoards(boards);
+  // Hook the per-row "Use" buttons → autofill provision wizard
+  q('usb-boards-output').querySelectorAll('button[data-port]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      q('prov-port').value = btn.dataset.port;
+      q('prov-flash').value = btn.dataset.env === 'esp32s3_supermini' ? '4mb' : '8mb';
+      q('prov-status').textContent = `Wizard prefilled with ${btn.dataset.port}`;
+      // Auto-scroll to wizard
+      q('prov-port').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  });
+  q('usb-scan-status').textContent = `${boards.length} port(s) — ${boards.filter(b => b.is_esp32).length} ESP32`;
+});
+
+// Provision wizard
 function copyToClipboard(text) {
   if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).catch(()=>{});
 }
-q('btn-provision').addEventListener('click', () => {
-  const port    = q('prov-port').value.trim() || '/dev/ttyACM0';
-  const nodeId  = q('prov-nodeid').value || '1';
-  const ssid    = q('prov-ssid').value.trim();
-  const pass    = q('prov-pass').value;
-  const hubIp   = q('prov-hub-ip').value.trim() || '192.168.1.20';
-  const flash   = q('prov-flash').value;
-  const out     = q('prov-output');
-  const env     = flash === '4mb' ? 'esp32s3_supermini' : 'esp32s3_n16r8';
-  const lines = [
-    '# 1) Flash up-to-date PlatformIO firmware (single source of truth):',
-    `cd ionity && pio run -e ${env} -t upload --upload-port ${port}`,
-    '',
-    '# 2) Write NVS (WiFi credentials + node_id + hub IP):',
-    `python firmware/esp32-csi-node/provision.py --port ${port} \\`,
-    `    --ssid "${ssid || 'YourSSID'}" --password "${pass ? '****' : 'YourPass'}" \\`,
-    `    --target-ip ${hubIp} --node-id ${nodeId} --no-firmware`,
-  ];
+
+function provFormSnapshot() {
+  return {
+    port:    q('prov-port').value.trim()    || '/dev/ttyACM0',
+    nodeId:  q('prov-nodeid').value         || '1',
+    ssid:    q('prov-ssid').value.trim(),
+    pass:    q('prov-pass').value,
+    hubIp:   q('prov-hub-ip').value.trim()  || '192.168.124.7',
+    flash:   q('prov-flash').value,
+  };
+}
+
+function showProvOutput(text) {
+  const out = q('prov-output');
   out.style.display = 'block';
-  out.textContent = lines.join('\n');
-  copyToClipboard(lines.join('\n'));
-  q('prov-status').textContent = 'CLI command copied to clipboard';
+  out.textContent = text;
+}
+
+function appendProvOutput(text) {
+  const out = q('prov-output');
+  out.style.display = 'block';
+  out.textContent += text;
+  out.scrollTop = out.scrollHeight;
+}
+
+// Flash & Provision: try the bridge controller first; if absent, fall back
+// to a clipboard-copyable 2-step CLI recipe.
+q('btn-provision').addEventListener('click', async () => {
+  const f = provFormSnapshot();
+  if (!f.ssid || !f.pass) {
+    q('prov-status').textContent = 'WiFi SSID and Password are required.';
+    return;
+  }
+  q('prov-status').textContent = 'Probing bridge controller (:3002)…';
+  showProvOutput(`▶ Provisioning node ${f.nodeId} on ${f.port}…\n`);
+  const r = await bridgeFetch('/api/provision/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      port: f.port, ssid: f.ssid, password: f.pass,
+      target_ip: f.hubIp, node_id: parseInt(f.nodeId, 10),
+      no_firmware: true,
+    }),
+  });
+  if (!r.ok && r.status === 0) {
+    // No bridge controller — generate copy-able recipe.
+    const env = f.flash === '4mb' ? 'esp32s3_supermini' : 'esp32s3_n16r8';
+    const lines = [
+      '# Bridge controller (:3002) not running — copy & paste these commands:',
+      '',
+      '# 1) Flash up-to-date PlatformIO firmware (only if firmware is missing/outdated):',
+      `cd ionity && pio run -e ${env} -t upload --upload-port ${f.port}`,
+      '',
+      '# 2) Write NVS (WiFi credentials + node_id + hub IP):',
+      `python firmware/esp32-csi-node/provision.py --port ${f.port} \\`,
+      `    --ssid "${f.ssid}" --password "${f.pass ? '****' : 'YourPass'}" \\`,
+      `    --target-ip ${f.hubIp} --node-id ${f.nodeId} --no-firmware`,
+      '',
+      '# Or start the bridge controller for one-click provisioning:',
+      'python scripts/bridge-controller.py',
+    ].join('\n');
+    showProvOutput(lines);
+    copyToClipboard(lines);
+    q('prov-status').textContent = 'CLI recipe copied to clipboard.';
+    return;
+  }
+  const tag = r.data.ok ? '✓' : '✗';
+  const out = [
+    `${tag} provision.py exited ${r.data.returncode ?? '?'}`,
+    `command: ${r.data.command || ''}`,
+    '',
+    '── stdout ──',
+    r.data.stdout || '(empty)',
+    '── stderr ──',
+    r.data.stderr || '(empty)',
+    r.data.error ? `\nERROR: ${r.data.error}` : '',
+  ].join('\n');
+  showProvOutput(out);
+  q('prov-status').textContent = r.data.ok
+    ? `Node ${f.nodeId} provisioned successfully.`
+    : `Provision failed (rc=${r.data.returncode}).`;
 });
 
-q('btn-prov-nvs').addEventListener('click', () => {
-  const port   = q('prov-port').value.trim() || '/dev/ttyACM0';
-  const nodeId = q('prov-nodeid').value || '1';
-  const ssid   = q('prov-ssid').value.trim();
-  const pass   = q('prov-pass').value;
-  const hubIp  = q('prov-hub-ip').value.trim() || '192.168.1.20';
-  const out    = q('prov-output');
-  const cmd = `python firmware/esp32-csi-node/provision.py --port ${port} \\\n    --ssid "${ssid || 'YourSSID'}" --password "${pass ? '****' : 'YourPass'}" \\\n    --target-ip ${hubIp} --node-id ${nodeId} --no-firmware`;
-  out.style.display = 'block';
-  out.textContent   = cmd;
-  copyToClipboard(cmd);
-  q('prov-status').textContent = 'NVS-only command copied to clipboard';
+// Write NVS Only
+q('btn-prov-nvs').addEventListener('click', async () => {
+  // Same handler as Flash & Provision — provision.py with --no-firmware does
+  // exactly the NVS-only write, and bridge controller defaults to no_firmware.
+  q('btn-provision').click();
+});
+
+// ── Auto-Provision All: detect every connected ESP32, provision sequentially ──
+async function autoProvisionAll() {
+  const f = provFormSnapshot();
+  if (!f.ssid || !f.pass) {
+    q('prov-status').textContent = 'WiFi SSID and Password are required.';
+    return;
+  }
+  q('prov-status').textContent = 'Auto-provisioning all detected boards…';
+  showProvOutput(`▶ Scanning USB…\n`);
+  const scan = await bridgeFetch('/api/usb/scan');
+  if (!scan.ok) {
+    appendProvOutput(`✗ Bridge controller (:3002) not reachable.\n`
+      + `Start it:  python scripts/bridge-controller.py\n`);
+    q('prov-status').textContent = 'Bridge offline.';
+    return;
+  }
+  const boards = (scan.data.boards || []).filter(b => b.is_esp32);
+  if (!boards.length) {
+    appendProvOutput(`✗ No ESP32 boards detected on USB.\n`);
+    q('prov-status').textContent = 'No ESP32 found.';
+    return;
+  }
+  appendProvOutput(`Found ${boards.length} ESP32 board(s):\n`
+    + boards.map((b, i) => `  ${i + 1}. ${b.device}  [${b.chip}]`).join('\n')
+    + `\n\nProvisioning sequentially with node IDs starting at ${f.nodeId}…\n\n`);
+  const r = await bridgeFetch('/api/provision/auto', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ssid: f.ssid, password: f.pass, target_ip: f.hubIp,
+      start_node_id: parseInt(f.nodeId, 10), no_firmware: true,
+    }),
+  });
+  const d = r.data || {};
+  appendProvOutput(`── Summary ──\n`
+    + `total: ${d.total ?? '?'}   succeeded: ${d.succeeded ?? '?'}   failed: ${d.failed ?? '?'}\n\n`);
+  (d.results || []).forEach((res, i) => {
+    const tag = res.ok ? '✓' : '✗';
+    appendProvOutput(`${tag} ${res.port}  →  node ${res.node_id}  (rc=${res.returncode})\n`);
+    if (!res.ok && res.stderr) {
+      appendProvOutput(`   stderr: ${(res.stderr || '').split('\n').slice(0, 3).join(' | ')}\n`);
+    }
+  });
+  q('prov-status').textContent = d.failed === 0
+    ? `All ${d.total} board(s) provisioned ✓`
+    : `${d.succeeded}/${d.total} succeeded — see output for details.`;
+}
+q('btn-prov-auto')?.addEventListener('click', autoProvisionAll);
+
+// Auto-detect USB on tab activation
+document.querySelector('button.tab-btn[data-tab="esp32"]')?.addEventListener('click', () => {
+  // Fire once when user opens the ESP32 tab; ignore failures silently.
+  setTimeout(() => q('btn-usb-scan')?.click(), 150);
+});
+
+// ── Storage tab ───────────────────────────────────────────────────────────────
+// Surfaces the JSONL audit log, PostgreSQL readiness, and device-wide DB scan.
+// All endpoints are additive — the hub keeps working even if Postgres is absent.
+function fmtBytes(n) {
+  if (n == null) return '—';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024*1024) return `${(n/1024).toFixed(1)} KB`;
+  if (n < 1024*1024*1024) return `${(n/1048576).toFixed(1)} MB`;
+  return `${(n/1073741824).toFixed(2)} GB`;
+}
+async function loadStorageStatus() {
+  const host = q('storage-status');
+  if (!host) return;
+  host.innerHTML = 'Loading…';
+  try {
+    const r = await fetch(`${API}/storage/status`);
+    const d = await r.json();
+    const pg = d.postgres || {};
+    const pgColor = pg.online ? '#0f0' : (pg.installed ? '#fa0' : '#f66');
+    const pgTxt = pg.online ? 'online' : (pg.installed ? 'installed, not running' : 'not installed');
+    const evt = d.events_jsonl || {};
+    const sq = d.sqlite;
+    host.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
+        <div><b>Active backend:</b> ${d.active_backend || '—'}</div>
+        <div><b>PostgreSQL:</b> <span style="color:${pgColor}">● ${pgTxt}</span></div>
+        <div><b>psql binary:</b> ${pg.psql_binary || '—'}</div>
+        <div><b>JSONL log:</b> ${evt.path || '—'}<br>
+          <span style="color:var(--text-dim)">${fmtBytes(evt.bytes)} · ${evt.lines || 0} lines</span>
+        </div>
+        <div><b>SQLite:</b> ${sq ? `${sq.path}<br><span style="color:var(--text-dim)">${fmtBytes(sq.bytes)}</span>` : 'none'}</div>
+        <div><b>Storage root:</b> ${d.storage_root || '(default)'}</div>
+        <div><b>Working dir:</b> ${d.cwd || '—'}</div>
+      </div>`;
+    if (d.storage_root && q('storage-root')) q('storage-root').value = d.storage_root;
+  } catch (e) {
+    host.textContent = `Error: ${e.message}`;
+  }
+}
+async function loadStorageEvents() {
+  const host = q('events-list');
+  const countEl = q('events-count');
+  if (!host) return;
+  host.textContent = 'Loading…';
+  try {
+    const r = await fetch(`${API}/storage/recent?limit=50`);
+    const d = await r.json();
+    if (countEl) countEl.textContent = `${d.count || 0} events · ${d.path || ''}`;
+    if (!d.events || d.events.length === 0) {
+      host.innerHTML = '<span style="color:var(--text-dim)">No events yet. Change a node role or click "Test Event" to generate one.</span>';
+      return;
+    }
+    host.innerHTML = d.events.map(ev => {
+      const ts = (ev.ts || '').replace('T', ' ').slice(0, 19);
+      const payload = JSON.stringify(ev.payload || {});
+      return `<div style="padding:3px 0;border-bottom:1px solid #111"><span style="color:#888">${ts}</span> <span style="color:#0af">${ev.kind}</span> <span style="color:#ccc">${payload}</span></div>`;
+    }).join('');
+  } catch (e) {
+    host.textContent = `Error: ${e.message}`;
+  }
+}
+async function storageTestEvent() {
+  try {
+    await fetch(`${API}/storage/event`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'ui.test', payload: { from: 'monitor', at: new Date().toISOString() } }),
+    });
+    await loadStorageEvents();
+    await loadStorageStatus();
+  } catch (e) {
+    window.aediToast?.error?.(`Test event failed: ${e.message}`);
+  }
+}
+async function storageScan() {
+  const host = q('scan-results');
+  const root = q('scan-root').value.trim();
+  const depth = q('scan-depth').value || '6';
+  host.textContent = 'Scanning…';
+  try {
+    const qs = new URLSearchParams();
+    if (root) qs.set('root', root);
+    qs.set('depth', depth);
+    const r = await fetch(`${API}/storage/scan?${qs}`);
+    const d = await r.json();
+    if (!d.ok || !d.results || d.results.length === 0) {
+      host.innerHTML = `<span style="color:var(--text-dim)">No DB files found under ${d.root || root} (depth ${d.max_depth}, ${d.elapsed_ms}ms).</span>`;
+      return;
+    }
+    host.innerHTML = `<div style="color:var(--text-dim);margin-bottom:6px">Found ${d.count} file(s) under ${d.root} in ${d.elapsed_ms}ms:</div>` +
+      d.results.map(f =>
+        `<div style="padding:2px 0"><span style="color:#fa0">${f.kind.padEnd(7)}</span> <span style="color:#ccc">${f.path}</span> <span style="color:#666">(${fmtBytes(f.bytes)})</span></div>`
+      ).join('');
+  } catch (e) {
+    host.textContent = `Scan failed: ${e.message}`;
+  }
+}
+async function storageSaveRoot() {
+  const root = q('storage-root').value.trim();
+  const msg = q('storage-save-msg');
+  if (!root) { msg.textContent = 'Enter an absolute path.'; msg.style.color = '#f66'; return; }
+  msg.textContent = 'Saving…';
+  try {
+    const r = await fetch(`${API}/storage/config`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ root }),
+    });
+    const d = await r.json();
+    if (d.ok) { msg.textContent = `Saved → ${d.persisted}`; msg.style.color = '#0f0'; await loadStorageStatus(); }
+    else { msg.textContent = d.error || 'save failed'; msg.style.color = '#f66'; }
+  } catch (e) {
+    msg.textContent = `Error: ${e.message}`; msg.style.color = '#f66';
+  }
+}
+function showInstallHint() {
+  const el = q('storage-install-hint');
+  if (!el) return;
+  el.style.display = 'block';
+  el.textContent =
+    '# Run in a terminal on the hub to install + provision PostgreSQL:\n\n' +
+    '    sudo ./scripts/setup-postgres.sh\n\n' +
+    '# The script will:\n' +
+    '#   1. apt install postgresql postgresql-contrib\n' +
+    '#   2. Create role `aedis` and database `aedis_hub`\n' +
+    '#   3. Install schema: events, role_changes, nodes_snapshot\n' +
+    '#   4. Write AEDIS_DATABASE_URL to .env.local\n\n' +
+    '# Then click Refresh above — PostgreSQL will show as online.';
+}
+q('btn-storage-refresh')?.addEventListener('click', () => { loadStorageStatus(); loadStorageEvents(); });
+q('btn-storage-install')?.addEventListener('click', showInstallHint);
+q('btn-storage-test-event')?.addEventListener('click', storageTestEvent);
+q('btn-events-reload')?.addEventListener('click', loadStorageEvents);
+q('btn-scan')?.addEventListener('click', storageScan);
+q('btn-storage-save')?.addEventListener('click', storageSaveRoot);
+document.querySelector('button.tab-btn[data-tab="storage"]')?.addEventListener('click', () => {
+  setTimeout(() => { loadStorageStatus(); loadStorageEvents(); }, 100);
 });
 
 // ── FPS counter ───────────────────────────────────────────────────────────────

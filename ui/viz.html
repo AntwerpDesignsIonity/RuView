@@ -301,13 +301,13 @@
         const pipelineFeatures = state.pipeline ? state.pipeline.features : null;
         state.hud.updateState({
           connectionStatus: state.wsClient.state,
-          isRealData: state.wsClient.isRealData && !state.isDemoMode,
+          isRealData: !state.isDemoMode,
           latency: wsMetrics.latency,
           messageCount: wsMetrics.messageCount,
           uptime: wsMetrics.uptime,
           personCount: state.bodyModelManager.getActiveCount(),
           confidence: state.bodyModelManager.getAverageConfidence(),
-          sensingMode: state.isDemoMode ? 'Mock' : (state.wsClient.isRealData ? 'CSI' : 'Mock'),
+          sensingMode: state.isDemoMode ? 'Mock' : 'CSI',
           sdkTier: sdk.tier,
           computeBackend: state.pipeline ? state.pipeline.computeBackend : 'none',
           breathingBand: pipelineFeatures ? pipelineFeatures.breathingBand : 0,
@@ -332,30 +332,29 @@
         state.pipeline.processSensingData(message);
       }
 
-      // Switch off demo mode when we get real data
-      if (processed.persons.length > 0) {
-        if (state.isDemoMode) {
-          state.isDemoMode = false;
-          console.log('[VIZ] Switched to live data mode');
-        }
-
-        // Update body models
-        state.bodyModelManager.update(processed.persons, 0.016);
-
-        // Update zone occupancy
-        state.environment.updateZoneOccupancy(processed.zoneOccupancy);
-
-        // Update signal data if available
-        if (processed.signalData) {
-          state.signalViz.updateSignalData(processed.signalData);
-        }
-
-        // Update confidence heatmap
-        const heatmap = state.dataProcessor.generateConfidenceHeatmap(
-          processed.persons, 20, 15, 8, 6
-        );
-        state.environment.updateConfidenceHeatmap(heatmap);
+      // Any real message means we are live — leave demo mode even when
+      // no person has been detected yet (presence/CSI-only is still real).
+      if (state.isDemoMode) {
+        state.isDemoMode = false;
+        console.log('[VIZ] Switched to live data mode');
       }
+
+      // Update body models (empty array clears any prior persons)
+      state.bodyModelManager.update(processed.persons, 0.016);
+
+      // Update zone occupancy
+      state.environment.updateZoneOccupancy(processed.zoneOccupancy);
+
+      // Update signal data if available
+      if (processed.signalData) {
+        state.signalViz.updateSignalData(processed.signalData);
+      }
+
+      // Update confidence heatmap
+      const heatmap = state.dataProcessor.generateConfidenceHeatmap(
+        processed.persons, 20, 15, 8, 6
+      );
+      state.environment.updateConfidenceHeatmap(heatmap);
     }
 
     // -- Handle WebSocket connection state changes --

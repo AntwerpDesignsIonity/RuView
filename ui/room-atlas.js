@@ -10,6 +10,7 @@ const WS_URL = `ws://${location.hostname}:3001/ws/sensing`;
 const ROOM_URL = '/api/v1/room';
 const LATEST_URL = '/api/v1/sensing/latest';
 const POSITIONS_URL = '/api/v1/nodes/positions';
+const AUTO_CAL_URL = '/api/v1/calibration/auto';
 const STATE = {
   room: { width: 8, depth: 6, height: 3, calibrated: false, nodePositions: [], activeNodes: [] },
   data: null,
@@ -507,6 +508,32 @@ async function applyDefaultLayout() {
   }
 }
 window.applyDefaultLayout = applyDefaultLayout;
+
+/**
+ * Ask the server to auto-derive node positions from its own telemetry
+ * (active node IDs → deterministic perimeter layout). Stable across
+ * reboots as long as node IDs don't change. Mix-tolerant: nodes can be
+ * added or removed and the next call will re-layout.
+ */
+async function autoCalibrate() {
+  const stop = busy('Auto-calibrating from live telemetry…');
+  try {
+    const data = await fetchJSON(AUTO_CAL_URL, {
+      silent: true,
+      fetchOpts: { method: 'POST', headers: { 'Content-Type': 'application/json' } },
+    });
+    if (data.status === 'no_active_nodes') {
+      stop({ err: 'No active nodes', detail: 'Wait for nodes to start streaming.' });
+      return;
+    }
+    stop({ ok: `Auto-calibrated ${data.active_nodes} active node${data.active_nodes === 1 ? '' : 's'}` });
+    refreshRoom();
+  } catch (e) {
+    stop({ err: 'Auto-calibration failed', detail: e.message });
+    stickyError('Could not POST /api/v1/calibration/auto', { detail: e.message });
+  }
+}
+window.autoCalibrate = autoCalibrate;
 
 function applyRoomPayload(payload) {
   if (!payload) return;
