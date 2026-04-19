@@ -346,8 +346,8 @@
       <div class="card">
         <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
           <span>Nodes Online</span>
-          <button id="btn-auto-roles" style="font-size:11px;padding:3px 10px;background:var(--accent,#0af);color:#000;border:none;border-radius:3px;cursor:pointer;font-weight:600"
-            title="Auto-assign: pick strongest-RSSI active node as TX, the rest as RX">⚡ Auto-Assign Roles</button>
+          <button id="btn-auto-roles" disabled style="font-size:11px;padding:3px 10px;background:#333;color:#888;border:1px solid #555;border-radius:3px;cursor:not-allowed;font-weight:600"
+            title="Auto role assignment is frozen. All nodes remain TXRX (bistatic). Edit monitor.html to unfreeze.">🔒 Roles Frozen (TXRX)</button>
         </div>
         <div id="ov-roles-banner" style="margin-bottom:8px;display:none;padding:6px 10px;border-radius:4px;font-size:12px"></div>
         <div id="ov-nodes-table"><span style="color:var(--text-dim);font-size:12px">No node data yet</span></div>
@@ -859,10 +859,8 @@ async function pollVitals() {
         banner.innerHTML = `⚠ Roles assigned to inactive nodes: [${inactive.join(',')}]. `
           + `Click <b>⚡ Auto-Assign Roles</b> to redistribute among the ${(roles.tx_active||[]).length + (roles.rx_active||[]).length} live nodes.`;
       } else if (!roles.multistatic_ready) {
-        banner.style.display = 'block';
-        banner.style.background = 'rgba(255,180,0,0.15)';
-        banner.style.color = 'var(--yellow)';
-        banner.innerHTML = `⚠ All nodes are TXRX (bistatic). Click <b>⚡ Auto-Assign Roles</b> to designate the strongest as TX and the rest as RX for higher fusion quality.`;
+        // Auto-role assignment frozen — bistatic TXRX is the intended default.
+        banner.style.display = 'none';
       } else {
         banner.style.display = 'none';
       }
